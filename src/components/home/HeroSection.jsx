@@ -25,7 +25,7 @@ export function HeroSection() {
             rewarding.
           </p>
           <div className="hero-actions" aria-label="Primary calls to action">
-            <a className="button button-primary" href="#contact">
+            <a className="button button-primary" href="#consultation">
               Schedule Consultation <ArrowRight size={18} aria-hidden="true" />
             </a>
             <a className="button button-secondary" href="#work">

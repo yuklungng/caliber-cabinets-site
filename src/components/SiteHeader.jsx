@@ -32,7 +32,7 @@ export function SiteHeader() {
           ))}
         </ul>
 
-        <a className="nav-cta" href="#contact">
+        <a className="nav-cta" href="#consultation">
           Get Consultation
         </a>
 
@@ -58,7 +58,7 @@ export function SiteHeader() {
             </li>
           ))}
         </ul>
-        <a className="button button-primary" href="#contact" onClick={() => setIsMenuOpen(false)}>
+        <a className="button button-primary" href="#consultation" onClick={() => setIsMenuOpen(false)}>
           Get Consultation
         </a>
       </div>

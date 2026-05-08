@@ -13,7 +13,7 @@ export function TradePartnerSection() {
             clients? We provide professional support for trade partners in the Livermore area.
           </p>
         </div>
-        <a className="button button-outline" href="#contact">
+        <a className="button button-outline" href="#consultation">
           Discuss Trade Terms
         </a>
       </div>

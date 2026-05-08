@@ -44,10 +44,6 @@ export function SiteFooter() {
 
       <div className="container footer-bottom">
         <p>&copy; 2026 Caliber Cabinets, Inc. All rights reserved.</p>
-        <div>
-          <a href="#privacy">Privacy Policy</a>
-          <a href="#terms">Terms of Service</a>
-        </div>
       </div>
     </footer>
   );

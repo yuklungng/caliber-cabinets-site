@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Caliber Cabinets monogram">
+  <rect width="64" height="64" rx="10" fill="#8a4f2a"/>
+  <path d="M18 15h28v7H26v20h20v7H18V15Z" fill="#fff7ed"/>
+  <path d="M32 27h16v7H32v-7Z" fill="#d9a15f"/>
+</svg>

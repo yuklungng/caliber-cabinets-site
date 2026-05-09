@@ -2,7 +2,7 @@ const footerLinks = [
   { label: 'Our Work', href: '#work' },
   { label: 'Homeowners', href: '#homeowners' },
   { label: 'Trade Partners', href: '#trade-partners' },
-  { label: 'Consultation', href: '#consultation' },
+  { label: 'Consultation', href: 'https://calibercabinetshop.com/request-a-design-consultation/' },
 ];
 
 export function SiteFooter() {

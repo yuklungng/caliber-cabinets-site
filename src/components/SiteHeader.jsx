@@ -8,6 +8,8 @@ const navItems = [
   { label: 'Process', href: '#process' },
 ];
 
+const homeownerConsultationUrl = 'https://calibercabinetshop.com/request-a-design-consultation/';
+
 export function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -32,7 +34,7 @@ export function SiteHeader() {
           ))}
         </ul>
 
-        <a className="nav-cta" href="#consultation">
+        <a className="nav-cta" href={homeownerConsultationUrl}>
           Get Consultation
         </a>
 
@@ -58,7 +60,7 @@ export function SiteHeader() {
             </li>
           ))}
         </ul>
-        <a className="button button-primary" href="#consultation" onClick={() => setIsMenuOpen(false)}>
+        <a className="button button-primary" href={homeownerConsultationUrl} onClick={() => setIsMenuOpen(false)}>
           Get Consultation
         </a>
       </div>

@@ -764,7 +764,7 @@ h3 {
 }
 
 .contact-cta {
-  padding: 0;
+  padding: 40px 0 0;
   background: #faf9f6;
 }
 
@@ -772,6 +772,8 @@ h3 {
   display: grid;
   min-height: 480px;
   background: #faf9f6;
+  gap: 32px;
+  align-items: stretch;
 }
 
 .cta-actions {
@@ -784,7 +786,11 @@ h3 {
 }
 
 .cta-media {
-  min-height: 300px;
+  min-height: 280px;
+  max-height: 520px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.08);
 }
 
 .cta-image {
@@ -792,7 +798,7 @@ h3 {
   height: 100%;
   display: block;
   object-fit: cover;
-  object-position: center top;
+  object-position: center;
 }
 
 .cta-content {
@@ -1035,7 +1041,7 @@ h3 {
 
 @media (min-width: 768px) {
   .cta-panel {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   }
 
   .cta-actions {
@@ -1044,6 +1050,10 @@ h3 {
 
   .cta-copy {
     padding: 64px 48px;
+  }
+
+  .cta-media {
+    min-height: 480px;
   }
 }
 

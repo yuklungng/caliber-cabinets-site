@@ -58,7 +58,7 @@ const socialLinks = [
   },
   {
     label: 'Houzz',
-    href: 'https://www.houzz.com/professionals/cabinets-and-cabinetry/caliber-cabinets-pfvwus-pf~1361985220',
+    href: 'https://www.houzz.com/professionals/cabinets-and-cabinetry/caliber-cabinets-inc-pfvwus-pf~629470965',
     Icon: HouzzIcon,
   },
   {

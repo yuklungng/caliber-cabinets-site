@@ -1,8 +1,33 @@
+import { Facebook, Instagram, MessageCircleMore, PencilRuler } from 'lucide-react';
+
 const footerLinks = [
   { label: 'Our Work', href: '#work' },
   { label: 'Homeowners', href: '#homeowners' },
   { label: 'Trade Partners', href: '#trade-partners' },
   { label: 'Consultation', href: 'https://calibercabinetshop.com/request-a-design-consultation/' },
+];
+
+const socialLinks = [
+  {
+    label: 'Yelp',
+    href: 'https://www.yelp.com/biz/caliber-cabinets-livermore',
+    icon: MessageCircleMore,
+  },
+  {
+    label: 'Houzz',
+    href: 'https://www.houzz.com/professionals/cabinets-and-cabinetry/caliber-cabinets-pfvwus-pf~1361985220',
+    icon: PencilRuler,
+  },
+  {
+    label: 'Facebook',
+    href: 'https://www.facebook.com/calcabinets/',
+    icon: Facebook,
+  },
+  {
+    label: 'Instagram',
+    href: 'https://www.instagram.com/calibercabinets/',
+    icon: Instagram,
+  },
 ];
 
 export function SiteFooter() {
@@ -28,6 +53,20 @@ export function SiteFooter() {
             <a href="tel:+19252929124">(925) 292-9124</a>
             <a href="mailto:info@calibercabinetshop.com">info@calibercabinetshop.com</a>
           </address>
+          <div className="footer-social" aria-label="Social media links">
+            {socialLinks.map(({ label, href, icon }) => (
+              <a
+                key={label}
+                className="footer-social-link"
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Visit Caliber Cabinets on ${label}`}
+              >
+                {icon({ size: 16, 'aria-hidden': 'true' })}
+              </a>
+            ))}
+          </div>
         </div>
 
         <nav aria-label="Footer navigation">

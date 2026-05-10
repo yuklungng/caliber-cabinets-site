@@ -1,7 +1,5 @@
 import { ArrowRight } from 'lucide-react';
 
-const homeownerConsultationUrl = 'https://calibercabinetshop.com/request-a-design-consultation/';
-
 export function HeroSection() {
   return (
     <section className="hero-section" aria-labelledby="home-title">
@@ -27,8 +25,8 @@ export function HeroSection() {
             rewarding.
           </p>
           <div className="hero-actions" aria-label="Primary calls to action">
-            <a className="button button-primary" href={homeownerConsultationUrl}>
-              Schedule Consultation <ArrowRight size={18} aria-hidden="true" />
+            <a className="button button-primary" href="#consultation">
+              How Can We Help? <ArrowRight size={18} aria-hidden="true" />
             </a>
             <a className="button button-secondary" href="#work">
               View Our Recent Work

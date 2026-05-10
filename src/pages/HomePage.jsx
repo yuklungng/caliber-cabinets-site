@@ -5,7 +5,6 @@ import { HeroSection } from '../components/home/HeroSection.jsx';
 import { HomeownersSection } from '../components/home/HomeownersSection.jsx';
 import { ProcessPreview } from '../components/home/ProcessPreview.jsx';
 import { TestimonialsSection } from '../components/home/TestimonialsSection.jsx';
-import { TradePartnerSection } from '../components/home/TradePartnerSection.jsx';
 import { VideoIntroSection } from '../components/home/VideoIntroSection.jsx';
 
 export function HomePage() {
@@ -18,7 +17,6 @@ export function HomePage() {
       <HomeownersSection />
       <ProcessPreview />
       <TestimonialsSection />
-      <TradePartnerSection />
       <ContactCta />
     </div>
   );

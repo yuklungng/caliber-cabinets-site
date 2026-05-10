@@ -4,11 +4,8 @@ import { Menu, X } from 'lucide-react';
 const navItems = [
   { label: 'Our Work', href: '#work' },
   { label: 'Homeowners', href: '#homeowners' },
-  { label: 'Trade Partners', href: '#trade-partners' },
   { label: 'Process', href: '#process' },
 ];
-
-const homeownerConsultationUrl = 'https://calibercabinetshop.com/request-a-design-consultation/';
 
 export function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -34,8 +31,8 @@ export function SiteHeader() {
           ))}
         </ul>
 
-        <a className="nav-cta" href={homeownerConsultationUrl}>
-          Get Consultation
+        <a className="nav-cta" href="#consultation">
+          Get Started
         </a>
 
         <button
@@ -60,8 +57,8 @@ export function SiteHeader() {
             </li>
           ))}
         </ul>
-        <a className="button button-primary" href={homeownerConsultationUrl} onClick={() => setIsMenuOpen(false)}>
-          Get Consultation
+        <a className="button button-primary" href="#consultation" onClick={() => setIsMenuOpen(false)}>
+          Get Started
         </a>
       </div>
     </header>

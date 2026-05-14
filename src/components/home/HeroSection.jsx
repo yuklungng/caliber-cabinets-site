@@ -1,4 +1,5 @@
 import { ArrowRight } from 'lucide-react';
+import { homeownerConsultationUrl } from '../../lib/consultationLinks.js';
 
 export function HeroSection() {
   return (
@@ -25,7 +26,7 @@ export function HeroSection() {
             rewarding.
           </p>
           <div className="hero-actions" aria-label="Primary calls to action">
-            <a className="button button-primary" href="#consultation">
+            <a className="button button-primary" href={homeownerConsultationUrl}>
               How Can We Help? <ArrowRight size={18} aria-hidden="true" />
             </a>
             <a className="button button-secondary" href="#work">

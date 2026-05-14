@@ -1,3 +1,5 @@
+import { homeownerConsultationUrl } from '../lib/consultationLinks.js';
+
 function SocialIcon({ children, ...props }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" {...props}>
@@ -46,7 +48,7 @@ function InstagramIcon(props) {
 const footerLinks = [
   { label: 'Our Work', href: '#work' },
   { label: 'Homeowners', href: '#homeowners' },
-  { label: 'Consultation', href: 'https://calibercabinetshop.com/request-a-design-consultation/' },
+  { label: 'Consultation', href: homeownerConsultationUrl },
 ];
 
 const socialLinks = [

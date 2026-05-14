@@ -1,5 +1,4 @@
-const homeownerConsultationUrl = 'https://calibercabinetshop.com/request-a-design-consultation/';
-const tradeEstimateUrl = 'https://calibercabinetshop.com/request-design-estimate/';
+import { homeownerConsultationUrl, tradeEstimateUrl } from '../../lib/consultationLinks.js';
 
 export function ContactCta() {
   return (

@@ -707,89 +707,21 @@ h3 {
   background: var(--color-surface);
 }
 
-.consultation-prep-shell {
-  display: grid;
-  gap: 40px;
-}
-
-.consultation-prep-heading {
-  max-width: 760px;
-}
-
-.consultation-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 8px;
-  background: rgba(120, 53, 15, 0.08);
-  border: 1px solid rgba(120, 53, 15, 0.14);
-  border-radius: 999px;
-}
-
-.consultation-tab {
-  padding: 12px 20px;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  border-radius: 999px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease;
-}
-
-.consultation-tab.is-active {
-  color: #ffffff;
-  background: var(--color-primary);
-}
-
-.consultation-tab:focus-visible {
-  outline: 2px solid rgba(120, 53, 15, 0.45);
-  outline-offset: 2px;
-}
-
 .consultation-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
+  grid-template-columns: minmax(0, 0.72fr) minmax(320px, 1fr);
+  gap: 56px;
   align-items: start;
-}
-
-.consultation-form-card {
-  padding: 34px;
-  background: #ffffff;
-  border: 1px solid var(--color-line);
-  border-radius: 18px;
-  box-shadow: 0 18px 45px rgba(17, 24, 39, 0.07);
-}
-
-.consultation-card-header {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 26px;
-}
-
-.consultation-card-header h3 {
-  margin: 0;
-  color: var(--color-ink);
-  font-size: 1.5rem;
-}
-
-.consultation-card-header p {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 1rem;
-  line-height: 1.7;
 }
 
 .consultation-form {
   display: grid;
   gap: 18px;
-}
-
-.consultation-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  padding: 34px;
+  background: #ffffff;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  box-shadow: 0 18px 45px rgba(17, 24, 39, 0.07);
 }
 
 .consultation-form label {
@@ -800,7 +732,6 @@ h3 {
 }
 
 .consultation-form input,
-.consultation-form select,
 .consultation-form textarea {
   width: 100%;
   padding: 13px 14px;
@@ -808,13 +739,6 @@ h3 {
   background: #faf9f6;
   border: 1px solid var(--color-line);
   border-radius: 8px;
-}
-
-.consultation-form input:focus,
-.consultation-form select:focus,
-.consultation-form textarea:focus {
-  outline: 2px solid rgba(120, 53, 15, 0.18);
-  border-color: rgba(120, 53, 15, 0.4);
 }
 
 .consultation-form textarea {
@@ -1080,10 +1004,6 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .consultation-form-grid {
-    grid-template-columns: 1fr;
-  }
-
   .hero-copy {
     grid-column: auto;
   }
@@ -1166,8 +1086,7 @@ h3 {
   .testimonial-card,
   .trade-panel,
   .homeowner-quote,
-  .consultation-form,
-  .consultation-form-card {
+  .consultation-form {
     padding: 22px;
   }
 

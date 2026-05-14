@@ -69,7 +69,7 @@ const socialLinks = [
   },
   {
     label: 'Instagram',
-    href: 'https://www.instagram.com/calibercabinets/',
+    href: 'https://www.instagram.com/calibercabinetsinc/',
     Icon: InstagramIcon,
   },
 ];

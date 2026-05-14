@@ -1,4 +1,5 @@
 import { AboutSection } from '../components/home/AboutSection.jsx';
+import { ConsultationPrepSection } from '../components/home/ConsultationPrepSection.jsx';
 import { ContactCta } from '../components/home/ContactCta.jsx';
 import { FeaturedWork } from '../components/home/FeaturedWork.jsx';
 import { HeroSection } from '../components/home/HeroSection.jsx';
@@ -17,6 +18,7 @@ export function HomePage() {
       <HomeownersSection />
       <ProcessPreview />
       <TestimonialsSection />
+      <ConsultationPrepSection />
       <ContactCta />
     </div>
   );

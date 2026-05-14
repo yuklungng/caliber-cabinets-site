@@ -273,8 +273,8 @@ h3 {
 
 .hero-scrim {
   background:
-    linear-gradient(90deg, rgba(3, 7, 18, 0.58), rgba(3, 7, 18, 0.4) 42%, rgba(3, 7, 18, 0.26)),
-    rgba(3, 7, 18, 0.08);
+    linear-gradient(90deg, rgba(3, 7, 18, 0.56) 0%, rgba(3, 7, 18, 0.38) 42%, rgba(3, 7, 18, 0.2) 72%, rgba(3, 7, 18, 0.1) 100%),
+    linear-gradient(180deg, rgba(3, 7, 18, 0.1) 0%, rgba(3, 7, 18, 0.22) 100%);
 }
 
 .hero-layout {
@@ -289,7 +289,6 @@ h3 {
   grid-column: span 8;
   max-width: 920px;
   padding: 28px 32px 32px 0;
-  background: linear-gradient(90deg, rgba(3, 7, 18, 0.16), rgba(3, 7, 18, 0));
 }
 
 .hero-copy h1,

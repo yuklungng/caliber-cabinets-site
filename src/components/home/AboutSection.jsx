@@ -16,10 +16,6 @@ export function AboutSection() {
             Today, as a second-generation business, we continue that foundation with a focus on
             quality, precision, and long-term durability.
           </p>
-          <p>
-            Since relaunching in 2011, we've been serving homeowners across the Tri-Valley with
-            custom cabinetry designed to last and built to fit how people actually live.
-          </p>
         </div>
       </div>
     </section>

@@ -1,4 +1,4 @@
-import { Clock3, MessageSquareText, Ruler } from 'lucide-react';
+import { Clock3, Ruler, ShieldCheck } from 'lucide-react';
 
 const valueProps = [
   {
@@ -12,9 +12,9 @@ const valueProps = [
     copy: 'Our efficient Livermore workshop processes ensure your project stays on schedule.',
   },
   {
-    icon: MessageSquareText,
-    title: 'Better Communication',
-    copy: "You'll always know exactly where your project stands, from initial design to final install.",
+    icon: ShieldCheck,
+    title: 'No Surprises, Ever',
+    copy: "Firm pricing, clear timelines, and proactive updates from design to final install. You'll never have to chase us for an answer.",
   },
 ];
 

@@ -81,7 +81,7 @@ export function SiteFooter() {
         <div className="footer-company">
           <p className="footer-brand">Caliber Cabinets, Inc.</p>
           <p>
-            Serving Livermore and the Tri-Valley area for over 25 years. We specialize in custom
+            Serving Livermore and the Tri-Valley area for over 40 years. We specialize in custom
             cabinetry that fits your home and your life.
           </p>
         </div>

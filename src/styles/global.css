@@ -444,9 +444,9 @@ h3 {
 
 .about-closing-line {
   width: 100%;
-  margin-top: 40px;
-  color: #6b7280;
-  font-size: 0.875rem;
+  margin-top: 24px;
+  color: #78350f;
+  font-size: 1rem;
   font-style: italic;
   text-align: center;
 }
@@ -455,9 +455,9 @@ h3 {
   margin: 0 0 32px;
   color: var(--color-ink);
   font-family: var(--font-serif);
-  font-size: clamp(2rem, 4vw, 3.75rem);
+  font-size: 1.5rem;
   line-height: 1.1;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .team-grid {

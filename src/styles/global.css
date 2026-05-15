@@ -411,6 +411,11 @@ h3 {
   align-items: center;
 }
 
+.about-shell {
+  display: grid;
+  gap: 56px;
+}
+
 .homeowners-grid {
   grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.78fr);
   gap: 72px;
@@ -441,6 +446,41 @@ h3 {
   font-size: 0.95rem;
   font-style: italic;
   text-align: center;
+}
+
+.about-team h3 {
+  margin: 0 0 32px;
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 4vw, 3.75rem);
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+}
+
+.team-member-photo {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.team-member-name {
+  margin: 12px 0 0;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.team-member-role {
+  margin: 2px 0 0;
+  color: #78350f;
+  font-size: 0.875rem;
 }
 
 .project-grid,
@@ -1006,10 +1046,14 @@ h3 {
   .homeowners-grid,
   .project-grid,
   .testimonial-grid,
-  .process-steps,
-  .consultation-grid {
-    grid-template-columns: 1fr;
-  }
+    .process-steps,
+    .consultation-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .team-grid {
+      grid-template-columns: 1fr;
+    }
 
   .hero-copy {
     grid-column: auto;

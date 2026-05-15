@@ -58,8 +58,8 @@ export function AboutSection() {
               </article>
             ))}
           </div>
-          <p className="about-closing-line">From the heart of our family, to the heart of your home.</p>
         </div>
+        <p className="about-closing-line">From the heart of our family, to the heart of your home.</p>
       </div>
     </section>
   );

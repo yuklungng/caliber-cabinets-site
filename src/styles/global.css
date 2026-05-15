@@ -414,6 +414,7 @@ h3 {
 .about-shell {
   display: grid;
   gap: 56px;
+  padding-bottom: 48px;
 }
 
 .homeowners-grid {
@@ -442,8 +443,10 @@ h3 {
 }
 
 .about-closing-line {
-  margin-top: 28px;
-  font-size: 0.95rem;
+  width: 100%;
+  margin-top: 40px;
+  color: #6b7280;
+  font-size: 0.875rem;
   font-style: italic;
   text-align: center;
 }
@@ -467,13 +470,14 @@ h3 {
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
+  object-position: top;
   border-radius: 12px;
 }
 
 .team-member-name {
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   color: #111827;
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-weight: 600;
 }
 

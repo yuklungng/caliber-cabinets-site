@@ -9,13 +9,23 @@ export function AboutSection() {
         <div className="section-copy">
           <h2 id="about-title">About Caliber Cabinets</h2>
           <p>
-            Our roots in cabinet craftsmanship go back to 1984, built on a family tradition of doing
-            things the right way.
+            Caliber Cabinets has been building custom cabinetry in Livermore since 1984. What
+            started as one family&apos;s trade became a 40-year track record - one that Mike grew up
+            inside before taking it over as a second-generation owner. That kind of continuity
+            isn&apos;t something you manufacture. It&apos;s built job by job, over decades.
           </p>
           <p>
-            Today, as a second-generation business, we continue that foundation with a focus on
-            quality, precision, and long-term durability.
+            We&apos;re a small, hands-on shop serving the Tri-Valley - Livermore, Pleasanton, Dublin,
+            and the surrounding 680 corridor. Every project runs through Michael directly, from
+            design to fabrication to final installation. No franchise overhead, no showroom
+            salespeople handing you off to a crew you&apos;ve never met.
           </p>
+          <p>
+            Our team - Michael, Linda, Fedincio, and Carlos - builds kitchens, bathrooms, home
+            offices, garage storage, and custom built-ins for homeowners who want work that lasts.
+            When you call us, you&apos;re talking to the people who will actually build your cabinets.
+          </p>
+          <p className="about-closing-line">From the heart of our family, to the heart of your home.</p>
         </div>
       </div>
     </section>

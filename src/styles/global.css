@@ -436,6 +436,13 @@ h3 {
   line-height: 1.7;
 }
 
+.about-closing-line {
+  margin-top: 28px;
+  font-size: 0.95rem;
+  font-style: italic;
+  text-align: center;
+}
+
 .project-grid,
 .testimonial-grid,
 .process-steps {

@@ -1,5 +1,7 @@
 /* global process */
 
+import { createClient } from '@supabase/supabase-js';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -31,9 +33,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
   }
 
-  // TODO Step 2: Save submission to Supabase
-  // Use @supabase/supabase-js with SUPABASE_URL and SUPABASE_ANON_KEY env vars
-  // Insert into a 'leads' table with: formType, fields, submittedAt
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+
+  const { error: dbError } = await supabase.from('leads').insert({
+    form_type: formType,
+    fields,
+    status: 'new',
+  });
+
+  if (dbError) {
+    console.error('[lead-submit] Supabase insert error:', dbError.message);
+    return res.status(500).json({
+      error:
+        'Failed to save your submission. Please call us at (925) 292-9124 or email info@calibercabinetshop.com.',
+    });
+  }
+
+  console.log('[lead-submit] Lead saved to Supabase:', formType);
 
   // TODO Step 3: Send notification email via Resend
   // Use resend npm package with RESEND_API_KEY env var
@@ -43,9 +62,5 @@ export default async function handler(req, res) {
   // Use HUBSPOT_ACCESS_TOKEN env var
   // Create a contact and associated deal/form submission
 
-  console.log('[lead-submit] Turnstile verified. Submission received:', { formType, fields });
-  return res.status(200).json({
-    success: true,
-    message: 'Submission received. Backend storage and notifications coming in next deployment.',
-  });
+  return res.status(200).json({ success: true });
 }

@@ -1,6 +1,10 @@
 /* global process */
 
+import { createRequire } from 'node:module';
 import { createClient } from '@supabase/supabase-js';
+
+const require = createRequire(import.meta.url);
+const { Resend } = require('resend');
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -54,9 +58,27 @@ export default async function handler(req, res) {
 
   console.log('[lead-submit] Lead saved to Supabase:', formType);
 
-  // TODO Step 3: Send notification email via Resend
-  // Use resend npm package with RESEND_API_KEY env var
-  // Send to info@calibercabinetshop.com with form summary
+  // Step 3: Send notification email via Resend
+  if (process.env.RESEND_API_KEY) {
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    const fieldsSummary = Object.entries(fields)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+      .join('\n');
+
+    const formLabel =
+      formType === 'homeowner-consultation'
+        ? 'Design Consultation Request'
+        : 'Trade Partner Estimate Request';
+
+    await resend.emails.send({
+      from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
+      to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
+      subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
+      text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
+    });
+  }
+  // If RESEND_API_KEY is not set, skip silently - form still saves to Supabase
 
   // TODO Step 4: Push lead to HubSpot
   // Use HUBSPOT_ACCESS_TOKEN env var

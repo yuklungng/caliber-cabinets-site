@@ -4,6 +4,7 @@ import { SiteHeader } from './components/SiteHeader.jsx';
 import { HomePage } from './pages/HomePage.jsx';
 import { ConsultationPage } from './pages/ConsultationPage.jsx';
 import { EstimatePage } from './pages/EstimatePage.jsx';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage.jsx';
 
 function HomeRoute() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
       <Route path="/" element={<HomeRoute />} />
       <Route path="/request-a-design-consultation" element={<ConsultationPage />} />
       <Route path="/request-design-estimate" element={<EstimatePage />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

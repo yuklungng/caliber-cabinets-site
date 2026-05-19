@@ -126,7 +126,12 @@ export function SiteFooter() {
       </div>
 
       <div className="container footer-bottom">
-        <p>&copy; 2026 Caliber Cabinets, Inc. All rights reserved.</p>
+        <p>
+          &copy; 2026 Caliber Cabinets, Inc. All rights reserved. &nbsp;·&nbsp;{' '}
+          <a href="/privacy-policy" style={{ color: 'inherit', textDecoration: 'underline' }}>
+            Privacy Policy
+          </a>
+        </p>
       </div>
     </footer>
   );

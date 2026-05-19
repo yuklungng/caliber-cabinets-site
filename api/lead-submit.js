@@ -1,10 +1,7 @@
 /* global process */
 
-import { createRequire } from 'node:module';
 import { createClient } from '@supabase/supabase-js';
-
-const require = createRequire(import.meta.url);
-const { Resend } = require('resend');
+import { Resend } from 'resend';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,6 +14,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing Turnstile token' });
   }
 
+  // Step 1: Verify Turnstile token server-side
   const verificationResponse = await fetch(
     'https://challenges.cloudflare.com/turnstile/v0/siteverify',
     {
@@ -37,6 +35,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
   }
 
+  // Step 2: Save to Supabase
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -60,25 +59,31 @@ export default async function handler(req, res) {
 
   // Step 3: Send notification email via Resend
   if (process.env.RESEND_API_KEY) {
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const fieldsSummary = Object.entries(fields)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
-      .join('\n');
+      const fieldsSummary = Object.entries(fields)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+        .join('\n');
 
-    const formLabel =
-      formType === 'homeowner-consultation'
-        ? 'Design Consultation Request'
-        : 'Trade Partner Estimate Request';
+      const formLabel =
+        formType === 'homeowner-consultation'
+          ? 'Design Consultation Request'
+          : 'Trade Partner Estimate Request';
 
-    await resend.emails.send({
-      from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
-      to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
-      subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
-      text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
-    });
+      await resend.emails.send({
+        from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
+        to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
+        subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
+        text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
+      });
+
+      console.log('[lead-submit] Notification email sent via Resend');
+    } catch (emailError) {
+      // Email failure is non-fatal — lead is already saved to Supabase
+      console.error('[lead-submit] Resend email error:', emailError.message);
+    }
   }
-  // If RESEND_API_KEY is not set, skip silently - form still saves to Supabase
 
   // TODO Step 4: Push lead to HubSpot
   // Use HUBSPOT_ACCESS_TOKEN env var

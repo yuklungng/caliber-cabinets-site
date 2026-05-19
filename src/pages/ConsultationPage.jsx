@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleCheckBig } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
@@ -46,19 +46,54 @@ function SuccessState() {
 export function ConsultationPage() {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
-  function handleSubmit(event) {
+  useEffect(() => {
+    document.title = 'Request a Design Consultation | Caliber Cabinets';
+  }, []);
+
+  async function handleSubmit(event) {
     event.preventDefault();
+    setSubmitError('');
+    setIsSending(true);
 
     const formData = new FormData(event.currentTarget);
-    const values = Object.fromEntries(formData.entries());
+    const fields = {
+      fullName: formData.get('fullName') ?? '',
+      phone: formData.get('phoneNumber') ?? '',
+      email: formData.get('emailAddress') ?? '',
+      zipCode: formData.get('projectZipCode') ?? '',
+      projectType: formData.get('projectType') ?? '',
+      projectDetails: formData.get('projectDescription') ?? '',
+      referralSource: formData.get('referralSource') ?? '',
+    };
 
-    console.log({
-      ...values,
-      turnstileToken,
-    });
+    try {
+      const response = await fetch('/api/lead-submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          formType: 'homeowner-consultation',
+          fields,
+          turnstileToken,
+        }),
+      });
 
-    setIsSubmitted(true);
+      if (!response.ok) {
+        throw new Error('Lead submission failed');
+      }
+
+      await response.json();
+      setIsSubmitted(true);
+    } catch {
+      setSubmitError(
+        'Something went wrong. Please call us at (925) 292-9124 or email info@calibercabinetshop.com.',
+      );
+      setIsSending(false);
+    }
   }
 
   return (
@@ -144,9 +179,15 @@ export function ConsultationPage() {
                   )}
                 </div>
 
-                <button className="lead-submit" type="submit" disabled={!turnstileToken}>
-                  Send My Request
+                <button
+                  className="lead-submit"
+                  type="submit"
+                  disabled={!turnstileToken || isSending}
+                >
+                  {isSending ? 'Sending…' : 'Send My Request'}
                 </button>
+
+                {submitError ? <p className="lead-error">{submitError}</p> : null}
               </form>
             </div>
           )}

@@ -141,7 +141,7 @@ const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 function SuccessState() {
   return (
-    <div className="lead-card lead-success">
+    <div className="form-success-card">
       <span className="lead-success-icon" aria-hidden="true">
         <CircleCheckBig size={32} />
       </span>
@@ -236,12 +236,16 @@ export function EstimatePage() {
     <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
-        <div className="lead-page-shell lead-page-shell--estimate">
+        <div className="form-shell">
           {isSubmitted ? (
             <SuccessState />
           ) : (
-            <div className="lead-card">
-              <h1>Trade Partner Design &amp; Estimate Request</h1>
+            <>
+              <h1 className="form-page-title">Trade Partner Design &amp; Estimate Request</h1>
+              <p className="form-page-subheading">
+                Complete the form below and we&apos;ll follow up within 1 business day to discuss
+                your project scope and schedule an estimate.
+              </p>
 
               <form className="lead-form" onSubmit={handleSubmit}>
                 <div className="lead-info-box">
@@ -277,7 +281,7 @@ export function EstimatePage() {
                   <span>Yes, my client needs Design &amp; Measure services for this project.</span>
                 </label>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2>Trade Professional Information</h2>
                 </div>
 
@@ -362,7 +366,7 @@ export function EstimatePage() {
                   <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" />
                 </div>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2>Client Project Information</h2>
                 </div>
 
@@ -417,7 +421,7 @@ export function EstimatePage() {
                   </div>
                 </div>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2>Project Scope</h2>
                 </div>
 
@@ -463,7 +467,7 @@ export function EstimatePage() {
                   </div>
                 </fieldset>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2>Materials &amp; Specifications</h2>
                 </div>
 
@@ -551,7 +555,7 @@ export function EstimatePage() {
                   </div>
                 </fieldset>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2 id="estimate-accessories-heading">Accessories &amp; Upgrades</h2>
                 </div>
 
@@ -575,7 +579,7 @@ export function EstimatePage() {
                   </div>
                 </fieldset>
 
-                <div className="lead-section-heading">
+                <div className="form-section-title">
                   <h2>Project Notes &amp; Files</h2>
                 </div>
 
@@ -624,7 +628,7 @@ export function EstimatePage() {
 
                 {submitError ? <p className="lead-error">{submitError}</p> : null}
               </form>
-            </div>
+            </>
           )}
         </div>
       </main>

@@ -15,8 +15,8 @@ const projectTypes = [
 
 const timelineOptions = [
   'As soon as possible',
-  '1-3 months',
-  '3-6 months',
+  '1–3 months',
+  '3–6 months',
   '6+ months',
 ];
 
@@ -24,7 +24,7 @@ const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 function SuccessState() {
   return (
-    <div className="lead-card lead-success">
+    <div className="form-success-card">
       <span className="lead-success-icon" aria-hidden="true">
         <CircleCheckBig size={32} />
       </span>
@@ -74,20 +74,11 @@ export function ConsultationPage() {
     try {
       const response = await fetch('/api/lead-submit', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          formType: 'homeowner-consultation',
-          fields,
-          turnstileToken,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formType: 'homeowner-consultation', fields, turnstileToken }),
       });
 
-      if (!response.ok) {
-        throw new Error('Lead submission failed');
-      }
-
+      if (!response.ok) throw new Error('Lead submission failed');
       await response.json();
       setIsSubmitted(true);
     } catch {
@@ -102,50 +93,57 @@ export function ConsultationPage() {
     <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
-        <div className="lead-page-shell lead-page-shell--consultation">
+        <div className="form-shell">
           {isSubmitted ? (
             <SuccessState />
           ) : (
-            <div className="lead-card">
-              <h1>Request a Design Consultation</h1>
-              <p className="lead-subheading">
+            <>
+              <h1 className="form-page-title">Request a Design Consultation</h1>
+              <p className="form-page-subheading">
                 Once you submit: we review your details, reach out within 1 business day, and
-                schedule your consultation - no pressure, no obligation.
+                schedule your consultation — no pressure, no obligation.
               </p>
 
               <form className="lead-form" onSubmit={handleSubmit}>
+                {/* Contact Info */}
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
-                    <label htmlFor="consultation-first-name">First Name *</label>
-                    <input id="consultation-first-name" name="firstName" type="text" required />
+                    <label htmlFor="c-first-name">First Name *</label>
+                    <input id="c-first-name" name="firstName" type="text" required />
                   </div>
                   <div className="lead-field">
-                    <label htmlFor="consultation-last-name">Last Name *</label>
-                    <input id="consultation-last-name" name="lastName" type="text" required />
+                    <label htmlFor="c-last-name">Last Name *</label>
+                    <input id="c-last-name" name="lastName" type="text" required />
                   </div>
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="consultation-phone">Phone Number *</label>
-                  <input id="consultation-phone" name="phone" type="tel" required />
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="c-phone">Phone Number *</label>
+                    <input id="c-phone" name="phone" type="tel" required />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="c-email">Email Address *</label>
+                    <input id="c-email" name="email" type="email" required />
+                  </div>
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="consultation-email">Email Address *</label>
-                  <input id="consultation-email" name="email" type="email" required />
+                {/* Project Details */}
+                <div className="form-section-title">
+                  <h2>Project Details</h2>
                 </div>
 
                 <fieldset className="lead-choice-group">
                   <legend>Project Type</legend>
-                  <div className="lead-choice-grid lead-choice-grid--two">
+                  <div className="lead-choice-grid lead-choice-grid--three">
                     {projectTypes.map((option) => (
                       <label
                         className="lead-choice"
-                        htmlFor={optionId('consultation-project-type', option)}
+                        htmlFor={optionId('c-project-type', option)}
                         key={option}
                       >
                         <input
-                          id={optionId('consultation-project-type', option)}
+                          id={optionId('c-project-type', option)}
                           name="projectTypes"
                           type="checkbox"
                           value={option}
@@ -158,66 +156,78 @@ export function ConsultationPage() {
 
                 <fieldset className="lead-choice-group">
                   <legend>Estimated Timeline</legend>
-                  <div className="lead-radio-list">
+                  <div className="lead-radio-list lead-radio-list--inline">
                     {timelineOptions.map((option) => (
                       <label
-                        className="lead-choice lead-choice--radio"
-                        htmlFor={optionId('consultation-timeline', option)}
+                        className="lead-choice"
+                        htmlFor={optionId('c-timeline', option)}
                         key={option}
                       >
                         <input
-                          id={optionId('consultation-timeline', option)}
+                          id={optionId('c-timeline', option)}
                           name="timeline"
                           type="radio"
                           value={option}
                         />
-                        <span>{option.replaceAll('-', '\u2013')}</span>
+                        <span>{option}</span>
                       </label>
                     ))}
                   </div>
                 </fieldset>
 
                 <div className="lead-field">
-                  <label htmlFor="consultation-address">Project Address</label>
-                  <p className="lead-helper-text">
-                    (Optional - helps us prepare for your consultation)
-                  </p>
-                  <input id="consultation-address" name="projectAddress" type="text" />
+                  <label htmlFor="c-address">Project Address</label>
+                  <p className="lead-helper-text">Optional — helps us prepare for your consultation</p>
+                  <input id="c-address" name="projectAddress" type="text" />
                 </div>
 
-                <div className="lead-section-heading">
+                {/* About Your Project */}
+                <div className="form-section-title">
                   <h2>About Your Project</h2>
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="consultation-description">Tell us about your project</label>
-                  <textarea id="consultation-description" name="description" rows="4" />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="consultation-inspiration">Inspiration</label>
-                  <p className="lead-helper-text">
-                    Optional - share links, style references, or describe your vision
-                  </p>
-                  <textarea id="consultation-inspiration" name="inspiration" rows="3" />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="consultation-files">Upload Photos or Sketches</label>
-                  <p className="lead-helper-text">Optional</p>
-                  <input
-                    id="consultation-files"
-                    type="file"
-                    accept="image/*,.pdf"
-                    multiple
-                    disabled
+                  <label htmlFor="c-description">Brief Description</label>
+                  <textarea
+                    id="c-description"
+                    name="description"
+                    rows="5"
+                    placeholder="Share what you're looking to build, your goals, or any specific ideas you have"
                   />
+                </div>
+
+                {/* Inspiration */}
+                <div className="form-section-title">
+                  <h2>Inspiration</h2>
+                </div>
+
+                <div className="lead-field">
+                  <label htmlFor="c-inspiration">Links or Style Description</label>
+                  <p className="lead-helper-text">
+                    Optional — share links, style references, or describe your vision
+                  </p>
+                  <textarea id="c-inspiration" name="inspiration" rows="3" />
+                </div>
+
+                <div className="lead-field">
+                  <label>Upload Photos or Sketches</label>
+                  <p className="lead-helper-text">Optional</p>
                   <div className="lead-banner">
-                    File uploads will be available soon. For now, you can email photos to
-                    info@calibercabinetshop.com
+                    File uploads coming soon. Email photos to{' '}
+                    <a href="mailto:info@calibercabinetshop.com">info@calibercabinetshop.com</a>
                   </div>
                 </div>
 
+                {/* What Happens Next */}
+                <div className="form-section-title">
+                  <h2>What Happens Next</h2>
+                </div>
+                <p className="form-next-steps">
+                  Once you submit: we review your details, reach out within 1 business day, and
+                  schedule your consultation — no pressure, no obligation.
+                </p>
+
+                {/* Turnstile + Submit */}
                 <div className="turnstile-wrap">
                   {turnstileSiteKey ? (
                     <Turnstile
@@ -228,7 +238,7 @@ export function ConsultationPage() {
                     />
                   ) : (
                     <div className="turnstile-missing">
-                      Turnstile is waiting for `VITE_TURNSTILE_SITE_KEY` in the environment.
+                      Turnstile is waiting for VITE_TURNSTILE_SITE_KEY in the environment.
                     </div>
                   )}
                 </div>
@@ -238,12 +248,12 @@ export function ConsultationPage() {
                   type="submit"
                   disabled={!turnstileToken || isSending}
                 >
-                  {isSending ? 'Sending...' : 'Send My Request'}
+                  {isSending ? 'Sending…' : 'Send My Request'}
                 </button>
 
                 {submitError ? <p className="lead-error">{submitError}</p> : null}
               </form>
-            </div>
+            </>
           )}
         </div>
       </main>

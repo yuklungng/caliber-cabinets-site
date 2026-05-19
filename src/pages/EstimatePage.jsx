@@ -552,13 +552,10 @@ export function EstimatePage() {
                 </fieldset>
 
                 <div className="lead-section-heading">
-                  <h2>Accessories &amp; Upgrades</h2>
+                  <h2 id="estimate-accessories-heading">Accessories &amp; Upgrades</h2>
                 </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend className="lead-choice-group-legend--hidden">
-                    Accessories &amp; Upgrades
-                  </legend>
+                <fieldset className="lead-choice-group" aria-labelledby="estimate-accessories-heading">
                   <div className="lead-choice-grid lead-choice-grid--three">
                     {accessoryOptions.map((option) => (
                       <label

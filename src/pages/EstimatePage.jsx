@@ -4,22 +4,137 @@ import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
 
-const referralOptions = [
-  'Google Search',
-  'Yelp',
-  'Houzz',
-  'Referral from friend/family',
-  'Facebook/Instagram',
-  'Drove by / saw our work',
+const tradeTypes = [
+  'Interior Designer',
+  'General Contractor',
+  'Architect',
+  'Builder / Developer',
+  'Remodeling Contractor',
   'Other',
 ];
 
-const tradeTypes = [
-  'General Contractor',
-  'Interior Designer',
-  'Architect',
-  'Developer',
+const preferredContactOptions = ['Phone', 'Email', 'Either'];
+const installationTimelineOptions = ['1-2 Months', '3-6 Months', '6-12 Months', 'Other'];
+
+const constructionMethodOptions = [
+  'Face Frame, 1/8" Reveal, Full Overlay',
+  'Flush Inset Doors / Drawer Fronts',
+  'Frame-less (European Style), Full Overlay',
+  'Other (explain in comments)',
+];
+
+const crownMoldingOptions = [
+  'Traditional Crown Molding',
+  'Flat Crown Molding',
+  'No Molding / Shadow Line',
+  'Other (explain in comments)',
+];
+
+const doorStyleOptions = [
+  'Slab Door',
+  'Shaker Door / Flat Panel',
+  'Raised Panel',
+  'Other (attach photo or explain)',
+];
+
+const woodSpeciesOptions = [
+  'Painted Cabinetry',
+  'Maple',
+  'Cherry',
+  'Alder',
+  'Beech',
+  'Hickory / Pecan',
+  'Red Oak',
+  'White Oak',
+  'Rift Oak',
+  'Quarter Sawn Oak',
+  'Walnut',
+  'Bamboo',
+  'Cleaf / Laminate',
+  'Vertical Grain Fir',
+  'Other (explain in comments)',
+];
+
+const areaOptions = [
+  'Kitchen',
+  'Bathroom(s)',
+  'Entertainment Center',
+  'Closet Cabinetry',
+  'Fireplace Mantle',
+  'Garage',
   'Other',
+];
+
+const accessoryOptions = [
+  'Panelized Ends',
+  'Base Pull-Outs',
+  'Spice Rack / Drawers',
+  'Solid Wood Dovetail Drawer Boxes',
+  'Roll-Out Drawers',
+  'Two-Tier Silverware Drawer',
+  'LED Lighting',
+  'Lazy Susan',
+  'Lemans II',
+  'Other (explain in comments)',
+];
+
+const stateOptions = [
+  'Alabama',
+  'Alaska',
+  'Arizona',
+  'Arkansas',
+  'California',
+  'Colorado',
+  'Connecticut',
+  'Delaware',
+  'District of Columbia',
+  'Florida',
+  'Georgia',
+  'Hawaii',
+  'Idaho',
+  'Illinois',
+  'Indiana',
+  'Iowa',
+  'Kansas',
+  'Kentucky',
+  'Louisiana',
+  'Maine',
+  'Maryland',
+  'Massachusetts',
+  'Michigan',
+  'Minnesota',
+  'Mississippi',
+  'Missouri',
+  'Montana',
+  'Nebraska',
+  'Nevada',
+  'New Hampshire',
+  'New Jersey',
+  'New Mexico',
+  'New York',
+  'North Carolina',
+  'North Dakota',
+  'Ohio',
+  'Oklahoma',
+  'Oregon',
+  'Pennsylvania',
+  'Rhode Island',
+  'South Carolina',
+  'South Dakota',
+  'Tennessee',
+  'Texas',
+  'Utah',
+  'Vermont',
+  'Virginia',
+  'Washington',
+  'West Virginia',
+  'Wisconsin',
+  'Wyoming',
+  'American Samoa',
+  'Guam',
+  'Northern Mariana Islands',
+  'Puerto Rico',
+  'U.S. Virgin Islands',
 ];
 
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
@@ -41,6 +156,10 @@ function SuccessState() {
   );
 }
 
+function optionId(prefix, value) {
+  return `${prefix}-${value.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
 export function EstimatePage() {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -48,7 +167,7 @@ export function EstimatePage() {
   const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
-    document.title = 'Request a Design Estimate | Caliber Cabinets';
+    document.title = 'Trade Partner Design & Estimate Request | Caliber Cabinets';
   }, []);
 
   async function handleSubmit(event) {
@@ -58,15 +177,32 @@ export function EstimatePage() {
 
     const formData = new FormData(event.currentTarget);
     const fields = {
-      fullName: formData.get('fullName') ?? '',
+      needsDesignServices: formData.get('needsDesignServices') === 'Yes',
+      firstName: formData.get('firstName') ?? '',
+      lastName: formData.get('lastName') ?? '',
       companyName: formData.get('companyName') ?? '',
-      phone: formData.get('phoneNumber') ?? '',
-      email: formData.get('emailAddress') ?? '',
-      zipCode: formData.get('projectZipCode') ?? '',
-      tradeType: formData.get('tradeType') ?? '',
-      projectScope: formData.get('projectScope') ?? '',
-      projectNotes: formData.get('projectNotes') ?? '',
-      referralSource: formData.get('referralSource') ?? '',
+      tradeRoles: formData.getAll('tradeRoles'),
+      phone: formData.get('phone') ?? '',
+      email: formData.get('email') ?? '',
+      licenseNumber: formData.get('licenseNumber') ?? '',
+      preferredContact: formData.get('preferredContact') ?? '',
+      gcNameAndPhone: formData.get('gcNameAndPhone') ?? '',
+      clientFirstName: formData.get('clientFirstName') ?? '',
+      clientLastName: formData.get('clientLastName') ?? '',
+      partnerFirstName: formData.get('partnerFirstName') ?? '',
+      partnerLastName: formData.get('partnerLastName') ?? '',
+      streetAddress: formData.get('streetAddress') ?? '',
+      city: formData.get('city') ?? '',
+      state: formData.get('state') ?? '',
+      zipCode: formData.get('zipCode') ?? '',
+      areasRequiringCabinetry: formData.getAll('areasRequiringCabinetry'),
+      installationTimeline: formData.get('installationTimeline') ?? '',
+      constructionMethod: formData.get('constructionMethod') ?? '',
+      crownMolding: formData.get('crownMolding') ?? '',
+      doorStyle: formData.get('doorStyle') ?? '',
+      woodSpecies: formData.getAll('woodSpecies'),
+      accessories: formData.getAll('accessories'),
+      comments: formData.get('comments') ?? '',
     };
 
     try {
@@ -100,75 +236,370 @@ export function EstimatePage() {
     <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
-        <div className="lead-page-shell">
+        <div className="lead-page-shell lead-page-shell--estimate">
           {isSubmitted ? (
             <SuccessState />
           ) : (
             <div className="lead-card">
-              <h1>Request a Design Estimate</h1>
-              <p className="lead-subheading">
-                For contractors, designers, and trade partners. We&apos;ll respond within 1
-                business day.
-              </p>
+              <h1>Trade Partner Design &amp; Estimate Request</h1>
 
               <form className="lead-form" onSubmit={handleSubmit}>
-                <div className="lead-field">
-                  <label htmlFor="estimate-name">Full Name *</label>
-                  <input id="estimate-name" name="fullName" type="text" required />
+                <div className="lead-info-box">
+                  <p>NEED DESIGN &amp; MEASURE SERVICES?</p>
+                  <p>
+                    - If your client does not have professional drawings or architect plans, we
+                    offer a Design Agreement at $175/hr with a non-refundable 5-hour deposit
+                    ($875).
+                  </p>
+                  <p>
+                    - Includes: Project Consultation, Job Site Measure, Layout, Detailed Estimate,
+                    and 3D Renderings.
+                  </p>
+                  <p>
+                    - Design scope covers cabinetry layout and material selections only.
+                  </p>
+                  <p>
+                    Design fees are fully credited toward the cabinet purchase if your client
+                    proceeds with Caliber Cabinets.
+                  </p>
+                </div>
+
+                <label
+                  className="lead-choice lead-choice--single"
+                  htmlFor="estimate-needs-design-services"
+                >
+                  <input
+                    id="estimate-needs-design-services"
+                    name="needsDesignServices"
+                    type="checkbox"
+                    value="Yes"
+                  />
+                  <span>Yes, my client needs Design &amp; Measure services for this project.</span>
+                </label>
+
+                <div className="lead-section-heading">
+                  <h2>Trade Professional Information</h2>
+                </div>
+
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-first-name">First Name *</label>
+                    <input id="estimate-first-name" name="firstName" type="text" required />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-last-name">Last Name *</label>
+                    <input id="estimate-last-name" name="lastName" type="text" required />
+                  </div>
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="estimate-company">Company Name *</label>
-                  <input id="estimate-company" name="companyName" type="text" required />
+                  <label htmlFor="estimate-company">Company / Firm Name</label>
+                  <input id="estimate-company" name="companyName" type="text" />
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="estimate-phone">Phone Number *</label>
-                  <input id="estimate-phone" name="phoneNumber" type="tel" required />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="estimate-email">Email Address *</label>
-                  <input id="estimate-email" name="emailAddress" type="email" required />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="estimate-zip">Project ZIP Code *</label>
-                  <input id="estimate-zip" name="projectZipCode" type="text" required />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="estimate-trade-type">Trade Type</label>
-                  <select id="estimate-trade-type" name="tradeType" defaultValue="">
-                    <option value="">Select a trade type</option>
+                <fieldset className="lead-choice-group">
+                  <legend>Trade Role</legend>
+                  <div className="lead-choice-grid lead-choice-grid--two">
                     {tradeTypes.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-trade-role', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-trade-role', option)}
+                          name="tradeRoles"
+                          type="checkbox"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
                     ))}
-                  </select>
+                  </div>
+                </fieldset>
+
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-phone">Phone Number *</label>
+                    <input id="estimate-phone" name="phone" type="tel" required />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-email">Email Address *</label>
+                    <input id="estimate-email" name="email" type="email" required />
+                  </div>
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="estimate-scope">Project Type / Scope</label>
-                  <textarea id="estimate-scope" name="projectScope" rows="3" />
+                  <label htmlFor="estimate-license-number">License Number</label>
+                  <p className="lead-helper-text">If applicable</p>
+                  <input id="estimate-license-number" name="licenseNumber" type="text" />
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="estimate-notes">Project Notes</label>
-                  <textarea id="estimate-notes" name="projectNotes" rows="3" />
-                </div>
-
-                <div className="lead-field">
-                  <label htmlFor="estimate-referral">How did you hear about us?</label>
-                  <select id="estimate-referral" name="referralSource" defaultValue="">
-                    <option value="">Select an option</option>
-                    {referralOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
+                <fieldset className="lead-choice-group">
+                  <legend>Preferred Contact</legend>
+                  <div className="lead-radio-list lead-radio-list--inline">
+                    {preferredContactOptions.map((option) => (
+                      <label
+                        className="lead-choice lead-choice--radio"
+                        htmlFor={optionId('estimate-preferred-contact', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-preferred-contact', option)}
+                          name="preferredContact"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
                     ))}
-                  </select>
+                  </div>
+                </fieldset>
+
+                <div className="lead-field">
+                  <label htmlFor="estimate-gc-contact">GC Name &amp; Phone</label>
+                  <p className="lead-helper-text">If different from above</p>
+                  <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" />
+                </div>
+
+                <div className="lead-section-heading">
+                  <h2>Client Project Information</h2>
+                </div>
+
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-client-first-name">Client First Name</label>
+                    <input id="estimate-client-first-name" name="clientFirstName" type="text" />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-client-last-name">Client Last Name</label>
+                    <input id="estimate-client-last-name" name="clientLastName" type="text" />
+                  </div>
+                </div>
+
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-partner-first-name">
+                      Spouse / Partner First Name
+                    </label>
+                    <input id="estimate-partner-first-name" name="partnerFirstName" type="text" />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-partner-last-name">Spouse / Partner Last Name</label>
+                    <input id="estimate-partner-last-name" name="partnerLastName" type="text" />
+                  </div>
+                </div>
+
+                <div className="lead-field">
+                  <label htmlFor="estimate-street-address">Street Address</label>
+                  <input id="estimate-street-address" name="streetAddress" type="text" />
+                </div>
+
+                <div className="lead-field-grid lead-field-grid--three">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-city">City</label>
+                    <input id="estimate-city" name="city" type="text" />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-state">State</label>
+                    <select id="estimate-state" name="state" defaultValue="California">
+                      {stateOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-zip">ZIP Code</label>
+                    <p className="lead-helper-text">For sales tax &amp; bid accuracy</p>
+                    <input id="estimate-zip" name="zipCode" type="text" />
+                  </div>
+                </div>
+
+                <div className="lead-section-heading">
+                  <h2>Project Scope</h2>
+                </div>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Areas Requiring Cabinetry</legend>
+                  <div className="lead-choice-grid lead-choice-grid--two">
+                    {areaOptions.map((option) => (
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-area', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-area', option)}
+                          name="areasRequiringCabinetry"
+                          type="checkbox"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Installation Timeline</legend>
+                  <div className="lead-radio-list">
+                    {installationTimelineOptions.map((option) => (
+                      <label
+                        className="lead-choice lead-choice--radio"
+                        htmlFor={optionId('estimate-installation-timeline', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-installation-timeline', option)}
+                          name="installationTimeline"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option.replaceAll('-', '\u2013')}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="lead-section-heading">
+                  <h2>Materials &amp; Specifications</h2>
+                </div>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Construction Method</legend>
+                  <div className="lead-radio-list">
+                    {constructionMethodOptions.map((option) => (
+                      <label
+                        className="lead-choice lead-choice--radio"
+                        htmlFor={optionId('estimate-construction-method', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-construction-method', option)}
+                          name="constructionMethod"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Crown Molding</legend>
+                  <div className="lead-radio-list">
+                    {crownMoldingOptions.map((option) => (
+                      <label
+                        className="lead-choice lead-choice--radio"
+                        htmlFor={optionId('estimate-crown-molding', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-crown-molding', option)}
+                          name="crownMolding"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Door Style</legend>
+                  <div className="lead-radio-list">
+                    {doorStyleOptions.map((option) => (
+                      <label
+                        className="lead-choice lead-choice--radio"
+                        htmlFor={optionId('estimate-door-style', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-door-style', option)}
+                          name="doorStyle"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="lead-choice-group">
+                  <legend>Wood Species / Material</legend>
+                  <div className="lead-choice-grid lead-choice-grid--two">
+                    {woodSpeciesOptions.map((option) => (
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-wood-species', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-wood-species', option)}
+                          name="woodSpecies"
+                          type="checkbox"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="lead-section-heading">
+                  <h2>Accessories &amp; Upgrades</h2>
+                </div>
+
+                <fieldset className="lead-choice-group">
+                  <legend className="lead-choice-group-legend--hidden">
+                    Accessories &amp; Upgrades
+                  </legend>
+                  <div className="lead-choice-grid lead-choice-grid--three">
+                    {accessoryOptions.map((option) => (
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-accessory', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-accessory', option)}
+                          name="accessories"
+                          type="checkbox"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="lead-section-heading">
+                  <h2>Project Notes &amp; Files</h2>
+                </div>
+
+                <div className="lead-field">
+                  <label htmlFor="estimate-comments">Comments</label>
+                  <textarea id="estimate-comments" name="comments" rows="5" />
+                </div>
+
+                <div className="lead-field">
+                  <label htmlFor="estimate-files">Upload Files</label>
+                  <input
+                    id="estimate-files"
+                    type="file"
+                    accept=".pdf,.dwg,.jpg,.png,.jpeg"
+                    multiple
+                    disabled
+                  />
+                  <div className="lead-banner">
+                    File uploads will be available soon. For now, you can email photos to
+                    info@calibercabinetshop.com
+                  </div>
                 </div>
 
                 <div className="turnstile-wrap">
@@ -191,7 +622,7 @@ export function EstimatePage() {
                   type="submit"
                   disabled={!turnstileToken || isSending}
                 >
-                  {isSending ? 'Sending…' : 'Send My Request'}
+                  {isSending ? 'Sending...' : 'Send My Request'}
                 </button>
 
                 {submitError ? <p className="lead-error">{submitError}</p> : null}

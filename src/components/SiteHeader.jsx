@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
-import { homeownerConsultationUrl } from '../lib/consultationLinks.js';
+const consultationAnchorUrl = '/#consultation';
 
 const navItems = [
   { label: 'Our Work', href: '/#work' },
@@ -32,7 +32,7 @@ export function SiteHeader() {
           ))}
         </ul>
 
-        <a className="nav-cta" href={homeownerConsultationUrl}>
+        <a className="nav-cta" href={consultationAnchorUrl}>
           Get Started
         </a>
 
@@ -60,7 +60,7 @@ export function SiteHeader() {
         </ul>
         <a
           className="button button-primary"
-          href={homeownerConsultationUrl}
+          href={consultationAnchorUrl}
           onClick={() => setIsMenuOpen(false)}
         >
           Get Started

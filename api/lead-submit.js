@@ -6,12 +6,30 @@ export default async function handler(req, res) {
   }
 
   const { formType, fields, turnstileToken } = req.body;
-  void turnstileToken;
 
-  // TODO Step 1: Verify Turnstile token server-side
-  // POST to https://challenges.cloudflare.com/turnstile/v0/siteverify
-  // with secret: process.env.TURNSTILE_SECRET_KEY and response: turnstileToken
-  // Reject submission if verification fails
+  if (!turnstileToken) {
+    return res.status(400).json({ error: 'Missing Turnstile token' });
+  }
+
+  const verificationResponse = await fetch(
+    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        secret: process.env.TURNSTILE_SECRET_KEY ?? '',
+        response: turnstileToken,
+      }),
+    },
+  );
+
+  const outcome = await verificationResponse.json();
+
+  if (!outcome.success) {
+    return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
+  }
 
   // TODO Step 2: Save submission to Supabase
   // Use @supabase/supabase-js with SUPABASE_URL and SUPABASE_ANON_KEY env vars
@@ -25,18 +43,9 @@ export default async function handler(req, res) {
   // Use HUBSPOT_ACCESS_TOKEN env var
   // Create a contact and associated deal/form submission
 
-  // PLACEHOLDER: All TODOs above are not yet implemented.
-  // Remove this placeholder block once all steps are wired and tested.
-  const isConfigured = process.env.SUPABASE_URL && process.env.RESEND_API_KEY;
-
-  if (!isConfigured) {
-    console.log('[lead-submit] Placeholder mode - received submission:', { formType, fields });
-    return res.status(200).json({
-      success: true,
-      message: 'Submission received (placeholder - backend not yet configured)',
-      placeholder: true,
-    });
-  }
-
-  return res.status(200).json({ success: true });
+  console.log('[lead-submit] Turnstile verified. Submission received:', { formType, fields });
+  return res.status(200).json({
+    success: true,
+    message: 'Submission received. Backend storage and notifications coming in next deployment.',
+  });
 }

@@ -1342,6 +1342,13 @@ h3 {
   color: var(--color-ink);
 }
 
+.form-cols-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 40px;
+  align-items: start;
+}
+
 .form-next-steps {
   margin: 8px 0 0;
   color: var(--color-muted);
@@ -1536,7 +1543,8 @@ h3 {
   .lead-field-grid--three,
   .lead-choice-grid--two,
   .lead-choice-grid--three,
-  .lead-radio-list--inline {
+  .lead-radio-list--inline,
+  .form-cols-2 {
     grid-template-columns: 1fr;
   }
 

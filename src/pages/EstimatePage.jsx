@@ -448,10 +448,10 @@ export function EstimatePage() {
 
                 <fieldset className="lead-choice-group">
                   <legend>Installation Timeline</legend>
-                  <div className="lead-radio-list">
+                  <div className="lead-choice-grid lead-choice-grid--two">
                     {installationTimelineOptions.map((option) => (
                       <label
-                        className="lead-choice lead-choice--radio"
+                        className="lead-choice"
                         htmlFor={optionId('estimate-installation-timeline', option)}
                         key={option}
                       >
@@ -471,89 +471,95 @@ export function EstimatePage() {
                   <h2>Materials &amp; Specifications</h2>
                 </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Construction Method</legend>
-                  <div className="lead-radio-list">
-                    {constructionMethodOptions.map((option) => (
-                      <label
-                        className="lead-choice lead-choice--radio"
-                        htmlFor={optionId('estimate-construction-method', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-construction-method', option)}
-                          name="constructionMethod"
-                          type="radio"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                {/* Construction Method + Crown Molding: side by side */}
+                <div className="form-cols-2">
+                  <fieldset className="lead-choice-group">
+                    <legend>Construction Method</legend>
+                    <div className="lead-radio-list">
+                      {constructionMethodOptions.map((option) => (
+                        <label
+                          className="lead-choice"
+                          htmlFor={optionId('estimate-construction-method', option)}
+                          key={option}
+                        >
+                          <input
+                            id={optionId('estimate-construction-method', option)}
+                            name="constructionMethod"
+                            type="radio"
+                            value={option}
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Crown Molding</legend>
-                  <div className="lead-radio-list">
-                    {crownMoldingOptions.map((option) => (
-                      <label
-                        className="lead-choice lead-choice--radio"
-                        htmlFor={optionId('estimate-crown-molding', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-crown-molding', option)}
-                          name="crownMolding"
-                          type="radio"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                  <fieldset className="lead-choice-group">
+                    <legend>Crown Molding</legend>
+                    <div className="lead-radio-list">
+                      {crownMoldingOptions.map((option) => (
+                        <label
+                          className="lead-choice"
+                          htmlFor={optionId('estimate-crown-molding', option)}
+                          key={option}
+                        >
+                          <input
+                            id={optionId('estimate-crown-molding', option)}
+                            name="crownMolding"
+                            type="radio"
+                            value={option}
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Door Style</legend>
-                  <div className="lead-radio-list">
-                    {doorStyleOptions.map((option) => (
-                      <label
-                        className="lead-choice lead-choice--radio"
-                        htmlFor={optionId('estimate-door-style', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-door-style', option)}
-                          name="doorStyle"
-                          type="radio"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                {/* Door Style + Wood Species: side by side */}
+                <div className="form-cols-2">
+                  <fieldset className="lead-choice-group">
+                    <legend>Door Style</legend>
+                    <div className="lead-radio-list">
+                      {doorStyleOptions.map((option) => (
+                        <label
+                          className="lead-choice"
+                          htmlFor={optionId('estimate-door-style', option)}
+                          key={option}
+                        >
+                          <input
+                            id={optionId('estimate-door-style', option)}
+                            name="doorStyle"
+                            type="radio"
+                            value={option}
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Wood Species / Material</legend>
-                  <div className="lead-choice-grid lead-choice-grid--two">
-                    {woodSpeciesOptions.map((option) => (
-                      <label
-                        className="lead-choice"
-                        htmlFor={optionId('estimate-wood-species', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-wood-species', option)}
-                          name="woodSpecies"
-                          type="checkbox"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                  <fieldset className="lead-choice-group">
+                    <legend>Wood Species / Material</legend>
+                    <div className="lead-choice-grid lead-choice-grid--two">
+                      {woodSpeciesOptions.map((option) => (
+                        <label
+                          className="lead-choice"
+                          htmlFor={optionId('estimate-wood-species', option)}
+                          key={option}
+                        >
+                          <input
+                            id={optionId('estimate-wood-species', option)}
+                            name="woodSpecies"
+                            type="checkbox"
+                            value={option}
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
 
                 <div className="form-section-title">
                   <h2 id="estimate-accessories-heading">Accessories &amp; Upgrades</h2>

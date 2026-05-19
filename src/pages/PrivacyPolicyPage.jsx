@@ -1,18 +1,25 @@
+import { useEffect } from 'react';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
 
 export function PrivacyPolicyPage() {
+  useEffect(() => {
+    document.title = 'Privacy Policy | Caliber Cabinets';
+  }, []);
+
   return (
-    <>
+    <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
-        <div className="lead-page">
-          <div className="lead-card" style={{ maxWidth: '720px' }}>
-            <h1>Privacy Policy</h1>
-            <p style={{ color: 'var(--color-muted)', marginBottom: '2rem' }}>
-              Effective date: June 1, 2026 &nbsp;·&nbsp; Caliber Cabinets, Inc. &nbsp;·&nbsp;
-              Livermore, CA
-            </p>
+        <div className="privacy-shell">
+          <div className="privacy-doc">
+            <header className="privacy-header">
+              <h1>Privacy Policy</h1>
+              <p className="privacy-meta">
+                Effective June 1, 2026 &nbsp;·&nbsp; Caliber Cabinets, Inc. &nbsp;·&nbsp;
+                Livermore, CA
+              </p>
+            </header>
 
             <section>
               <h2>What this policy covers</h2>
@@ -30,15 +37,12 @@ export function PrivacyPolicyPage() {
                 <strong>Information you provide directly.</strong> When you submit a design
                 consultation or trade estimate request, we collect the details you enter: name,
                 phone number, email address, project address, project type, and any notes or
-                descriptions you include. This information is stored securely and used only to
-                follow up on your request.
+                descriptions you include. This is used only to follow up on your request.
               </p>
               <p>
                 <strong>Analytics data.</strong> We use Google Analytics 4 to understand how
                 visitors use our site — which pages are visited, how long sessions last, and
-                general geographic region. Google Analytics collects this data using cookies and
-                anonymizes IP addresses. We do not use this data to identify individuals. You can
-                opt out using the{' '}
+                general geographic region. IP addresses are anonymized. You can opt out using the{' '}
                 <a
                   href="https://tools.google.com/dlpage/gaoptout"
                   target="_blank"
@@ -50,9 +54,8 @@ export function PrivacyPolicyPage() {
               </p>
               <p>
                 <strong>Session behavior data.</strong> We use Microsoft Clarity to capture
-                anonymized session recordings and heatmaps that help us improve the site
-                experience. Clarity does not capture passwords, payment details, or other sensitive
-                fields. You can learn more at{' '}
+                anonymized session recordings and heatmaps that help us improve the site. Clarity
+                does not capture passwords or payment details. Learn more at{' '}
                 <a
                   href="https://privacy.microsoft.com/privacystatement"
                   target="_blank"
@@ -72,8 +75,8 @@ export function PrivacyPolicyPage() {
                   rel="noopener noreferrer"
                 >
                   Cloudflare&apos;s Privacy Policy
-                </a>{' '}
-                for details.
+                </a>
+                .
               </p>
             </section>
 
@@ -87,8 +90,8 @@ export function PrivacyPolicyPage() {
                 <li>Maintain records of client inquiries for business purposes</li>
               </ul>
               <p>
-                We do not use your information for advertising, profiling, or any purpose unrelated
-                to your inquiry.
+                We do not use your information for advertising, profiling, or any purpose
+                unrelated to your inquiry.
               </p>
             </section>
 
@@ -96,7 +99,7 @@ export function PrivacyPolicyPage() {
               <h2>Third-party services</h2>
               <p>
                 We use the following services to operate the site and manage inquiries. Each has
-                its own privacy policy governing how it handles data.
+                its own privacy policy.
               </p>
               <ul>
                 <li>
@@ -106,8 +109,7 @@ export function PrivacyPolicyPage() {
                   <strong>Resend</strong> — transactional email delivery for lead notifications
                 </li>
                 <li>
-                  <strong>HubSpot</strong> — CRM platform for managing and following up on
-                  customer inquiries
+                  <strong>HubSpot</strong> — CRM platform for managing customer inquiries
                 </li>
                 <li>
                   <strong>Vercel</strong> — website hosting and serverless functions
@@ -131,9 +133,9 @@ export function PrivacyPolicyPage() {
             <section>
               <h2>Data retention</h2>
               <p>
-                Form submissions are retained for as long as needed to fulfill your request and
-                for standard business record-keeping. If you would like your data removed, contact
-                us at the address below.
+                Form submissions are retained as long as needed to fulfill your request and for
+                standard business record-keeping. To request removal of your data, contact us at
+                the address below.
               </p>
             </section>
 
@@ -145,8 +147,8 @@ export function PrivacyPolicyPage() {
               </p>
               <ul>
                 <li>
-                  <strong>Right to know.</strong> You may request a summary of the personal
-                  information we have collected about you and how it has been used.
+                  <strong>Right to know.</strong> You may request a summary of what personal
+                  information we have collected and how it has been used.
                 </li>
                 <li>
                   <strong>Right to delete.</strong> You may request that we delete personal
@@ -172,9 +174,9 @@ export function PrivacyPolicyPage() {
               <h2>Cookies</h2>
               <p>
                 We use cookies for analytics (Google Analytics, Microsoft Clarity) and site
-                functionality. No cookies are used to track you across other websites or to build
-                advertising profiles. You can disable cookies in your browser settings at any time,
-                though this may affect site functionality.
+                functionality. No cookies are used to track you across other websites or build
+                advertising profiles. You can disable cookies in your browser settings at any
+                time, though this may affect site functionality.
               </p>
             </section>
 
@@ -205,6 +207,6 @@ export function PrivacyPolicyPage() {
         </div>
       </main>
       <SiteFooter />
-    </>
+    </div>
   );
 }

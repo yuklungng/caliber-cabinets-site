@@ -1,7 +1,6 @@
 /* global process */
 
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -57,31 +56,41 @@ export default async function handler(req, res) {
 
   console.log('[lead-submit] Lead saved to Supabase:', formType);
 
-  // Step 3: Send notification email via Resend
+  // Step 3: Send notification email via Resend (direct HTTP — no SDK)
   if (process.env.RESEND_API_KEY) {
     try {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-
-      const fieldsSummary = Object.entries(fields)
-        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
-        .join('\n');
-
       const formLabel =
         formType === 'homeowner-consultation'
           ? 'Design Consultation Request'
           : 'Trade Partner Estimate Request';
 
-      await resend.emails.send({
-        from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
-        to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
-        subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
-        text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
+      const fieldsSummary = Object.entries(fields)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+        .join('\n');
+
+      const emailRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
+          to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
+          subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
+          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
+        }),
       });
 
-      console.log('[lead-submit] Notification email sent via Resend');
+      if (emailRes.ok) {
+        console.log('[lead-submit] Notification email sent via Resend');
+      } else {
+        const emailErr = await emailRes.text();
+        console.error('[lead-submit] Resend API error:', emailErr);
+      }
     } catch (emailError) {
       // Email failure is non-fatal — lead is already saved to Supabase
-      console.error('[lead-submit] Resend email error:', emailError.message);
+      console.error('[lead-submit] Resend fetch error:', emailError.message);
     }
   }
 

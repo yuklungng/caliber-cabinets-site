@@ -27,9 +27,6 @@
     { "source": "/hello-world/",    "destination": "/",                             "permanent": true }
   ],
   "rewrites": [
-    { "source": "/request-a-design-consultation",  "destination": "/" },
-    { "source": "/request-a-design-consultation/", "destination": "/" },
-    { "source": "/request-design-estimate",        "destination": "/" },
-    { "source": "/request-design-estimate/",       "destination": "/" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

@@ -25,5 +25,11 @@
     { "source": "/sample-page/",    "destination": "/",                             "permanent": true },
     { "source": "/hello-world",     "destination": "/",                             "permanent": true },
     { "source": "/hello-world/",    "destination": "/",                             "permanent": true }
+  ],
+  "rewrites": [
+    { "source": "/request-a-design-consultation",  "destination": "/" },
+    { "source": "/request-a-design-consultation/", "destination": "/" },
+    { "source": "/request-design-estimate",        "destination": "/" },
+    { "source": "/request-design-estimate/",       "destination": "/" }
   ]
 }

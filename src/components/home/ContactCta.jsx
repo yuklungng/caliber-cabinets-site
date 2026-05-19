@@ -24,16 +24,12 @@ export function ContactCta() {
                 <a
                   className="button cta-homeowner"
                   href={homeownerConsultationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
                 >
                   I&apos;m a Homeowner &mdash; Request Consultation
                 </a>
                 <a
                   className="button cta-trade"
                   href={tradeEstimateUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
                 >
                   I&apos;m a Trade Professional &mdash; Request Estimate
                 </a>

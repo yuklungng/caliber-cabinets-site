@@ -3,9 +3,9 @@ import { Menu, X } from 'lucide-react';
 import { homeownerConsultationUrl } from '../lib/consultationLinks.js';
 
 const navItems = [
-  { label: 'Our Work', href: '#work' },
-  { label: 'Homeowners', href: '#homeowners' },
-  { label: 'Process', href: '#process' },
+  { label: 'Our Work', href: '/#work' },
+  { label: 'Homeowners', href: '/#homeowners' },
+  { label: 'Process', href: '/#process' },
 ];
 
 export function SiteHeader() {

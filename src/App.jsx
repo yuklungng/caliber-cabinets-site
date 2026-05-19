@@ -1,8 +1,11 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { SiteFooter } from './components/SiteFooter.jsx';
 import { SiteHeader } from './components/SiteHeader.jsx';
 import { HomePage } from './pages/HomePage.jsx';
+import { ConsultationPage } from './pages/ConsultationPage.jsx';
+import { EstimatePage } from './pages/EstimatePage.jsx';
 
-export default function App() {
+function HomeRoute() {
   return (
     <>
       <SiteHeader />
@@ -11,5 +14,16 @@ export default function App() {
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomeRoute />} />
+      <Route path="/request-a-design-consultation" element={<ConsultationPage />} />
+      <Route path="/request-design-estimate" element={<EstimatePage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

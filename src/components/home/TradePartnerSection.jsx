@@ -1,6 +1,5 @@
 import { Handshake } from 'lucide-react';
-
-const tradeEstimateUrl = 'https://calibercabinetshop.com/request-design-estimate/';
+import { tradeEstimateUrl } from '../../lib/consultationLinks.js';
 
 export function TradePartnerSection() {
   return (

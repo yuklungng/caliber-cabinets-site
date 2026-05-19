@@ -1,7 +1,7 @@
 {
   "name": "caliber-cabinets-site",
   "private": true,
-  "version": "0.0.24",
+  "version": "0.0.25",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,9 +10,11 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "^1.5.2",
+    "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "lucide-react": "^0.468.0"
+    "react-router-dom": "^7.15.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

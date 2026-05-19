@@ -46,8 +46,8 @@ function InstagramIcon(props) {
 }
 
 const footerLinks = [
-  { label: 'Our Work', href: '#work' },
-  { label: 'Homeowners', href: '#homeowners' },
+  { label: 'Our Work', href: '/#work' },
+  { label: 'Homeowners', href: '/#homeowners' },
   { label: 'Consultation', href: homeownerConsultationUrl },
 ];
 

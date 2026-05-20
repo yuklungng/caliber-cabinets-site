@@ -139,6 +139,10 @@ const stateOptions = [
 
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
+function Req() {
+  return <span className="req"> (Required)</span>;
+}
+
 function SuccessState() {
   return (
     <div className="form-success-card">
@@ -181,7 +185,7 @@ export function EstimatePage() {
       firstName: formData.get('firstName') ?? '',
       lastName: formData.get('lastName') ?? '',
       companyName: formData.get('companyName') ?? '',
-      tradeRoles: formData.getAll('tradeRoles'),
+      tradeRole: formData.get('tradeRole') ?? '',
       phone: formData.get('phone') ?? '',
       email: formData.get('email') ?? '',
       licenseNumber: formData.get('licenseNumber') ?? '',
@@ -287,11 +291,11 @@ export function EstimatePage() {
 
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
-                    <label htmlFor="estimate-first-name">First Name *</label>
+                    <label htmlFor="estimate-first-name">First Name<Req /></label>
                     <input id="estimate-first-name" name="firstName" type="text" required />
                   </div>
                   <div className="lead-field">
-                    <label htmlFor="estimate-last-name">Last Name *</label>
+                    <label htmlFor="estimate-last-name">Last Name<Req /></label>
                     <input id="estimate-last-name" name="lastName" type="text" required />
                   </div>
                 </div>
@@ -301,34 +305,23 @@ export function EstimatePage() {
                   <input id="estimate-company" name="companyName" type="text" />
                 </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Trade Role</legend>
-                  <div className="lead-choice-grid lead-choice-grid--two">
-                    {tradeTypes.map((option) => (
-                      <label
-                        className="lead-choice"
-                        htmlFor={optionId('estimate-trade-role', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-trade-role', option)}
-                          name="tradeRoles"
-                          type="checkbox"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
+                <div className="lead-field">
+                  <label htmlFor="estimate-trade-role">Trade Role</label>
+                  <select id="estimate-trade-role" name="tradeRole" defaultValue="">
+                    <option value="" disabled>Select your trade role</option>
+                    {tradeTypes.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
-                  </div>
-                </fieldset>
+                  </select>
+                </div>
 
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
-                    <label htmlFor="estimate-phone">Phone Number *</label>
+                    <label htmlFor="estimate-phone">Phone Number<Req /></label>
                     <input id="estimate-phone" name="phone" type="tel" required />
                   </div>
                   <div className="lead-field">
-                    <label htmlFor="estimate-email">Email Address *</label>
+                    <label htmlFor="estimate-email">Email Address<Req /></label>
                     <input id="estimate-email" name="email" type="email" required />
                   </div>
                 </div>
@@ -339,26 +332,15 @@ export function EstimatePage() {
                   <input id="estimate-license-number" name="licenseNumber" type="text" />
                 </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Preferred Contact</legend>
-                  <div className="lead-radio-list lead-radio-list--inline">
-                    {preferredContactOptions.map((option) => (
-                      <label
-                        className="lead-choice lead-choice--radio"
-                        htmlFor={optionId('estimate-preferred-contact', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('estimate-preferred-contact', option)}
-                          name="preferredContact"
-                          type="radio"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
+                <div className="lead-field">
+                  <label htmlFor="estimate-preferred-contact">Preferred Contact</label>
+                  <select id="estimate-preferred-contact" name="preferredContact" defaultValue="">
+                    <option value="" disabled>Select preferred contact method</option>
+                    {preferredContactOptions.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
-                  </div>
-                </fieldset>
+                  </select>
+                </div>
 
                 <div className="lead-field">
                   <label htmlFor="estimate-gc-contact">GC Name &amp; Phone</label>
@@ -516,57 +498,54 @@ export function EstimatePage() {
                   </fieldset>
                 </div>
 
-                {/* Door Style + Wood Species: side by side */}
-                <div className="form-cols-2">
-                  <fieldset className="lead-choice-group">
-                    <legend>Door Style</legend>
-                    <div className="lead-radio-list">
-                      {doorStyleOptions.map((option) => (
-                        <label
-                          className="lead-choice"
-                          htmlFor={optionId('estimate-door-style', option)}
-                          key={option}
-                        >
-                          <input
-                            id={optionId('estimate-door-style', option)}
-                            name="doorStyle"
-                            type="radio"
-                            value={option}
-                          />
-                          <span>{option}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
+                <fieldset className="lead-choice-group">
+                  <legend>Door Style</legend>
+                  <div className="lead-choice-grid lead-choice-grid--three">
+                    {doorStyleOptions.map((option) => (
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-door-style', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-door-style', option)}
+                          name="doorStyle"
+                          type="radio"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
 
-                  <fieldset className="lead-choice-group">
-                    <legend>Wood Species / Material</legend>
-                    <div className="lead-choice-grid lead-choice-grid--two">
-                      {woodSpeciesOptions.map((option) => (
-                        <label
-                          className="lead-choice"
-                          htmlFor={optionId('estimate-wood-species', option)}
-                          key={option}
-                        >
-                          <input
-                            id={optionId('estimate-wood-species', option)}
-                            name="woodSpecies"
-                            type="checkbox"
-                            value={option}
-                          />
-                          <span>{option}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                </div>
+                <fieldset className="lead-choice-group">
+                  <legend>Wood Species / Material</legend>
+                  <div className="lead-choice-grid lead-choice-grid--three">
+                    {woodSpeciesOptions.map((option) => (
+                      <label
+                        className="lead-choice"
+                        htmlFor={optionId('estimate-wood-species', option)}
+                        key={option}
+                      >
+                        <input
+                          id={optionId('estimate-wood-species', option)}
+                          name="woodSpecies"
+                          type="checkbox"
+                          value={option}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
 
                 <div className="form-section-title">
                   <h2 id="estimate-accessories-heading">Accessories &amp; Upgrades</h2>
                 </div>
 
                 <fieldset className="lead-choice-group" aria-labelledby="estimate-accessories-heading">
-                  <div className="lead-choice-grid lead-choice-grid--three">
+                  <div className="lead-choice-grid lead-choice-grid--two">
                     {accessoryOptions.map((option) => (
                       <label
                         className="lead-choice"

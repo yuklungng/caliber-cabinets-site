@@ -22,6 +22,10 @@ const timelineOptions = [
 
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
+function Req() {
+  return <span className="req"> (Required)</span>;
+}
+
 function SuccessState() {
   return (
     <div className="form-success-card">
@@ -37,10 +41,6 @@ function SuccessState() {
       </div>
     </div>
   );
-}
-
-function optionId(prefix, value) {
-  return `${prefix}-${value.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 }
 
 export function ConsultationPage() {
@@ -64,7 +64,7 @@ export function ConsultationPage() {
       lastName: formData.get('lastName') ?? '',
       phone: formData.get('phone') ?? '',
       email: formData.get('email') ?? '',
-      projectTypes: formData.getAll('projectTypes'),
+      projectType: formData.get('projectType') ?? '',
       timeline: formData.get('timeline') ?? '',
       projectAddress: formData.get('projectAddress') ?? '',
       description: formData.get('description') ?? '',
@@ -105,25 +105,26 @@ export function ConsultationPage() {
               </p>
 
               <form className="lead-form" onSubmit={handleSubmit}>
+
                 {/* Contact Info */}
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
-                    <label htmlFor="c-first-name">First Name *</label>
+                    <label htmlFor="c-first-name">First Name<Req /></label>
                     <input id="c-first-name" name="firstName" type="text" required />
                   </div>
                   <div className="lead-field">
-                    <label htmlFor="c-last-name">Last Name *</label>
+                    <label htmlFor="c-last-name">Last Name<Req /></label>
                     <input id="c-last-name" name="lastName" type="text" required />
                   </div>
                 </div>
 
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
-                    <label htmlFor="c-phone">Phone Number *</label>
+                    <label htmlFor="c-phone">Phone Number<Req /></label>
                     <input id="c-phone" name="phone" type="tel" required />
                   </div>
                   <div className="lead-field">
-                    <label htmlFor="c-email">Email Address *</label>
+                    <label htmlFor="c-email">Email Address<Req /></label>
                     <input id="c-email" name="email" type="email" required />
                   </div>
                 </div>
@@ -133,47 +134,27 @@ export function ConsultationPage() {
                   <h2>Project Details</h2>
                 </div>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Project Type</legend>
-                  <div className="lead-choice-grid lead-choice-grid--three">
-                    {projectTypes.map((option) => (
-                      <label
-                        className="lead-choice"
-                        htmlFor={optionId('c-project-type', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('c-project-type', option)}
-                          name="projectTypes"
-                          type="checkbox"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="c-project-type">Project Type</label>
+                    <select id="c-project-type" name="projectType" defaultValue="">
+                      <option value="" disabled>Select a project type</option>
+                      {projectTypes.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
                   </div>
-                </fieldset>
 
-                <fieldset className="lead-choice-group">
-                  <legend>Estimated Timeline</legend>
-                  <div className="lead-radio-list lead-radio-list--inline">
-                    {timelineOptions.map((option) => (
-                      <label
-                        className="lead-choice"
-                        htmlFor={optionId('c-timeline', option)}
-                        key={option}
-                      >
-                        <input
-                          id={optionId('c-timeline', option)}
-                          name="timeline"
-                          type="radio"
-                          value={option}
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
+                  <div className="lead-field">
+                    <label htmlFor="c-timeline">Estimated Timeline</label>
+                    <select id="c-timeline" name="timeline" defaultValue="">
+                      <option value="" disabled>Select a timeline</option>
+                      {timelineOptions.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
                   </div>
-                </fieldset>
+                </div>
 
                 <div className="lead-field">
                   <label htmlFor="c-address">Project Address</label>

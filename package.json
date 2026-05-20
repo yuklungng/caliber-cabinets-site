@@ -1,7 +1,7 @@
 {
   "name": "caliber-cabinets-site",
   "private": true,
-  "version": "0.0.29",
+  "version": "0.0.30",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,8 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.15.1"
+    "react-router-dom": "^7.15.1",
+    "resend": "^6.12.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

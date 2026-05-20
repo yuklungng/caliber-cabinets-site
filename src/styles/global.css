@@ -1342,6 +1342,13 @@ h3 {
   color: var(--color-ink);
 }
 
+.req {
+  color: #dc2626;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 0.875em;
+}
+
 .form-cols-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -1347,7 +1347,6 @@ h3 {
   color: var(--color-muted);
   font-size: 1rem;
   line-height: 1.7;
-  max-width: 600px;
 }
 
 .form-section-title {

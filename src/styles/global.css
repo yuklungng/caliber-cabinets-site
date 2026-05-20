@@ -1319,7 +1319,7 @@ h3 {
 /* ── Form pages (open layout, no card) ──────────────── */
 
 .form-shell {
-  max-width: 860px;
+  width: 100%;
   padding: 48px 0 80px;
 }
 

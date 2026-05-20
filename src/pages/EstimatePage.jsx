@@ -264,18 +264,20 @@ export function EstimatePage() {
               <form className="lead-form" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
                 <div className="lead-info-box">
                   <p>NEED DESIGN &amp; MEASURE SERVICES?</p>
-                  <p>
-                    - If your client does not have professional drawings or architect plans, we
-                    offer a Design Agreement at $175/hr with a non-refundable 5-hour deposit
-                    ($875).
-                  </p>
-                  <p>
-                    - Includes: Project Consultation, Job Site Measure, Layout, Detailed Estimate,
-                    and 3D Renderings.
-                  </p>
-                  <p>
-                    - Design scope covers cabinetry layout and material selections only.
-                  </p>
+                  <ul>
+                    <li>
+                      If your client does not have professional drawings or architect plans, we
+                      offer a Design Agreement at $175/hr with a non-refundable 5-hour deposit
+                      ($875).
+                    </li>
+                    <li>
+                      Includes: Project Consultation, Job Site Measure, Layout, Detailed Estimate,
+                      and 3D Renderings.
+                    </li>
+                    <li>
+                      Design scope covers cabinetry layout and material selections only.
+                    </li>
+                  </ul>
                   <p className="lead-info-credit">
                     Design fees are fully credited toward the cabinet purchase if your client
                     proceeds with Caliber Cabinets.

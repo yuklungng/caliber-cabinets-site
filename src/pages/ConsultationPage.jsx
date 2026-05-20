@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useBlocker } from 'react-router-dom';
 import { CircleCheckBig } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
@@ -48,10 +49,30 @@ export function ConsultationPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     document.title = 'Request a Design Consultation | Caliber Cabinets';
   }, []);
+
+  // Warn on browser navigation (tab close, back button, address bar)
+  useEffect(() => {
+    if (!isDirty || isSubmitted) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty, isSubmitted]);
+
+  // Warn on React Router in-app navigation (logo, nav links)
+  const blocker = useBlocker(isDirty && !isSubmitted);
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    if (window.confirm('You have unsaved changes. Leave this page?')) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -91,7 +112,7 @@ export function ConsultationPage() {
 
   return (
     <div className="lead-page">
-      <SiteHeader />
+      <SiteHeader hideCta />
       <main id="main-content">
         <div className="container">
         <div className="form-shell">
@@ -105,7 +126,7 @@ export function ConsultationPage() {
                 schedule your consultation — no pressure, no obligation.
               </p>
 
-              <form className="lead-form" onSubmit={handleSubmit}>
+              <form className="lead-form" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
 
                 {/* Contact Info */}
                 <div className="lead-field-grid lead-field-grid--two">

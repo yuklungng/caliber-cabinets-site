@@ -8,7 +8,7 @@ const navItems = [
   { label: 'Process', href: '/#process' },
 ];
 
-export function SiteHeader() {
+export function SiteHeader({ hideCta = false }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
@@ -32,9 +32,11 @@ export function SiteHeader() {
           ))}
         </ul>
 
-        <a className="nav-cta" href={consultationAnchorUrl}>
-          Get Started
-        </a>
+        {!hideCta && (
+          <a className="nav-cta" href={consultationAnchorUrl}>
+            Get Started
+          </a>
+        )}
 
         <button
           className="icon-button mobile-menu-button"
@@ -58,13 +60,15 @@ export function SiteHeader() {
             </li>
           ))}
         </ul>
-        <a
-          className="button button-primary"
-          href={consultationAnchorUrl}
-          onClick={() => setIsMenuOpen(false)}
-        >
-          Get Started
-        </a>
+        {!hideCta && (
+          <a
+            className="button button-primary"
+            href={consultationAnchorUrl}
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Get Started
+          </a>
+        )}
       </div>
     </header>
   );

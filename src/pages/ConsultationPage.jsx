@@ -93,6 +93,7 @@ export function ConsultationPage() {
     <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
+        <div className="container">
         <div className="form-shell">
           {isSubmitted ? (
             <SuccessState />
@@ -236,6 +237,7 @@ export function ConsultationPage() {
               </form>
             </>
           )}
+        </div>
         </div>
       </main>
       <SiteFooter />

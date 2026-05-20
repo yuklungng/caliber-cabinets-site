@@ -240,6 +240,7 @@ export function EstimatePage() {
     <div className="lead-page">
       <SiteHeader />
       <main id="main-content">
+        <div className="container">
         <div className="form-shell">
           {isSubmitted ? (
             <SuccessState />
@@ -266,7 +267,7 @@ export function EstimatePage() {
                   <p>
                     - Design scope covers cabinetry layout and material selections only.
                   </p>
-                  <p>
+                  <p className="lead-info-credit">
                     Design fees are fully credited toward the cabinet purchase if your client
                     proceeds with Caliber Cabinets.
                   </p>
@@ -305,16 +306,6 @@ export function EstimatePage() {
                   <input id="estimate-company" name="companyName" type="text" />
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="estimate-trade-role">Trade Role</label>
-                  <select id="estimate-trade-role" name="tradeRole" defaultValue="">
-                    <option value="" disabled>Select your trade role</option>
-                    {tradeTypes.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
                     <label htmlFor="estimate-phone">Phone Number<Req /></label>
@@ -326,10 +317,21 @@ export function EstimatePage() {
                   </div>
                 </div>
 
-                <div className="lead-field">
-                  <label htmlFor="estimate-license-number">License Number</label>
-                  <p className="lead-helper-text">If applicable</p>
-                  <input id="estimate-license-number" name="licenseNumber" type="text" />
+                <div className="lead-field-grid lead-field-grid--two">
+                  <div className="lead-field">
+                    <label htmlFor="estimate-trade-role">Trade Role</label>
+                    <select id="estimate-trade-role" name="tradeRole" defaultValue="">
+                      <option value="" disabled>Select your trade role</option>
+                      {tradeTypes.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="estimate-license-number">License Number</label>
+                    <p className="lead-helper-text">If applicable</p>
+                    <input id="estimate-license-number" name="licenseNumber" type="text" />
+                  </div>
                 </div>
 
                 <div className="lead-field">
@@ -343,7 +345,7 @@ export function EstimatePage() {
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="estimate-gc-contact">GC Name &amp; Phone</label>
+                  <label htmlFor="estimate-gc-contact">General Contractor Name &amp; Phone</label>
                   <p className="lead-helper-text">If different from above</p>
                   <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" />
                 </div>
@@ -615,6 +617,7 @@ export function EstimatePage() {
               </form>
             </>
           )}
+        </div>
         </div>
       </main>
       <SiteFooter />

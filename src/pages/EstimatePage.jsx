@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useBlocker } from 'react-router-dom';
 import { CircleCheckBig } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
@@ -183,17 +182,6 @@ export function EstimatePage() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty, isSubmitted]);
-
-  // Warn on React Router in-app navigation (logo, nav links)
-  const blocker = useBlocker(isDirty && !isSubmitted);
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return;
-    if (window.confirm('You have unsaved changes. Leave this page?')) {
-      blocker.proceed();
-    } else {
-      blocker.reset();
-    }
-  }, [blocker]);
 
   async function handleSubmit(event) {
     event.preventDefault();

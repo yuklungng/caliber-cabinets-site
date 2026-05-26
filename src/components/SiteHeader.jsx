@@ -4,8 +4,9 @@ const consultationAnchorUrl = '/#consultation';
 
 const navItems = [
   { label: 'Our Work', href: '/#work' },
-  { label: 'Homeowners', href: '/#homeowners' },
+  { label: 'About', href: '/#about' },
   { label: 'Process', href: '/#process' },
+  { label: 'Trade Partners', href: '/#trade-partners' },
 ];
 
 export function SiteHeader({ hideCta = false }) {

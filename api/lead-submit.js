@@ -65,8 +65,28 @@ export default async function handler(req, res) {
           : 'Trade Partner Estimate Request';
 
       const fieldsSummary = Object.entries(fields)
+        .filter(([k]) => k !== 'attachments')
         .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
         .join('\n');
+
+      // Generate 7-day signed URLs for any uploaded files
+      let attachmentSection = '';
+      if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
+        try {
+          const signedUrls = await Promise.all(
+            fields.attachments.map(async (path) => {
+              const { data } = await supabase.storage
+                .from('lead-uploads')
+                .createSignedUrl(path, 60 * 60 * 24 * 7);
+              const filename = path.split('/').pop();
+              return `- ${filename}: ${data?.signedUrl ?? '(URL unavailable)'}`;
+            }),
+          );
+          attachmentSection = `\n\nAttachments (links valid 7 days):\n${signedUrls.join('\n')}`;
+        } catch {
+          attachmentSection = `\n\nAttachments: ${fields.attachments.join(', ')}`;
+        }
+      }
 
       const emailRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -78,7 +98,7 @@ export default async function handler(req, res) {
           from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
           to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
           subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
-          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}\n\nView in Supabase dashboard.`,
+          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentSection}\n\nView in Supabase dashboard.`,
         }),
       });
 

@@ -3,6 +3,7 @@ import { CircleCheckBig } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
+import { uploadFiles } from '../lib/uploadFiles.js';
 
 const tradeTypes = [
   'Interior Designer',
@@ -170,6 +171,8 @@ export function EstimatePage() {
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [isDirty, setIsDirty] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     document.title = 'Trade Partner Design & Estimate Request | Caliber Cabinets';
@@ -189,6 +192,18 @@ export function EstimatePage() {
     setIsSending(true);
 
     const formData = new FormData(event.currentTarget);
+
+    let attachments = [];
+    if (selectedFiles.length > 0) {
+      try {
+        attachments = await uploadFiles(selectedFiles, 'trade-estimate');
+      } catch (uploadErr) {
+        setUploadError(uploadErr.message);
+        setIsSending(false);
+        return;
+      }
+    }
+
     const fields = {
       needsDesignServices: formData.get('needsDesignServices') === 'Yes',
       firstName: formData.get('firstName') ?? '',
@@ -216,6 +231,7 @@ export function EstimatePage() {
       woodSpecies: formData.getAll('woodSpecies'),
       accessories: formData.getAll('accessories'),
       comments: formData.get('comments') ?? '',
+      attachments,
     };
 
     try {
@@ -588,17 +604,32 @@ export function EstimatePage() {
 
                 <div className="lead-field">
                   <label htmlFor="estimate-files">Upload Files</label>
+                  <p className="lead-helper-text">
+                    Optional — PDF, DWG, JPG, or PNG, up to 10MB each (max 5 files)
+                  </p>
                   <input
                     id="estimate-files"
                     type="file"
-                    accept=".pdf,.dwg,.jpg,.png,.jpeg"
+                    accept=".pdf,.dwg,.jpg,.jpeg,.png"
                     multiple
-                    disabled
+                    onChange={(e) => {
+                      setSelectedFiles(Array.from(e.target.files || []));
+                      setUploadError('');
+                    }}
                   />
-                  <div className="lead-banner">
-                    File uploads will be available soon. For now, you can email photos to
-                    info@calibercabinetshop.com
-                  </div>
+                  {selectedFiles.length > 0 && (
+                    <ul className="lead-file-list">
+                      {selectedFiles.map((f) => (
+                        <li key={f.name}>
+                          {f.name}{' '}
+                          <span className="lead-file-size">
+                            ({(f.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {uploadError && <p className="lead-error">{uploadError}</p>}
                 </div>
 
                 <div className="turnstile-wrap">

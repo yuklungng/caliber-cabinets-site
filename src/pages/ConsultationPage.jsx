@@ -3,6 +3,7 @@ import { CircleCheckBig } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
+import { uploadFiles } from '../lib/uploadFiles.js';
 
 const projectTypes = [
   'Kitchen',
@@ -49,6 +50,8 @@ export function ConsultationPage() {
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [isDirty, setIsDirty] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     document.title = 'Request a Design Consultation | Caliber Cabinets';
@@ -68,6 +71,18 @@ export function ConsultationPage() {
     setIsSending(true);
 
     const formData = new FormData(event.currentTarget);
+
+    let attachments = [];
+    if (selectedFiles.length > 0) {
+      try {
+        attachments = await uploadFiles(selectedFiles, 'homeowner-consultation');
+      } catch (uploadErr) {
+        setUploadError(uploadErr.message);
+        setIsSending(false);
+        return;
+      }
+    }
+
     const fields = {
       firstName: formData.get('firstName') ?? '',
       lastName: formData.get('lastName') ?? '',
@@ -78,6 +93,7 @@ export function ConsultationPage() {
       projectAddress: formData.get('projectAddress') ?? '',
       description: formData.get('description') ?? '',
       inspiration: formData.get('inspiration') ?? '',
+      attachments,
     };
 
     try {
@@ -201,12 +217,33 @@ export function ConsultationPage() {
                 </div>
 
                 <div className="lead-field">
-                  <label>Upload Photos or Sketches</label>
-                  <p className="lead-helper-text">Optional</p>
-                  <div className="lead-banner">
-                    File uploads coming soon. Email photos to{' '}
-                    <a href="mailto:info@calibercabinetshop.com">info@calibercabinetshop.com</a>
-                  </div>
+                  <label htmlFor="c-files">Upload Photos or Sketches</label>
+                  <p className="lead-helper-text">
+                    Optional — JPG, PNG, or PDF, up to 10MB each (max 5 files)
+                  </p>
+                  <input
+                    id="c-files"
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.pdf"
+                    multiple
+                    onChange={(e) => {
+                      setSelectedFiles(Array.from(e.target.files || []));
+                      setUploadError('');
+                    }}
+                  />
+                  {selectedFiles.length > 0 && (
+                    <ul className="lead-file-list">
+                      {selectedFiles.map((f) => (
+                        <li key={f.name}>
+                          {f.name}{' '}
+                          <span className="lead-file-size">
+                            ({(f.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {uploadError && <p className="lead-error">{uploadError}</p>}
                 </div>
 
                 {/* What Happens Next */}

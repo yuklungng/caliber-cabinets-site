@@ -3,10 +3,9 @@ import { Menu, X } from 'lucide-react';
 const consultationAnchorUrl = '/#consultation';
 
 const navItems = [
-  { label: 'Our Work', href: '/#work' },
   { label: 'About', href: '/#about' },
+  { label: 'Our Work', href: '/#work' },
   { label: 'Process', href: '/#process' },
-  { label: 'Trade Partners', href: '/#trade-partners' },
 ];
 
 export function SiteHeader({ hideCta = false }) {

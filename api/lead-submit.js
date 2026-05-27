@@ -1,6 +1,7 @@
 /* global process */
 
 import { createClient } from '@supabase/supabase-js';
+import { buildHtmlEmail } from './email-template.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -92,13 +93,24 @@ export default async function handler(req, res) {
         }
       }
 
+      const attachedFileNames = emailAttachments.map((a) => a.filename);
+      const failedFileNames = failedFiles.map((f) => f.split('/').pop());
+
+      // Plain text fallback
       let attachmentNote = '';
-      if (emailAttachments.length > 0) {
-        attachmentNote = `\n\nAttached files: ${emailAttachments.map((a) => a.filename).join(', ')}`;
+      if (attachedFileNames.length > 0) {
+        attachmentNote = `\n\nAttached files: ${attachedFileNames.join(', ')}`;
       }
-      if (failedFiles.length > 0) {
-        attachmentNote += `\n\nCould not attach (check Supabase Storage): ${failedFiles.join(', ')}`;
+      if (failedFileNames.length > 0) {
+        attachmentNote += `\n\nCould not attach (check Supabase): ${failedFileNames.join(', ')}`;
       }
+
+      const htmlBody = buildHtmlEmail({
+        formLabel,
+        fields,
+        attachedFiles: attachedFileNames,
+        failedFiles: failedFileNames,
+      });
 
       const emailRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -111,6 +123,7 @@ export default async function handler(req, res) {
           to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
           subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
           text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in Supabase dashboard.`,
+          html: htmlBody,
           attachments: emailAttachments,
         }),
       });

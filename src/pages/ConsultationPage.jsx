@@ -4,6 +4,7 @@ import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
+import { FileDropZone } from '../components/FileDropZone.jsx';
 
 const projectTypes = [
   'Kitchen',
@@ -217,33 +218,15 @@ export function ConsultationPage() {
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="c-files">Upload Photos or Sketches</label>
-                  <p className="lead-helper-text">
-                    Optional — JPG, PNG, or PDF, up to 10MB each (max 5 files)
-                  </p>
-                  <input
-                    id="c-files"
-                    type="file"
+                  <label>Upload Photos or Sketches</label>
+                  <FileDropZone
                     accept=".jpg,.jpeg,.png,.pdf"
                     multiple
-                    onChange={(e) => {
-                      setSelectedFiles(Array.from(e.target.files || []));
-                      setUploadError('');
-                    }}
+                    hint="JPG, PNG, or PDF — up to 10MB each, max 5 files"
+                    selectedFiles={selectedFiles}
+                    onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
+                    error={uploadError}
                   />
-                  {selectedFiles.length > 0 && (
-                    <ul className="lead-file-list">
-                      {selectedFiles.map((f) => (
-                        <li key={f.name}>
-                          {f.name}{' '}
-                          <span className="lead-file-size">
-                            ({(f.size / 1024).toFixed(0)} KB)
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {uploadError && <p className="lead-error">{uploadError}</p>}
                 </div>
 
                 {/* What Happens Next */}

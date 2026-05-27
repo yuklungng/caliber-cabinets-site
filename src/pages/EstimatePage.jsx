@@ -4,6 +4,7 @@ import { Turnstile } from '@marsidev/react-turnstile';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
+import { FileDropZone } from '../components/FileDropZone.jsx';
 
 const tradeTypes = [
   'Interior Designer',
@@ -603,33 +604,15 @@ export function EstimatePage() {
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="estimate-files">Upload Files</label>
-                  <p className="lead-helper-text">
-                    Optional — PDF, DWG, JPG, or PNG, up to 10MB each (max 5 files)
-                  </p>
-                  <input
-                    id="estimate-files"
-                    type="file"
+                  <label>Upload Files</label>
+                  <FileDropZone
                     accept=".pdf,.dwg,.jpg,.jpeg,.png"
                     multiple
-                    onChange={(e) => {
-                      setSelectedFiles(Array.from(e.target.files || []));
-                      setUploadError('');
-                    }}
+                    hint="PDF, DWG, JPG, or PNG — up to 10MB each, max 5 files"
+                    selectedFiles={selectedFiles}
+                    onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
+                    error={uploadError}
                   />
-                  {selectedFiles.length > 0 && (
-                    <ul className="lead-file-list">
-                      {selectedFiles.map((f) => (
-                        <li key={f.name}>
-                          {f.name}{' '}
-                          <span className="lead-file-size">
-                            ({(f.size / 1024).toFixed(0)} KB)
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {uploadError && <p className="lead-error">{uploadError}</p>}
                 </div>
 
                 <div className="turnstile-wrap">

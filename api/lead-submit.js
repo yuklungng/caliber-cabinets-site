@@ -69,23 +69,35 @@ export default async function handler(req, res) {
         .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
         .join('\n');
 
-      // Generate 7-day signed URLs for any uploaded files
-      let attachmentSection = '';
+      // Download uploaded files from Supabase Storage and attach to email
+      const emailAttachments = [];
+      const failedFiles = [];
+
       if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
-        try {
-          const signedUrls = await Promise.all(
-            fields.attachments.map(async (path) => {
-              const { data } = await supabase.storage
-                .from('lead-uploads')
-                .createSignedUrl(path, 60 * 60 * 24 * 7);
-              const filename = path.split('/').pop();
-              return `- ${filename}: ${data?.signedUrl ?? '(URL unavailable)'}`;
-            }),
-          );
-          attachmentSection = `\n\nAttachments (links valid 7 days):\n${signedUrls.join('\n')}`;
-        } catch {
-          attachmentSection = `\n\nAttachments: ${fields.attachments.join(', ')}`;
+        for (const path of fields.attachments) {
+          try {
+            const { data: blob, error: dlError } = await supabase.storage
+              .from('lead-uploads')
+              .download(path);
+            if (dlError || !blob) throw new Error(dlError?.message ?? 'Download failed');
+            const arrayBuffer = await blob.arrayBuffer();
+            const content = Buffer.from(arrayBuffer).toString('base64');
+            // Strip the leading timestamp from the filename (e.g. 1748123456789-photo.jpg → photo.jpg)
+            const filename = path.split('/').pop().replace(/^\d+-/, '');
+            emailAttachments.push({ filename, content });
+          } catch (dlErr) {
+            failedFiles.push(path.split('/').pop());
+            console.error('[lead-submit] File attachment error:', dlErr.message);
+          }
         }
+      }
+
+      let attachmentNote = '';
+      if (emailAttachments.length > 0) {
+        attachmentNote = `\n\nAttached files: ${emailAttachments.map((a) => a.filename).join(', ')}`;
+      }
+      if (failedFiles.length > 0) {
+        attachmentNote += `\n\nCould not attach (check Supabase Storage): ${failedFiles.join(', ')}`;
       }
 
       const emailRes = await fetch('https://api.resend.com/emails', {
@@ -98,7 +110,8 @@ export default async function handler(req, res) {
           from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
           to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
           subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
-          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentSection}\n\nView in Supabase dashboard.`,
+          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in Supabase dashboard.`,
+          attachments: emailAttachments,
         }),
       });
 

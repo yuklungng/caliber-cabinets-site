@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage.jsx';
 import { ConsultationPage } from './pages/ConsultationPage.jsx';
 import { EstimatePage } from './pages/EstimatePage.jsx';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage.jsx';
+import { AdminPage } from './pages/AdminPage.jsx';
 
 function HomeRoute() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/request-a-design-consultation" element={<ConsultationPage />} />
       <Route path="/request-design-estimate" element={<EstimatePage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+      <Route path="/admin" element={<AdminPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

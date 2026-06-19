@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { buildHtmlEmail } from './email-template.js';
+import { upsertContact, createDeal, buildHubSpotObjects } from './hubspot.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -140,9 +141,18 @@ export default async function handler(req, res) {
     }
   }
 
-  // TODO Step 4: Push lead to HubSpot
-  // Use HUBSPOT_ACCESS_TOKEN env var
-  // Create a contact and associated deal/form submission
+  // Step 4: Push lead to HubSpot
+  if (process.env.HUBSPOT_ACCESS_TOKEN) {
+    try {
+      const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields);
+      const contactId = await upsertContact(contactProperties);
+      await createDeal(dealProperties, contactId);
+      console.log('[lead-submit] HubSpot contact and deal created, contactId:', contactId);
+    } catch (hsError) {
+      // Non-fatal — lead is already saved to Supabase and email sent
+      console.error('[lead-submit] HubSpot error:', hsError.message);
+    }
+  }
 
   return res.status(200).json({ success: true });
 }

@@ -141,7 +141,7 @@ function LeadDetail({ fields }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onStatusChange, isUpdating }) {
+function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDelete, isUpdating }) {
   const f = lead.fields ?? {};
   const name = [f.firstName, f.lastName].filter(Boolean).join(' ') || '(no name)';
   const company = f.companyName || null;
@@ -185,8 +185,8 @@ function LeadCard({ lead, isExpanded, onToggle, onStatusChange, isUpdating }) {
             </a>
           )}
 
-          {/* Status selector */}
-          <div style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          {/* Status selector + delete */}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             <select
               value={lead.status}
               disabled={isUpdating}
@@ -206,6 +206,22 @@ function LeadCard({ lead, isExpanded, onToggle, onStatusChange, isUpdating }) {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+            <button
+              onClick={() => onDelete(lead.id, name)}
+              title="Delete submission"
+              style={{
+                background: 'transparent',
+                border: '1px solid #fca5a5',
+                color: '#dc2626',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                fontSize: '13px',
+                cursor: 'pointer',
+                lineHeight: 1,
+              }}
+            >
+              Delete
+            </button>
           </div>
         </div>
       </div>
@@ -343,6 +359,26 @@ export function AdminPage() {
       }
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function handleDelete(id, name) {
+    if (!window.confirm(`Delete submission from "${name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch('/api/admin-leads', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setLeads((prev) => prev.filter((l) => l.id !== id));
+        if (expandedId === id) setExpandedId(null);
+      }
+    } catch {
+      alert('Delete failed. Please try again.');
     }
   }
 
@@ -497,6 +533,7 @@ export function AdminPage() {
                 isExpanded={expandedId === lead.id}
                 onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
                 onStatusChange={handleStatusChange}
+                onDelete={handleDelete}
                 isUpdating={updatingId === lead.id}
               />
             ))}

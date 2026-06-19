@@ -42,11 +42,11 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
 
-  const { error: dbError } = await supabase.from('leads').insert({
-    form_type: formType,
-    fields,
-    status: 'new',
-  });
+  const { data: insertData, error: dbError } = await supabase
+    .from('leads')
+    .insert({ form_type: formType, fields, status: 'new' })
+    .select('id')
+    .single();
 
   if (dbError) {
     console.error('[lead-submit] Supabase insert error:', dbError.message);
@@ -141,13 +141,24 @@ export default async function handler(req, res) {
     }
   }
 
-  // Step 4: Push lead to HubSpot
+  // Step 4: Push lead to HubSpot and store deal ID back in Supabase
   if (process.env.HUBSPOT_ACCESS_TOKEN) {
     try {
       const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields);
       const contactId = await upsertContact(contactProperties);
-      await createDeal(dealProperties, contactId);
-      console.log('[lead-submit] HubSpot contact and deal created');
+      const dealId = await createDeal(dealProperties, contactId);
+      console.log('[lead-submit] HubSpot contact and deal created, deal ID:', dealId);
+
+      // Write deal ID back to Supabase so admin page can link to HubSpot
+      if (dealId && insertData?.id) {
+        const { error: updateError } = await supabase
+          .from('leads')
+          .update({ hubspot_deal_id: dealId })
+          .eq('id', insertData.id);
+        if (updateError) {
+          console.error('[lead-submit] Failed to store hubspot_deal_id:', updateError.message);
+        }
+      }
     } catch (hsError) {
       // Non-fatal — lead is already saved to Supabase and email sent
       console.error('[lead-submit] HubSpot error:', hsError.message);

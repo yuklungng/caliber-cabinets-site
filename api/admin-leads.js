@@ -1,6 +1,7 @@
 /* global process */
 
 import { createClient } from '@supabase/supabase-js';
+import { batchGetDealStages } from './hubspot.js';
 
 function checkAuth(req) {
   const auth = req.headers.authorization ?? '';
@@ -18,7 +19,7 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
 
-  // GET — list all leads, newest first
+  // GET — list all leads, newest first, enriched with HubSpot deal stage
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('leads')
@@ -30,28 +31,34 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: error.message });
     }
 
-    return res.status(200).json({ leads: data });
-  }
+    // Batch-fetch HubSpot deal stages for leads that have a deal ID
+    let hsStages = {};
+    if (process.env.HUBSPOT_ACCESS_TOKEN) {
+      const dealIds = data
+        .map((l) => l.hubspot_deal_id)
+        .filter(Boolean);
 
-  // PATCH — update a lead's status
-  if (req.method === 'PATCH') {
-    const { id, status } = req.body ?? {};
-
-    if (!id || !status) {
-      return res.status(400).json({ error: 'Missing id or status' });
+      if (dealIds.length > 0) {
+        try {
+          hsStages = await batchGetDealStages(dealIds);
+        } catch (hsErr) {
+          console.error('[admin-leads] HubSpot stage fetch error:', hsErr.message);
+        }
+      }
     }
 
-    const { error } = await supabase
-      .from('leads')
-      .update({ status })
-      .eq('id', id);
+    // Attach hs_stage and hs_deal_url to each lead
+    const enriched = data.map((lead) => {
+      const hs = lead.hubspot_deal_id ? (hsStages[lead.hubspot_deal_id] ?? null) : null;
+      return {
+        ...lead,
+        hs_stage_label: hs?.stageLabel ?? null,
+        hs_stage_id: hs?.stageId ?? null,
+        hs_deal_url: hs?.dealUrl ?? null,
+      };
+    });
 
-    if (error) {
-      console.error('[admin-leads] Supabase update error:', error.message);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ leads: enriched });
   }
 
   // DELETE — permanently remove a lead

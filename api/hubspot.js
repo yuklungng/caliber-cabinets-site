@@ -9,12 +9,25 @@
  * Optional env vars:
  *   HUBSPOT_PIPELINE_ID    — deal pipeline ID (default: "default")
  *   HUBSPOT_DEAL_STAGE_ID  — initial deal stage ID (default: "appointmentscheduled")
+ *   HUBSPOT_PORTAL_ID      — HubSpot account number (from URL) for building deal links
  *
  * Required HubSpot scopes:
  *   crm.objects.contacts.read
  *   crm.objects.contacts.write
+ *   crm.objects.deals.read
  *   crm.objects.deals.write
  */
+
+// Fallback labels for HubSpot's built-in default pipeline stages
+const DEFAULT_STAGE_LABELS = {
+  appointmentscheduled: 'Appointment Scheduled',
+  qualifiedtobuy: 'Qualified to Buy',
+  presentationscheduled: 'Presentation Scheduled',
+  decisionmakerboughtin: 'Decision Maker Bought-In',
+  contractsent: 'Contract Sent',
+  closedwon: 'Closed Won',
+  closedlost: 'Closed Lost',
+};
 
 const BASE = 'https://api.hubapi.com';
 
@@ -71,6 +84,55 @@ export async function createDeal(properties, contactId) {
   }
 
   return dealId;
+}
+
+/**
+ * Batch-fetch deal stages for a list of HubSpot deal IDs.
+ * Returns a map of dealId → { stageId, stageLabel, dealUrl }
+ * Requires scope: crm.objects.deals.read
+ */
+export async function batchGetDealStages(dealIds) {
+  if (!dealIds || dealIds.length === 0) return {};
+
+  // Fetch deal objects
+  const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
+    properties: ['dealstage', 'dealname'],
+    inputs: dealIds.map((id) => ({ id })),
+  });
+  if (!res.ok) {
+    console.error('[hubspot] batchGetDealStages error:', res.status, await res.text());
+    return {};
+  }
+  const { results } = await res.json();
+
+  // Try to get stage labels from the pipeline
+  let stageLabels = { ...DEFAULT_STAGE_LABELS };
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
+  try {
+    const stagesRes = await hs(`/crm/v3/pipelines/deals/${pipelineId}/stages`, 'GET');
+    if (stagesRes.ok) {
+      const stagesData = await stagesRes.json();
+      for (const stage of stagesData.results ?? []) {
+        stageLabels[stage.id] = stage.label;
+      }
+    }
+  } catch {
+    // Use fallback labels
+  }
+
+  const portalId = process.env.HUBSPOT_PORTAL_ID;
+  const out = {};
+  for (const deal of results ?? []) {
+    const stageId = deal.properties?.dealstage ?? '';
+    out[deal.id] = {
+      stageId,
+      stageLabel: stageLabels[stageId] ?? stageId,
+      dealUrl: portalId
+        ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
+        : null,
+    };
+  }
+  return out;
 }
 
 /**

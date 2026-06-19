@@ -35,20 +35,15 @@ const FIELD_LABELS = {
   attachments: 'Uploaded Files',
 };
 
-const STATUS_OPTIONS = [
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'quoted', label: 'Quoted' },
-  { value: 'converted', label: 'Converted' },
-  { value: 'archived', label: 'Archived' },
-];
-
-const STATUS_COLORS = {
-  new: { bg: '#fef3c7', color: '#92400e' },
-  contacted: { bg: '#dbeafe', color: '#1e40af' },
-  quoted: { bg: '#ede9fe', color: '#5b21b6' },
-  converted: { bg: '#dcfce7', color: '#166534' },
-  archived: { bg: '#f3f4f6', color: '#6b7280' },
+// HubSpot stage ID → pill color
+const HS_STAGE_COLORS = {
+  appointmentscheduled: { bg: '#fef3c7', color: '#92400e' },
+  qualifiedtobuy:       { bg: '#dbeafe', color: '#1e40af' },
+  presentationscheduled:{ bg: '#ede9fe', color: '#5b21b6' },
+  decisionmakerboughtin:{ bg: '#cffafe', color: '#155e75' },
+  contractsent:         { bg: '#dcfce7', color: '#166534' },
+  closedwon:            { bg: '#14532d', color: '#ffffff' },
+  closedlost:           { bg: '#f3f4f6', color: '#6b7280' },
 };
 
 function formatDate(iso) {
@@ -76,8 +71,24 @@ function isEmpty(value) {
   return false;
 }
 
-function StatusBadge({ status }) {
-  const style = STATUS_COLORS[status] ?? STATUS_COLORS.new;
+function HsBadge({ stageId, stageLabel }) {
+  if (!stageLabel) {
+    return (
+      <span style={{
+        display: 'inline-block',
+        padding: '2px 10px',
+        borderRadius: '999px',
+        fontSize: '12px',
+        fontWeight: '600',
+        letterSpacing: '0.03em',
+        background: '#f3f4f6',
+        color: '#9ca3af',
+      }}>
+        Not in HubSpot
+      </span>
+    );
+  }
+  const style = HS_STAGE_COLORS[stageId] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
     <span style={{
       display: 'inline-block',
@@ -85,12 +96,11 @@ function StatusBadge({ status }) {
       borderRadius: '999px',
       fontSize: '12px',
       fontWeight: '700',
-      letterSpacing: '0.04em',
-      textTransform: 'uppercase',
+      letterSpacing: '0.03em',
       background: style.bg,
       color: style.color,
     }}>
-      {status}
+      {stageLabel}
     </span>
   );
 }
@@ -141,7 +151,7 @@ function LeadDetail({ fields }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDelete, isUpdating }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
   const f = lead.fields ?? {};
   const name = [f.firstName, f.lastName].filter(Boolean).join(' ') || '(no name)';
   const company = f.companyName || null;
@@ -152,7 +162,6 @@ function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDelete, isUpda
       border: '1px solid #e5e7eb',
       borderRadius: '8px',
       overflow: 'hidden',
-      transition: 'box-shadow 150ms ease',
     }}>
       {/* Card header row */}
       <div
@@ -163,13 +172,13 @@ function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDelete, isUpda
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} />
-          <StatusBadge status={lead.status} />
+          <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} />
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
             {formatDate(lead.created_at)} · {formatTime(lead.created_at)}
           </span>
         </div>
 
-        {/* Bottom row: contact info + status control */}
+        {/* Bottom row: contact info + actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
           {company && (
             <span style={{ fontSize: '13px', color: '#374151' }}>{company}</span>
@@ -185,27 +194,28 @@ function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDelete, isUpda
             </a>
           )}
 
-          {/* Status selector + delete */}
+          {/* HubSpot link + delete */}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-            <select
-              value={lead.status}
-              disabled={isUpdating}
-              onChange={(e) => onStatusChange(lead.id, e.target.value)}
-              style={{
-                fontSize: '13px',
-                padding: '4px 8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                background: '#ffffff',
-                color: '#374151',
-                cursor: 'pointer',
-                opacity: isUpdating ? 0.5 : 1,
-              }}
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            {lead.hs_deal_url && (
+              <a
+                href={lead.hs_deal_url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  fontSize: '13px',
+                  padding: '4px 10px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '4px',
+                  background: '#ffffff',
+                  color: '#374151',
+                  textDecoration: 'none',
+                  fontWeight: '600',
+                  lineHeight: 1.5,
+                }}
+              >
+                View in HubSpot ↗
+              </a>
+            )}
             <button
               onClick={() => onDelete(lead.id, name)}
               title="Delete submission"
@@ -302,10 +312,8 @@ export function AdminPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
-  const [updatingId, setUpdatingId] = useState(null);
 
   function getToken() {
     return sessionStorage.getItem('admin_token') ?? '';
@@ -343,25 +351,6 @@ export function AdminPage() {
     setLeads([]);
   }
 
-  async function handleStatusChange(id, status) {
-    setUpdatingId(id);
-    try {
-      const res = await fetch('/api/admin-leads', {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${getToken()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id, status }),
-      });
-      if (res.ok) {
-        setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
-      }
-    } finally {
-      setUpdatingId(null);
-    }
-  }
-
   async function handleDelete(id, name) {
     if (!window.confirm(`Delete submission from "${name}"? This cannot be undone.`)) return;
     try {
@@ -393,7 +382,6 @@ export function AdminPage() {
   // Filtering + search
   const filtered = leads
     .filter((l) => filterType === 'all' || l.form_type === filterType)
-    .filter((l) => filterStatus === 'all' || l.status === filterStatus)
     .filter((l) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -408,12 +396,8 @@ export function AdminPage() {
 
   // Stats
   const totalLeads = leads.length;
-  const newLeads = leads.filter((l) => l.status === 'new').length;
-  const thisMonth = leads.filter((l) => {
-    const d = new Date(l.created_at);
-    const now = new Date();
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
+  const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
+  const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
@@ -443,8 +427,8 @@ export function AdminPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
           {[
             { label: 'Total Submissions', value: totalLeads },
-            { label: 'New (Uncontacted)', value: newLeads },
-            { label: 'This Month', value: thisMonth },
+            { label: 'Homeowner Consults', value: homeownerLeads },
+            { label: 'Trade Estimates', value: tradeLeads },
           ].map((stat) => (
             <div key={stat.label} style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
               <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</p>
@@ -481,18 +465,6 @@ export function AdminPage() {
             ))}
           </div>
 
-          {/* Status filter */}
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#ffffff', fontSize: '13px', color: '#374151', cursor: 'pointer' }}
-          >
-            <option value="all">All Statuses</option>
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-
           {/* Search */}
           <input
             type="search"
@@ -506,7 +478,7 @@ export function AdminPage() {
         {/* Results count */}
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
           {filtered.length} submission{filtered.length !== 1 ? 's' : ''}
-          {(filterType !== 'all' || filterStatus !== 'all' || searchQuery) ? ' (filtered)' : ''}
+          {(filterType !== 'all' || searchQuery) ? ' (filtered)' : ''}
         </p>
 
         {/* Content */}
@@ -532,9 +504,7 @@ export function AdminPage() {
                 lead={lead}
                 isExpanded={expandedId === lead.id}
                 onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
-                onStatusChange={handleStatusChange}
                 onDelete={handleDelete}
-                isUpdating={updatingId === lead.id}
               />
             ))}
           </div>

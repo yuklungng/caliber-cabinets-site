@@ -926,10 +926,23 @@ h3 {
   width: 100%;
   padding: 0.75rem 1rem;
   color: #111827;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
   background: #ffffff;
   border: 1px solid #d1d5db;
   border-radius: 0.375rem;
   transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.lead-field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 1.1rem;
+  padding-right: 2.5rem;
+  cursor: pointer;
 }
 
 .lead-field input:focus,
@@ -950,6 +963,10 @@ h3 {
   color: #6b7280;
   background: #f3f4f6;
   cursor: not-allowed;
+}
+
+.lead-field select:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C%2Fsvg%3E");
 }
 
 .lead-helper-text {

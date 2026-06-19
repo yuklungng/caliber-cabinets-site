@@ -218,8 +218,6 @@ export function EstimatePage() {
       gcNameAndPhone: formData.get('gcNameAndPhone') ?? '',
       clientFirstName: formData.get('clientFirstName') ?? '',
       clientLastName: formData.get('clientLastName') ?? '',
-      partnerFirstName: formData.get('partnerFirstName') ?? '',
-      partnerLastName: formData.get('partnerLastName') ?? '',
       streetAddress: formData.get('streetAddress') ?? '',
       city: formData.get('city') ?? '',
       state: formData.get('state') ?? '',
@@ -357,8 +355,8 @@ export function EstimatePage() {
                   </div>
                   <div className="lead-field">
                     <label htmlFor="estimate-license-number">License Number</label>
-                    <p className="lead-helper-text">If applicable</p>
                     <input id="estimate-license-number" name="licenseNumber" type="text" />
+                    <p className="lead-helper-text">If applicable</p>
                   </div>
                 </div>
 
@@ -374,8 +372,8 @@ export function EstimatePage() {
 
                 <div className="lead-field">
                   <label htmlFor="estimate-gc-contact">General Contractor Name &amp; Phone</label>
-                  <p className="lead-helper-text">If different from above</p>
                   <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" />
+                  <p className="lead-helper-text">If different from above</p>
                 </div>
 
                 <div className="form-section-title">
@@ -390,19 +388,6 @@ export function EstimatePage() {
                   <div className="lead-field">
                     <label htmlFor="estimate-client-last-name">Client Last Name</label>
                     <input id="estimate-client-last-name" name="clientLastName" type="text" />
-                  </div>
-                </div>
-
-                <div className="lead-field-grid lead-field-grid--two">
-                  <div className="lead-field">
-                    <label htmlFor="estimate-partner-first-name">
-                      Spouse / Partner First Name
-                    </label>
-                    <input id="estimate-partner-first-name" name="partnerFirstName" type="text" />
-                  </div>
-                  <div className="lead-field">
-                    <label htmlFor="estimate-partner-last-name">Spouse / Partner Last Name</label>
-                    <input id="estimate-partner-last-name" name="partnerLastName" type="text" />
                   </div>
                 </div>
 
@@ -428,8 +413,8 @@ export function EstimatePage() {
                   </div>
                   <div className="lead-field">
                     <label htmlFor="estimate-zip">ZIP Code</label>
-                    <p className="lead-helper-text">For sales tax &amp; bid accuracy</p>
                     <input id="estimate-zip" name="zipCode" type="text" />
+                    <p className="lead-helper-text">For sales tax &amp; bid accuracy</p>
                   </div>
                 </div>
 

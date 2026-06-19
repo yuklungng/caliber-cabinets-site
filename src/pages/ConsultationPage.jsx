@@ -200,8 +200,8 @@ export function ConsultationPage() {
 
                 <div className="lead-field">
                   <label htmlFor="c-street-address">Street Address</label>
-                  <p className="lead-helper-text">Optional — helps us prepare for your consultation</p>
                   <input id="c-street-address" name="streetAddress" type="text" />
+                  <p className="lead-helper-text">Optional — helps us prepare for your consultation</p>
                 </div>
 
                 <div className="lead-field-grid lead-field-grid--three">
@@ -245,10 +245,10 @@ export function ConsultationPage() {
 
                 <div className="lead-field">
                   <label htmlFor="c-inspiration">Links or Style Description</label>
+                  <textarea id="c-inspiration" name="inspiration" rows="3" />
                   <p className="lead-helper-text">
                     Optional — share links, style references, or describe your vision
                   </p>
-                  <textarea id="c-inspiration" name="inspiration" rows="3" />
                 </div>
 
                 <div className="lead-field">

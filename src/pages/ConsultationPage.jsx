@@ -22,6 +22,18 @@ const timelineOptions = [
   '6+ months',
 ];
 
+const stateOptions = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut',
+  'Delaware','District of Columbia','Florida','Georgia','Hawaii','Idaho','Illinois',
+  'Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts',
+  'Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada',
+  'New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota',
+  'Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina',
+  'South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington',
+  'West Virginia','Wisconsin','Wyoming','American Samoa','Guam',
+  'Northern Mariana Islands','Puerto Rico','U.S. Virgin Islands',
+];
+
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 function Req() {
@@ -91,7 +103,10 @@ export function ConsultationPage() {
       email: formData.get('email') ?? '',
       projectType: formData.get('projectType') ?? '',
       timeline: formData.get('timeline') ?? '',
-      projectAddress: formData.get('projectAddress') ?? '',
+      streetAddress: formData.get('streetAddress') ?? '',
+      city: formData.get('city') ?? '',
+      state: formData.get('state') ?? '',
+      zipCode: formData.get('zipCode') ?? '',
       description: formData.get('description') ?? '',
       inspiration: formData.get('inspiration') ?? '',
       attachments,
@@ -184,9 +199,28 @@ export function ConsultationPage() {
                 </div>
 
                 <div className="lead-field">
-                  <label htmlFor="c-address">Project Address</label>
+                  <label htmlFor="c-street-address">Street Address</label>
                   <p className="lead-helper-text">Optional — helps us prepare for your consultation</p>
-                  <input id="c-address" name="projectAddress" type="text" />
+                  <input id="c-street-address" name="streetAddress" type="text" />
+                </div>
+
+                <div className="lead-field-grid lead-field-grid--three">
+                  <div className="lead-field">
+                    <label htmlFor="c-city">City<Req /></label>
+                    <input id="c-city" name="city" type="text" required />
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="c-state">State</label>
+                    <select id="c-state" name="state" defaultValue="California">
+                      {stateOptions.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="lead-field">
+                    <label htmlFor="c-zip">ZIP Code<Req /></label>
+                    <input id="c-zip" name="zipCode" type="text" required />
+                  </div>
                 </div>
 
                 {/* About Your Project */}

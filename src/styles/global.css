@@ -913,6 +913,7 @@ h3 {
 .lead-field {
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .lead-field label {

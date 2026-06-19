@@ -3,12 +3,17 @@
 /**
  * HubSpot CRM helpers
  *
- * Requires env var:
- *   HUBSPOT_ACCESS_TOKEN  — Private App access token (pat-na1-...)
+ * Required env var:
+ *   HUBSPOT_ACCESS_TOKEN  — Service Key token
  *
- * Optional env vars (override defaults):
+ * Optional env vars:
  *   HUBSPOT_PIPELINE_ID    — deal pipeline ID (default: "default")
  *   HUBSPOT_DEAL_STAGE_ID  — initial deal stage ID (default: "appointmentscheduled")
+ *
+ * Required HubSpot scopes:
+ *   crm.objects.contacts.read
+ *   crm.objects.contacts.write
+ *   crm.objects.deals.write
  */
 
 const BASE = 'https://api.hubapi.com';
@@ -30,19 +35,9 @@ function hs(path, method, body) {
  */
 export async function upsertContact(properties) {
   const res = await hs('/crm/v3/objects/contacts/batch/upsert', 'POST', {
-    inputs: [
-      {
-        idProperty: 'email',
-        id: properties.email,
-        properties,
-      },
-    ],
+    inputs: [{ idProperty: 'email', id: properties.email, properties }],
   });
-
-  if (!res.ok) {
-    throw new Error(`HubSpot contact upsert ${res.status}: ${await res.text()}`);
-  }
-
+  if (!res.ok) throw new Error(`HubSpot contact upsert ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data.results?.[0]?.id ?? null;
 }
@@ -52,7 +47,6 @@ export async function upsertContact(properties) {
  * Returns the HubSpot deal ID string.
  */
 export async function createDeal(properties, contactId) {
-  // Set close date 90 days out as a placeholder
   const closeDate = new Date();
   closeDate.setDate(closeDate.getDate() + 90);
 
@@ -64,21 +58,15 @@ export async function createDeal(properties, contactId) {
       ...properties,
     },
   });
-
-  if (!res.ok) {
-    throw new Error(`HubSpot deal create ${res.status}: ${await res.text()}`);
-  }
-
+  if (!res.ok) throw new Error(`HubSpot deal create ${res.status}: ${await res.text()}`);
   const { id: dealId } = await res.json();
 
-  // Associate deal → contact
   if (contactId && dealId) {
     const assocRes = await hs('/crm/v3/associations/deals/contacts/batch/create', 'POST', {
       inputs: [{ from: { id: dealId }, to: { id: contactId }, type: 'deal_to_contact' }],
     });
     if (!assocRes.ok) {
-      // Log but don't throw — deal exists, association is best-effort
-      console.error('[hubspot] Association failed:', await assocRes.text());
+      console.error('[hubspot] Deal-contact association failed:', await assocRes.text());
     }
   }
 
@@ -86,11 +74,12 @@ export async function createDeal(properties, contactId) {
 }
 
 /**
- * Build contact and deal properties from form submission fields.
+ * Build contact properties and a deal with full form content in the description.
  */
 export function buildHubSpotObjects(formType, fields) {
   const isHomeowner = formType === 'homeowner-consultation';
 
+  // --- Contact ---
   const contactProperties = {
     email: fields.email,
     firstname: fields.firstName ?? '',
@@ -103,26 +92,94 @@ export function buildHubSpotObjects(formType, fields) {
     ...(!isHomeowner && fields.companyName && { company: fields.companyName }),
   };
 
+  // --- Deal name ---
   const personName = `${fields.firstName ?? ''} ${fields.lastName ?? ''}`.trim();
   const dealName = isHomeowner
     ? `Design Consultation – ${personName}`
     : `Trade Estimate – ${fields.companyName ? `${fields.companyName} (${personName})` : personName}`;
 
-  // Build a deal description from key project details
-  const notes = [];
-  if (fields.projectType) notes.push(`Project type: ${fields.projectType}`);
-  if (fields.timeline) notes.push(`Timeline: ${fields.timeline}`);
-  if (fields.tradeRole) notes.push(`Trade role: ${fields.tradeRole}`);
-  if (Array.isArray(fields.areasRequiringCabinetry) && fields.areasRequiringCabinetry.length) {
-    notes.push(`Areas: ${fields.areasRequiringCabinetry.join(', ')}`);
+  // --- Deal description: full plain-text form content ---
+  const lines = [];
+
+  const line = (label, value) => {
+    if (!value || (Array.isArray(value) && value.length === 0)) return;
+    const display = Array.isArray(value) ? value.join(', ') : String(value);
+    if (display.trim()) lines.push(`${label}: ${display.trim()}`);
+  };
+
+  if (isHomeowner) {
+    lines.push('=== DESIGN CONSULTATION REQUEST ===');
+    lines.push('');
+
+    line('Project Type', fields.projectType);
+    line('Timeline', fields.timeline);
+
+    const addr = [fields.streetAddress, fields.city, fields.state, fields.zipCode]
+      .filter(Boolean).join(', ');
+    line('Project Address', addr);
+
+    if (fields.description) {
+      lines.push('');
+      lines.push(`Project Description:\n${fields.description}`);
+    }
+    if (fields.inspiration) {
+      lines.push('');
+      lines.push(`Inspiration / Style Notes:\n${fields.inspiration}`);
+    }
+  } else {
+    lines.push('=== TRADE PARTNER ESTIMATE REQUEST ===');
+    lines.push('');
+
+    line('Trade Role', fields.tradeRole);
+    line('Company', fields.companyName);
+    line('License #', fields.licenseNumber);
+    line('Preferred Contact', fields.preferredContact);
+    line('GC Name & Phone', fields.gcNameAndPhone);
+
+    if (fields.needsDesignServices) {
+      lines.push('');
+      lines.push('✓ Client needs Design & Measure services ($875 deposit)');
+    }
+
+    lines.push('');
+    const clientName = [fields.clientFirstName, fields.clientLastName].filter(Boolean).join(' ');
+    line('Client Name', clientName);
+
+    const addr = [fields.streetAddress, fields.city, fields.state, fields.zipCode]
+      .filter(Boolean).join(', ');
+    line('Project Address', addr);
+
+    lines.push('');
+    line('Areas Requiring Cabinetry', fields.areasRequiringCabinetry);
+    line('Installation Timeline', fields.installationTimeline);
+
+    lines.push('');
+    line('Construction Method', fields.constructionMethod);
+    line('Crown Molding', fields.crownMolding);
+    line('Door Style', fields.doorStyle);
+    line('Wood Species / Material', fields.woodSpecies);
+
+    lines.push('');
+    line('Accessories & Upgrades', fields.accessories);
+
+    if (fields.comments) {
+      lines.push('');
+      lines.push(`Comments:\n${fields.comments}`);
+    }
   }
-  if (fields.installationTimeline) notes.push(`Install timeline: ${fields.installationTimeline}`);
-  if (fields.description) notes.push(`\nNotes: ${fields.description}`);
-  if (fields.comments) notes.push(`\nComments: ${fields.comments}`);
+
+  // Attachments (both forms)
+  if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
+    lines.push('');
+    const names = fields.attachments
+      .map((p) => p.split('/').pop().replace(/^\d+-/, ''))
+      .join(', ');
+    line('Uploaded Files', names);
+  }
 
   const dealProperties = {
     dealname: dealName,
-    ...(notes.length && { description: notes.join(' | ') }),
+    description: lines.join('\n'),
   };
 
   return { contactProperties, dealProperties };

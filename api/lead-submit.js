@@ -147,7 +147,7 @@ export default async function handler(req, res) {
       const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields);
       const contactId = await upsertContact(contactProperties);
       await createDeal(dealProperties, contactId);
-      console.log('[lead-submit] HubSpot contact and deal created, contactId:', contactId);
+      console.log('[lead-submit] HubSpot contact and deal created');
     } catch (hsError) {
       // Non-fatal — lead is already saved to Supabase and email sent
       console.error('[lead-submit] HubSpot error:', hsError.message);

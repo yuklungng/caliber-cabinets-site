@@ -43,6 +43,7 @@ export default async function handler(req, res) {
         ...lead,
         hs_stage_label: hs?.stageLabel ?? null,
         hs_stage_id: hs?.stageId ?? null,
+        hs_stage_date: hs?.stageDate ?? null,
         hs_deal_url: hs?.dealUrl ?? null,
       };
     });

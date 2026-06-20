@@ -37,6 +37,16 @@ function formatDate(iso) {
 function formatTime(iso) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
+function formatShortDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function formatPhone(phone) {
+  if (!phone) return null;
+  const d = phone.replace(/\D/g, '');
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  return phone;
+}
 function formatFieldValue(value) {
   if (value === true) return 'Yes';
   if (value === false || value === null || value === undefined) return '—';
@@ -67,7 +77,7 @@ async function apiCall(path, options = {}) {
 
 // ─── Lead sub-components ──────────────────────────────────────────────────────
 
-function HsBadge({ stageId, stageLabel }) {
+function HsBadge({ stageId, stageLabel, stageDate }) {
   if (!stageLabel) {
     return (
       <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', background: '#f3f4f6', color: '#9ca3af' }}>
@@ -77,8 +87,13 @@ function HsBadge({ stageId, stageLabel }) {
   }
   const style = HS_STAGE_COLORS[stageId] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
-    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', letterSpacing: '0.03em', background: style.bg, color: style.color }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', letterSpacing: '0.03em', background: style.bg, color: style.color }}>
       {stageLabel}
+      {stageDate && (
+        <span style={{ opacity: 0.65, fontWeight: '500', fontSize: '11px' }}>
+          · {formatShortDate(stageDate)}
+        </span>
+      )}
     </span>
   );
 }
@@ -214,7 +229,7 @@ function LeadDetail({ lead }) {
               {[f.firstName, f.lastName].filter(Boolean).join(' ') || null}
             </FieldCell>
             <FieldCell label="Phone">
-              {f.phone ? <a href={`tel:${f.phone}`} style={{ color: '#78350f', textDecoration: 'none', fontWeight: '500' }}>{f.phone}</a> : null}
+              {f.phone ? <a href={`tel:${f.phone}`} style={{ color: '#78350f', textDecoration: 'none', fontWeight: '500' }}>{formatPhone(f.phone)}</a> : null}
             </FieldCell>
             <FieldCell label="Email" wide>
               {f.email ? <a href={`mailto:${f.email}`} style={{ color: '#78350f', textDecoration: 'none', fontWeight: '500' }}>{f.email}</a> : null}
@@ -350,14 +365,14 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} />
-          <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} />
+          <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
             {formatDate(lead.created_at)} · {formatTime(lead.created_at)}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
           {f.companyName && <span style={{ fontSize: '13px', color: '#374151' }}>{f.companyName}</span>}
-          {f.phone && <a href={`tel:${f.phone}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{f.phone}</a>}
+          {f.phone && <a href={`tel:${f.phone}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{formatPhone(f.phone)}</a>}
           {f.email && <a href={`mailto:${f.email}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{f.email}</a>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             {lead.hs_deal_url && (
@@ -810,7 +825,9 @@ function LeadsView() {
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const searchRef = useRef(null);
 
   async function loadLeads() {
     setIsLoading(true);
@@ -856,10 +873,46 @@ function LeadsView() {
   const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
   const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
 
+  // Stage breakdown — count by hs_stage_label
+  const stageCounts = {};
+  for (const l of leads) {
+    if (l.hs_stage_label) {
+      stageCounts[l.hs_stage_label] = (stageCounts[l.hs_stage_label] ?? 0) + 1;
+      if (!stageCounts.__ids) stageCounts.__ids = {};
+      stageCounts.__ids[l.hs_stage_label] = l.hs_stage_id;
+    }
+  }
+  const stageEntries = Object.entries(stageCounts).filter(([k]) => k !== '__ids').sort((a, b) => b[1] - a[1]);
+
+  // Search suggestions — up to 6 leads matching current query
+  const suggestions = searchQuery.trim().length > 0
+    ? leads.filter((l) => {
+        const q = searchQuery.toLowerCase();
+        const f = l.fields ?? {};
+        return (
+          `${f.firstName ?? ''} ${f.lastName ?? ''}`.toLowerCase().includes(q) ||
+          (f.email ?? '').toLowerCase().includes(q) ||
+          (f.phone ?? '').toLowerCase().includes(q) ||
+          (f.companyName ?? '').toLowerCase().includes(q)
+        );
+      }).slice(0, 6)
+    : [];
+
+  function selectSuggestion(lead) {
+    const f = lead.fields ?? {};
+    setSearchQuery(`${f.firstName ?? ''} ${f.lastName ?? ''}`.trim() || f.email || '');
+    setExpandedId(lead.id);
+    setSearchFocused(false);
+    // Scroll to card after render
+    setTimeout(() => {
+      document.getElementById(`lead-${lead.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }
+
   return (
     <div>
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: stageEntries.length > 0 ? '12px' : '28px' }}>
         {[
           { label: 'Total Submissions', value: totalLeads },
           { label: 'Homeowner Consults', value: homeownerLeads },
@@ -872,7 +925,24 @@ function LeadsView() {
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Stage counts */}
+      {!isLoading && stageEntries.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', alignSelf: 'center', marginRight: '4px' }}>By Stage</span>
+          {stageEntries.map(([label, count]) => {
+            const stageId = stageCounts.__ids?.[label];
+            const style = HS_STAGE_COLORS[stageId] ?? { bg: '#f3f4f6', color: '#374151' };
+            return (
+              <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', background: style.bg, color: style.color, fontSize: '12px', fontWeight: '700' }}>
+                {label}
+                <span style={{ background: style.color, color: style.bg, borderRadius: '999px', padding: '0 5px', fontSize: '11px', fontWeight: '800', lineHeight: '18px', minWidth: '18px', textAlign: 'center' }}>{count}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', background: '#ffffff' }}>
           {[{ value: 'all', label: 'All Types' }, { value: 'homeowner-consultation', label: 'Homeowner' }, { value: 'trade-estimate', label: 'Trade' }].map((opt) => (
@@ -881,7 +951,45 @@ function LeadsView() {
             </button>
           ))}
         </div>
-        <input type="search" placeholder="Search by name, email, phone, or company…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ flex: 1, minWidth: '200px', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none' }} />
+
+        {/* Search with suggestions */}
+        <div ref={searchRef} style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
+          <input
+            type="search"
+            placeholder="Search by name, email, phone, or company…"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchFocused(true); }}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+            style={{ width: '100%', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+          />
+          {searchFocused && suggestions.length > 0 && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, overflow: 'hidden' }}>
+              {suggestions.map((lead) => {
+                const f = lead.fields ?? {};
+                const name = [f.firstName, f.lastName].filter(Boolean).join(' ') || '(no name)';
+                const sub = f.companyName || f.email || '';
+                return (
+                  <button
+                    key={lead.id}
+                    onMouseDown={(e) => { e.preventDefault(); selectSuggestion(lead); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', textAlign: 'left', padding: '10px 14px', border: 0, borderBottom: '1px solid #f3f4f6', background: '#fff', cursor: 'pointer' }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                      {sub && <div style={{ fontSize: '12px', color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
+                    </div>
+                    {lead.hs_stage_label && (
+                      <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} />
+                    )}
+                    <TypeBadge formType={lead.form_type} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <button onClick={loadLeads} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
           Refresh
         </button>
@@ -901,7 +1009,9 @@ function LeadsView() {
       {!isLoading && (
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} />
+            <div key={lead.id} id={`lead-${lead.id}`}>
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} />
+            </div>
           ))}
         </div>
       )}

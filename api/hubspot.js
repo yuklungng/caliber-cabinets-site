@@ -98,7 +98,7 @@ export async function batchGetDealStages(dealIds) {
 
   // Fetch deal objects
   const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-    properties: ['dealstage', 'dealname'],
+    properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
     inputs: dealIds.map((id) => ({ id })),
   });
   if (!res.ok) {
@@ -129,6 +129,7 @@ export async function batchGetDealStages(dealIds) {
     out[deal.id] = {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,
+      stageDate: deal.properties?.hs_lastmodifieddate ?? null,
       dealUrl: portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,

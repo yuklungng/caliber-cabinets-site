@@ -1014,14 +1014,15 @@ function SiteStatsView() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '48px' }}>
                   {turnstile.daily.slice(-14).map((d) => {
-                    const total = Math.max(d.pageLoads, 1);
-                    const maxTotal = Math.max(...turnstile.daily.map((x) => x.pageLoads), 1);
+                    const dayTotal = (d.passed ?? 0) + (d.failed ?? 0);
+                    const total = Math.max(dayTotal, 1);
+                    const maxTotal = Math.max(...turnstile.daily.map((x) => (x.passed ?? 0) + (x.failed ?? 0)), 1);
                     const barH = Math.max(4, Math.round((total / maxTotal) * 48));
-                    const verifiedPct = total > 0 ? d.tokens / total : 1;
+                    const verifiedPct = dayTotal > 0 ? (d.passed ?? 0) / dayTotal : 1;
                     return (
                       <div
                         key={d.date}
-                        title={`${d.date}: ${d.tokens} verified, ${Math.max(0, d.pageLoads - d.tokens)} blocked`}
+                        title={`${d.date}: ${(d.passed ?? 0).toLocaleString()} verified, ${(d.failed ?? 0).toLocaleString()} blocked`}
                         style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse' }}
                       >
                         <div style={{ height: `${Math.round(verifiedPct * 100)}%`, background: '#16a34a', opacity: 0.85 }} />

@@ -882,7 +882,7 @@ function SiteStatsView() {
   if (loading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
   if (error) return <p style={{ color: '#b91c1c' }}>{error}</p>;
 
-  const { uptime, turnstile, cloudflare } = data ?? {};
+  const { uptime, turnstile, ga, cloudflare } = data ?? {};
 
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
@@ -1036,6 +1036,104 @@ function SiteStatsView() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Google Analytics ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Website Traffic</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Google Analytics · {ga?.period ?? 'last 28 days'}</span>
+        </div>
+
+        {!ga?.configured && (
+          <NotConfiguredCard
+            service="Google Analytics"
+            envVars={['GA_SERVICE_ACCOUNT_JSON', 'GA_PROPERTY_ID']}
+            hint="Add the service account JSON and GA4 property ID to Vercel environment variables."
+          />
+        )}
+
+        {ga?.configured && ga?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
+            GA error: {ga.error}
+          </p>
+        )}
+
+        {ga?.configured && ga?.totals && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {/* Stat tiles */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <StatTile label="Sessions" value={ga.totals.sessions?.toLocaleString()} accent="#4285f4" />
+              <StatTile label="Active Users" value={ga.totals.users?.toLocaleString()} accent="#34a853" />
+              <StatTile label="Page Views" value={ga.totals.pageViews?.toLocaleString()} accent="#fbbc04" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <StatTile label="New Users" value={ga.totals.newUsers?.toLocaleString()} />
+              <StatTile
+                label="Avg Session"
+                value={ga.totals.avgDuration != null ? `${Math.floor(ga.totals.avgDuration / 60)}m ${ga.totals.avgDuration % 60}s` : '—'}
+              />
+              <StatTile
+                label="Bounce Rate"
+                value={ga.totals.avgBounceRate != null ? `${ga.totals.avgBounceRate}%` : '—'}
+                sub="Lower is better"
+              />
+            </div>
+
+            {/* Daily sessions chart */}
+            {ga.daily?.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily sessions</p>
+                <MiniBar daily={ga.daily} field="sessions" color="#4285f4" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[0]?.date}</span>
+                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[ga.daily.length - 1]?.date}</span>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Top pages */}
+              {ga.topPages?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top pages</p>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {ga.topPages.map((p) => (
+                      <div key={p.page} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ flex: 1, fontSize: '13px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', flexShrink: 0 }}>{p.views.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Traffic sources */}
+              {ga.sources?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Traffic sources</p>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {ga.sources.map((s) => {
+                      const total = ga.sources.reduce((a, x) => a + x.sessions, 0);
+                      const pct = total > 0 ? Math.round((s.sessions / total) * 100) : 0;
+                      return (
+                        <div key={s.channel} style={{ display: 'grid', gap: '3px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                            <span style={{ color: '#374151' }}>{s.channel}</span>
+                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}%</span>
+                          </div>
+                          <div style={{ height: '4px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: '#4285f4', borderRadius: '2px' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>

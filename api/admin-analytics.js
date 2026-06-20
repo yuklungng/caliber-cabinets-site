@@ -1,4 +1,5 @@
 /* global process */
+import crypto from 'crypto';
 import { checkAuth } from './_lib/auth.js';
 
 /**
@@ -19,13 +20,14 @@ export default async function handler(req, res) {
 
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 
-  const [uptime, turnstile, cloudflare] = await Promise.all([
+  const [uptime, turnstile, ga, cloudflare] = await Promise.all([
     fetchUptimeRobot(),
     fetchTurnstile(accountId),
+    fetchGoogleAnalytics(),
     fetchCloudflare(),
   ]);
 
-  return res.status(200).json({ uptime, turnstile, cloudflare });
+  return res.status(200).json({ uptime, turnstile, ga, cloudflare });
 }
 
 // ── UptimeRobot ──────────────────────────────────────────────────────────────
@@ -224,6 +226,140 @@ async function fetchTurnstileSimple(accountId, token, startDate, endDate) {
       period: { start: startDate, end: endDate },
       totals: { pageLoads: total, verified: total, blocked: null, solveRate: null },
       daily: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)),
+    };
+  } catch (err) {
+    return { configured: true, error: err.message };
+  }
+}
+
+// ── Google Analytics 4 ───────────────────────────────────────────────────────
+
+async function getGoogleAccessToken(serviceAccount) {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const payload = Buffer.from(JSON.stringify({
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  })).toString('base64url');
+
+  const signingInput = `${header}.${payload}`;
+  const privateKey = (serviceAccount.private_key ?? '').replace(/\\n/g, '\n');
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(signingInput);
+  const signature = sign.sign(privateKey, 'base64url');
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: `${signingInput}.${signature}`,
+    }),
+  });
+  const tokenData = await tokenRes.json();
+  if (!tokenData.access_token) throw new Error(tokenData.error_description ?? 'Failed to get GA access token');
+  return tokenData.access_token;
+}
+
+async function gaReport(accessToken, propertyId, body) {
+  const res = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return res.json();
+}
+
+async function fetchGoogleAnalytics() {
+  const saJson = process.env.GA_SERVICE_ACCOUNT_JSON;
+  const propertyId = process.env.GA_PROPERTY_ID;
+  if (!saJson || !propertyId) return { configured: false };
+
+  let serviceAccount;
+  try { serviceAccount = JSON.parse(saJson); }
+  catch { return { configured: true, error: 'Invalid GA_SERVICE_ACCOUNT_JSON — check Vercel env var' }; }
+
+  try {
+    const token = await getGoogleAccessToken(serviceAccount);
+
+    // Run three reports in parallel
+    const [dailyData, pagesData, sourcesData] = await Promise.all([
+      gaReport(token, propertyId, {
+        dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+        metrics: [
+          { name: 'sessions' }, { name: 'activeUsers' },
+          { name: 'screenPageViews' }, { name: 'newUsers' },
+          { name: 'bounceRate' }, { name: 'averageSessionDuration' },
+        ],
+        dimensions: [{ name: 'date' }],
+        orderBys: [{ dimension: { dimensionName: 'date' } }],
+      }),
+      gaReport(token, propertyId, {
+        dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+        metrics: [{ name: 'screenPageViews' }],
+        dimensions: [{ name: 'pagePath' }],
+        orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        limit: 5,
+      }),
+      gaReport(token, propertyId, {
+        dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+        metrics: [{ name: 'sessions' }],
+        dimensions: [{ name: 'sessionDefaultChannelGroup' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 6,
+      }),
+    ]);
+
+    if (dailyData.error) return { configured: true, error: dailyData.error.message };
+
+    const daily = (dailyData.rows ?? []).map((row) => {
+      const d = row.dimensionValues[0].value; // YYYYMMDD
+      return {
+        date: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`,
+        sessions: Number(row.metricValues[0].value),
+        users: Number(row.metricValues[1].value),
+        pageViews: Number(row.metricValues[2].value),
+        newUsers: Number(row.metricValues[3].value),
+        bounceRate: Number(row.metricValues[4].value),
+        avgDuration: Number(row.metricValues[5].value),
+      };
+    });
+
+    const totals = daily.reduce(
+      (acc, d) => ({ sessions: acc.sessions + d.sessions, users: acc.users + d.users, pageViews: acc.pageViews + d.pageViews, newUsers: acc.newUsers + d.newUsers }),
+      { sessions: 0, users: 0, pageViews: 0, newUsers: 0 },
+    );
+
+    const avgBounceRate = daily.length
+      ? Math.round(daily.reduce((s, d) => s + d.bounceRate, 0) / daily.length * 100)
+      : null;
+    const avgDuration = daily.length
+      ? Math.round(daily.reduce((s, d) => s + d.avgDuration, 0) / daily.length)
+      : null;
+
+    const topPages = (pagesData.rows ?? []).map((r) => ({
+      page: r.dimensionValues[0].value,
+      views: Number(r.metricValues[0].value),
+    }));
+
+    const sources = (sourcesData.rows ?? []).map((r) => ({
+      channel: r.dimensionValues[0].value,
+      sessions: Number(r.metricValues[0].value),
+    }));
+
+    return {
+      configured: true,
+      period: 'last 28 days',
+      totals: { ...totals, avgBounceRate, avgDuration },
+      daily,
+      topPages,
+      sources,
     };
   } catch (err) {
     return { configured: true, error: err.message };

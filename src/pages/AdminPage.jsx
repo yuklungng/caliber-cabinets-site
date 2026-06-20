@@ -92,26 +92,251 @@ function TypeBadge({ formType }) {
   );
 }
 
-function LeadDetail({ fields }) {
+// ─── Lead detail sub-components ──────────────────────────────────────────────
+
+function SectionHeading({ children }) {
   return (
-    <div style={{ padding: '20px 24px', background: '#fafaf9', borderTop: '1px solid #e5e7eb' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-        <tbody>
-          {Object.entries(fields).map(([k, v]) => {
-            if (isEmpty(v)) return null;
-            return (
-              <tr key={k} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '8px 16px 8px 0', color: '#6b7280', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em', width: '32%', verticalAlign: 'top' }}>
-                  {FIELD_LABELS[k] ?? k}
-                </td>
-                <td style={{ padding: '8px 0', color: '#111827', verticalAlign: 'top', lineHeight: '1.55' }}>
-                  {formatFieldValue(v)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+      <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+        {children}
+      </span>
+      <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+    </div>
+  );
+}
+
+function FieldCell({ label, children, wide }) {
+  if (!children && children !== 0) return null;
+  return (
+    <div style={wide ? { gridColumn: '1 / -1' } : {}}>
+      <dt style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '3px' }}>
+        {label}
+      </dt>
+      <dd style={{ margin: 0, fontSize: '14px', color: '#111827', lineHeight: '1.6' }}>
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+function fileInfo(filename) {
+  const ext = (filename.split('.').pop() ?? '').toLowerCase();
+  const types = {
+    pdf:  { label: 'PDF',  color: '#dc2626', bg: '#fef2f2' },
+    jpg:  { label: 'JPG',  color: '#7c3aed', bg: '#f5f3ff' },
+    jpeg: { label: 'JPG',  color: '#7c3aed', bg: '#f5f3ff' },
+    png:  { label: 'PNG',  color: '#7c3aed', bg: '#f5f3ff' },
+    gif:  { label: 'GIF',  color: '#7c3aed', bg: '#f5f3ff' },
+    webp: { label: 'WEBP', color: '#7c3aed', bg: '#f5f3ff' },
+    heic: { label: 'HEIC', color: '#7c3aed', bg: '#f5f3ff' },
+    dwg:  { label: 'DWG',  color: '#0891b2', bg: '#ecfeff' },
+    dxf:  { label: 'DXF',  color: '#0891b2', bg: '#ecfeff' },
+    xlsx: { label: 'XLS',  color: '#16a34a', bg: '#f0fdf4' },
+    xls:  { label: 'XLS',  color: '#16a34a', bg: '#f0fdf4' },
+    csv:  { label: 'CSV',  color: '#16a34a', bg: '#f0fdf4' },
+    doc:  { label: 'DOC',  color: '#2563eb', bg: '#eff6ff' },
+    docx: { label: 'DOC',  color: '#2563eb', bg: '#eff6ff' },
+  };
+  return types[ext] ?? { label: ext.toUpperCase() || 'FILE', color: '#6b7280', bg: '#f9fafb' };
+}
+
+function AttachmentChip({ path }) {
+  const [loading, setLoading] = useState(false);
+  const filename = path.split('/').pop().replace(/^\d+-/, '');
+  const { label, color, bg } = fileInfo(filename);
+
+  async function open() {
+    setLoading(true);
+    try {
+      const r = await apiCall(`/api/admin-attachment?path=${encodeURIComponent(path)}`);
+      const d = await r.json();
+      if (d.url) window.open(d.url, '_blank');
+      else alert('Could not open file. Try again.');
+    } catch {
+      alert('Could not open file. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={open}
+      disabled={loading}
+      title={filename}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '10px',
+        padding: '10px 14px', border: `1px solid ${color}40`,
+        borderRadius: '8px', background: bg, cursor: 'pointer',
+        textAlign: 'left', opacity: loading ? 0.6 : 1,
+        transition: 'opacity 150ms, box-shadow 150ms',
+        maxWidth: '260px',
+      }}
+    >
+      <div style={{ width: '36px', height: '36px', borderRadius: '6px', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.03em' }}>
+          {loading ? '…' : label}
+        </span>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '13px', fontWeight: '600', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {filename}
+        </div>
+        <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '1px' }}>
+          {loading ? 'Opening…' : 'Click to open ↗'}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function LeadDetail({ lead }) {
+  const f = lead.fields ?? {};
+  const isHomeowner = lead.form_type === 'homeowner-consultation';
+
+  const addr = [
+    f.streetAddress,
+    f.city,
+    f.state && f.zipCode ? `${f.state} ${f.zipCode}` : (f.state || f.zipCode),
+  ].filter(Boolean).join(', ');
+
+  const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 32px' };
+
+  return (
+    <div style={{ padding: '28px 32px', background: '#fff', borderTop: '2px solid #f3e8d0' }}>
+      <dl style={{ margin: 0, display: 'grid', gap: '32px' }}>
+
+        {/* Contact */}
+        <section>
+          <SectionHeading>Contact</SectionHeading>
+          <div style={grid2}>
+            <FieldCell label="Name">
+              {[f.firstName, f.lastName].filter(Boolean).join(' ') || null}
+            </FieldCell>
+            <FieldCell label="Phone">
+              {f.phone ? <a href={`tel:${f.phone}`} style={{ color: '#78350f', textDecoration: 'none', fontWeight: '500' }}>{f.phone}</a> : null}
+            </FieldCell>
+            <FieldCell label="Email" wide>
+              {f.email ? <a href={`mailto:${f.email}`} style={{ color: '#78350f', textDecoration: 'none', fontWeight: '500' }}>{f.email}</a> : null}
+            </FieldCell>
+          </div>
+        </section>
+
+        {/* Trade — Your info */}
+        {!isHomeowner && (
+          <section>
+            <SectionHeading>Your Information</SectionHeading>
+            <div style={grid2}>
+              <FieldCell label="Company">{f.companyName}</FieldCell>
+              <FieldCell label="Trade Role">{f.tradeRole}</FieldCell>
+              <FieldCell label="License #">{f.licenseNumber}</FieldCell>
+              <FieldCell label="Preferred Contact">{f.preferredContact}</FieldCell>
+              {f.gcNameAndPhone && <FieldCell label="General Contractor" wide>{f.gcNameAndPhone}</FieldCell>}
+            </div>
+          </section>
+        )}
+
+        {/* Trade — Client */}
+        {!isHomeowner && (f.clientFirstName || f.clientLastName || f.needsDesignServices) && (
+          <section>
+            <SectionHeading>Client</SectionHeading>
+            <div style={grid2}>
+              <FieldCell label="Client Name">
+                {[f.clientFirstName, f.clientLastName].filter(Boolean).join(' ') || null}
+              </FieldCell>
+              {f.needsDesignServices && (
+                <FieldCell label="Design & Measure">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
+                    Required — $875 deposit
+                  </span>
+                </FieldCell>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Homeowner — Project */}
+        {isHomeowner && (
+          <section>
+            <SectionHeading>Project</SectionHeading>
+            <div style={grid2}>
+              <FieldCell label="Type">{f.projectType}</FieldCell>
+              <FieldCell label="Timeline">{f.timeline}</FieldCell>
+              {addr && <FieldCell label="Address" wide>{addr}</FieldCell>}
+            </div>
+          </section>
+        )}
+
+        {/* Trade — Project */}
+        {!isHomeowner && (
+          <section>
+            <SectionHeading>Project</SectionHeading>
+            <div style={grid2}>
+              {addr && <FieldCell label="Address" wide>{addr}</FieldCell>}
+              <FieldCell label="Areas">
+                {Array.isArray(f.areasRequiringCabinetry) ? f.areasRequiringCabinetry.join(', ') : f.areasRequiringCabinetry}
+              </FieldCell>
+              <FieldCell label="Installation Timeline">{f.installationTimeline}</FieldCell>
+            </div>
+          </section>
+        )}
+
+        {/* Trade — Specs */}
+        {!isHomeowner && (f.constructionMethod || f.doorStyle || f.woodSpecies || f.crownMolding || f.accessories) && (
+          <section>
+            <SectionHeading>Specifications</SectionHeading>
+            <div style={grid2}>
+              <FieldCell label="Construction Method">{f.constructionMethod}</FieldCell>
+              <FieldCell label="Crown Molding">{f.crownMolding}</FieldCell>
+              <FieldCell label="Door Style">{f.doorStyle}</FieldCell>
+              <FieldCell label="Wood / Material">{f.woodSpecies}</FieldCell>
+              {f.accessories && (
+                <FieldCell label="Accessories & Upgrades" wide>
+                  {Array.isArray(f.accessories) ? f.accessories.join(', ') : f.accessories}
+                </FieldCell>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Notes / Description */}
+        {(f.description || f.inspiration || f.comments) && (
+          <section>
+            <SectionHeading>Notes</SectionHeading>
+            <div style={{ display: 'grid', gap: '20px' }}>
+              {f.description && (
+                <FieldCell label="Project Description">
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{f.description}</span>
+                </FieldCell>
+              )}
+              {f.inspiration && (
+                <FieldCell label="Inspiration / Style Notes">
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{f.inspiration}</span>
+                </FieldCell>
+              )}
+              {f.comments && (
+                <FieldCell label="Comments">
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{f.comments}</span>
+                </FieldCell>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Attachments */}
+        {Array.isArray(f.attachments) && f.attachments.length > 0 && (
+          <section>
+            <SectionHeading>Attachments</SectionHeading>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+              {f.attachments.map((path) => (
+                <AttachmentChip key={path} path={path} />
+              ))}
+            </div>
+          </section>
+        )}
+
+      </dl>
     </div>
   );
 }
@@ -146,7 +371,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
           </div>
         </div>
       </div>
-      {isExpanded && <LeadDetail fields={lead.fields ?? {}} />}
+      {isExpanded && <LeadDetail lead={lead} />}
     </div>
   );
 }

@@ -822,6 +822,188 @@ function UsersPanel({ currentUser }) {
   );
 }
 
+// ─── Site Stats view ─────────────────────────────────────────────────────────
+
+function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function StatTile({ label, value, sub, accent }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px', borderTop: accent ? `3px solid ${accent}` : undefined }}>
+      <p style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
+      <p style={{ margin: 0, fontSize: '26px', fontWeight: '700', color: '#111827', lineHeight: 1.2 }}>{value ?? '—'}</p>
+      {sub && <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#6b7280' }}>{sub}</p>}
+    </div>
+  );
+}
+
+function MiniBar({ daily, field, color }) {
+  if (!daily?.length) return null;
+  const values = daily.map((d) => d[field] ?? 0);
+  const max = Math.max(...values, 1);
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '40px' }}>
+      {values.map((v, i) => (
+        <div key={i} title={`${daily[i].date}: ${v.toLocaleString()}`} style={{ flex: 1, borderRadius: '2px 2px 0 0', background: color ?? '#78350f', opacity: 0.7 + (v / max) * 0.3, height: `${Math.max(4, Math.round((v / max) * 40))}px` }} />
+      ))}
+    </div>
+  );
+}
+
+function NotConfiguredCard({ service, envVars, hint }) {
+  return (
+    <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '20px 24px' }}>
+      <p style={{ margin: '0 0 6px', fontSize: '14px', fontWeight: '700', color: '#374151' }}>{service} — Not connected</p>
+      <p style={{ margin: '0 0 10px', fontSize: '13px', color: '#6b7280' }}>{hint}</p>
+      <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', fontFamily: 'monospace' }}>
+        {envVars.join(' · ')}
+      </p>
+    </div>
+  );
+}
+
+function SiteStatsView() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiCall('/api/admin-analytics')
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => { setError('Failed to load stats.'); setLoading(false); });
+  }, []);
+
+  if (loading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
+  if (error) return <p style={{ color: '#b91c1c' }}>{error}</p>;
+
+  const { uptime, cloudflare } = data ?? {};
+
+  return (
+    <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
+
+      {/* ── UptimeRobot ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Uptime</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via UptimeRobot</span>
+        </div>
+
+        {!uptime?.configured && (
+          <NotConfiguredCard
+            service="UptimeRobot"
+            envVars={['UPTIMEROBOT_API_KEY']}
+            hint="Add your API key from UptimeRobot › My Settings › API Settings › Main API Key."
+          />
+        )}
+
+        {uptime?.configured && uptime?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px' }}>UptimeRobot error: {uptime.error}</p>
+        )}
+
+        {uptime?.configured && uptime?.monitors && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {uptime.monitors.map((m) => {
+              const statusColor = m.status === 'up' ? '#16a34a' : m.status === 'seems_down' ? '#d97706' : '#dc2626';
+              const statusLabel = m.status === 'up' ? '● Up' : m.status === 'seems_down' ? '⚠ Seems Down' : '✕ Down';
+              return (
+                <div key={m.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '14px', fontWeight: '700', color: '#111827' }}>{m.name}</span>
+                    <span style={{ fontSize: '12px', color: '#9ca3af' }}>{m.url}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '13px', fontWeight: '700', color: statusColor }}>{statusLabel}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                    <div>
+                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>7-day uptime</p>
+                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: m.uptimeRatio7 >= 99.9 ? '#16a34a' : m.uptimeRatio7 >= 99 ? '#d97706' : '#dc2626' }}>
+                        {m.uptimeRatio7 != null ? `${m.uptimeRatio7}%` : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>30-day uptime</p>
+                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
+                        {m.uptimeRatio30 != null ? `${m.uptimeRatio30}%` : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg response</p>
+                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
+                        {m.avgResponseMs != null ? `${m.avgResponseMs}ms` : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>All-time</p>
+                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
+                        {m.uptimeRatioAll != null ? `${m.uptimeRatioAll}%` : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Cloudflare ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Traffic</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare · last 7 days</span>
+        </div>
+
+        {!cloudflare?.configured && (
+          <NotConfiguredCard
+            service="Cloudflare Analytics"
+            envVars={['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ZONE_ID']}
+            hint="Cloudflare must be in proxy mode (orange cloud) for traffic analytics. Enable at the July 25 cutover, then add these env vars in Vercel."
+          />
+        )}
+
+        {cloudflare?.configured && cloudflare?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px' }}>Cloudflare error: {cloudflare.error}</p>
+        )}
+
+        {cloudflare?.configured && cloudflare?.totals && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <StatTile label="Unique Visitors" value={cloudflare.totals.uniques?.toLocaleString()} accent="#f97316" />
+              <StatTile label="Page Views" value={cloudflare.totals.pageViews?.toLocaleString()} accent="#3b82f6" />
+              <StatTile label="Total Requests" value={cloudflare.totals.requests?.toLocaleString()} accent="#8b5cf6" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <StatTile label="Bandwidth" value={formatBytes(cloudflare.totals.bytes)} />
+              <StatTile label="Cache Hit Rate" value={cloudflare.totals.cacheHitRate != null ? `${cloudflare.totals.cacheHitRate}%` : '—'} sub="Higher = faster site, less origin load" />
+              <StatTile label="Threats Blocked" value={cloudflare.totals.threats?.toLocaleString()} sub="Bad bots, DDoS, etc." />
+            </div>
+
+            {/* Daily sparklines */}
+            {cloudflare.daily?.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily visitors (last 7 days)</p>
+                <MiniBar daily={cloudflare.daily} field="uniques" color="#f97316" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                  {cloudflare.daily.map((d) => (
+                    <span key={d.date} style={{ fontSize: '10px', color: '#9ca3af', flex: 1, textAlign: 'center' }}>
+                      {new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 // ─── Leads view ───────────────────────────────────────────────────────────────
 
 function LeadsView() {
@@ -1173,6 +1355,7 @@ function LoginScreen({ onLogin }) {
 
 const NAV_ITEMS = [
   { key: 'leads', label: 'Leads', section: null },
+  { key: 'site-stats', label: 'Site Stats', section: null },
   { key: 'notifications', label: 'Notifications', section: 'Settings' },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings' },
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: false },
@@ -1274,6 +1457,7 @@ export function AdminPage() {
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
       case 'users': return <UsersPanel currentUser={currentUser} />;
+      case 'site-stats': return <SiteStatsView />;
       default: return <LeadsView />;
     }
   }

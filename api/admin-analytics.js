@@ -88,16 +88,25 @@ async function fetchTurnstile(accountId) {
   const startDate = start.toISOString().split('T')[0];
   const endDate = end.toISOString().split('T')[0];
 
+  // Two queries in one: successful tokens by date, and failed/non-token attempts by date
   const query = `{
     viewer {
       accounts(filter: { accountTag: "${accountId}" }) {
-        turnstileAdaptiveGroups(
+        passed: turnstileAdaptiveGroups(
           limit: 100
           filter: { date_geq: "${startDate}", date_leq: "${endDate}" }
           orderBy: [date_ASC]
         ) {
           dimensions { date siteKey }
-          sum { tokens pageLoads wafChallengeRequests }
+          count
+        }
+        failed: challengeReportsGroups(
+          limit: 100
+          filter: { date_geq: "${startDate}", date_leq: "${endDate}" }
+          orderBy: [date_ASC]
+        ) {
+          dimensions { date }
+          count
         }
       }
     }
@@ -117,50 +126,101 @@ async function fetchTurnstile(accountId) {
     const data = await res.json();
 
     if (data.errors?.length) {
-      return { configured: true, error: data.errors.map((e) => e.message).join('; ') };
+      // Fall back to tokens-only query if the combined query fails
+      return fetchTurnstileSimple(accountId, token, startDate, endDate);
     }
 
-    const groups = data?.data?.viewer?.accounts?.[0]?.turnstileAdaptiveGroups ?? [];
+    const account = data?.data?.viewer?.accounts?.[0];
+    const passedGroups = account?.passed ?? [];
+    const failedGroups = account?.failed ?? [];
 
-    // Aggregate by date
+    // Aggregate passed by date
     const byDate = {};
-    let totalPageLoads = 0;
-    let totalTokens = 0;
+    let totalPassed = 0;
 
-    for (const g of groups) {
+    for (const g of passedGroups) {
       const date = g.dimensions?.date;
-      const tokens = g.sum?.tokens ?? 0;
-      const pageLoads = g.sum?.pageLoads ?? 0;
-
-      totalTokens += tokens;
-      totalPageLoads += pageLoads;
-
+      const count = g.count ?? 0;
+      totalPassed += count;
       if (date) {
-        if (!byDate[date]) byDate[date] = { date, tokens: 0, pageLoads: 0 };
-        byDate[date].tokens += tokens;
-        byDate[date].pageLoads += pageLoads;
+        if (!byDate[date]) byDate[date] = { date, passed: 0, failed: 0 };
+        byDate[date].passed += count;
+      }
+    }
+
+    let totalFailed = 0;
+    for (const g of failedGroups) {
+      const date = g.dimensions?.date;
+      const count = g.count ?? 0;
+      totalFailed += count;
+      if (date) {
+        if (!byDate[date]) byDate[date] = { date, passed: 0, failed: 0 };
+        byDate[date].failed += count;
       }
     }
 
     const daily = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-
-    // humans verified = tokens issued
-    // blocked = page loads that never got a token
-    const blocked = Math.max(0, totalPageLoads - totalTokens);
-    const solveRate = totalPageLoads > 0
-      ? Math.round((totalTokens / totalPageLoads) * 100)
-      : null;
+    const totalLoads = totalPassed + totalFailed;
+    const solveRate = totalLoads > 0 ? Math.round((totalPassed / totalLoads) * 100) : null;
 
     return {
       configured: true,
       period: { start: startDate, end: endDate },
-      totals: {
-        pageLoads: totalPageLoads,
-        verified: totalTokens,
-        blocked,
-        solveRate,
-      },
+      totals: { pageLoads: totalLoads, verified: totalPassed, blocked: totalFailed, solveRate },
       daily,
+    };
+  } catch (err) {
+    return { configured: true, error: err.message };
+  }
+}
+
+// Fallback: tokens-only if challengeReportsGroups isn't available
+async function fetchTurnstileSimple(accountId, token, startDate, endDate) {
+  const query = `{
+    viewer {
+      accounts(filter: { accountTag: "${accountId}" }) {
+        turnstileAdaptiveGroups(
+          limit: 100
+          filter: { date_geq: "${startDate}", date_leq: "${endDate}" }
+          orderBy: [date_ASC]
+        ) {
+          dimensions { date siteKey }
+          count
+        }
+      }
+    }
+  }`;
+
+  try {
+    const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return { configured: true, error: `Cloudflare ${res.status}` };
+    const data = await res.json();
+    if (data.errors?.length) return { configured: true, error: data.errors.map((e) => e.message).join('; ') };
+
+    const groups = data?.data?.viewer?.accounts?.[0]?.turnstileAdaptiveGroups ?? [];
+    const byDate = {};
+    let total = 0;
+
+    for (const g of groups) {
+      const date = g.dimensions?.date;
+      const count = g.count ?? 0;
+      total += count;
+      if (date) {
+        if (!byDate[date]) byDate[date] = { date, passed: 0, failed: 0 };
+        byDate[date].passed += count;
+      }
+    }
+
+    return {
+      configured: true,
+      simpleMode: true, // flag so UI knows blocked count isn't available
+      period: { start: startDate, end: endDate },
+      totals: { pageLoads: total, verified: total, blocked: null, solveRate: null },
+      daily: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)),
     };
   } catch (err) {
     return { configured: true, error: err.message };

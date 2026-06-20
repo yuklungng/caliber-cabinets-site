@@ -974,7 +974,7 @@ function SiteStatsView() {
 
         {turnstile?.configured && turnstile?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${turnstile.simpleMode ? 2 : 4}, 1fr)`, gap: '12px' }}>
               <StatTile
                 label="Form Loads"
                 value={turnstile.totals.pageLoads?.toLocaleString()}
@@ -984,21 +984,25 @@ function SiteStatsView() {
               <StatTile
                 label="Humans Verified"
                 value={turnstile.totals.verified?.toLocaleString()}
-                sub="Passed the check"
+                sub="Tokens issued to real users"
                 accent="#16a34a"
               />
-              <StatTile
-                label="Bots Blocked"
-                value={turnstile.totals.blocked?.toLocaleString()}
-                sub="Stopped before submit"
-                accent="#dc2626"
-              />
-              <StatTile
-                label="Solve Rate"
-                value={turnstile.totals.solveRate != null ? `${turnstile.totals.solveRate}%` : '—'}
-                sub="Humans / total loads"
-                accent="#f59e0b"
-              />
+              {!turnstile.simpleMode && (
+                <StatTile
+                  label="Bots Blocked"
+                  value={turnstile.totals.blocked?.toLocaleString()}
+                  sub="Stopped before submit"
+                  accent="#dc2626"
+                />
+              )}
+              {!turnstile.simpleMode && (
+                <StatTile
+                  label="Solve Rate"
+                  value={turnstile.totals.solveRate != null ? `${turnstile.totals.solveRate}%` : '—'}
+                  sub="Humans / total loads"
+                  accent="#f59e0b"
+                />
+              )}
             </div>
 
             {turnstile.daily?.length > 0 && (

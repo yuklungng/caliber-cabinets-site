@@ -882,7 +882,7 @@ function SiteStatsView() {
   if (loading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
   if (error) return <p style={{ color: '#b91c1c' }}>{error}</p>;
 
-  const { uptime, cloudflare } = data ?? {};
+  const { uptime, turnstile, cloudflare } = data ?? {};
 
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
@@ -947,6 +947,91 @@ function SiteStatsView() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Turnstile ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Bot Protection</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare Turnstile · last 30 days</span>
+        </div>
+
+        {!turnstile?.configured && (
+          <NotConfiguredCard
+            service="Cloudflare Turnstile"
+            envVars={['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']}
+            hint="Add your Cloudflare Account ID and an API token with Account Analytics:Read permission."
+          />
+        )}
+
+        {turnstile?.configured && turnstile?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
+            Turnstile error: {turnstile.error}
+          </p>
+        )}
+
+        {turnstile?.configured && turnstile?.totals && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              <StatTile
+                label="Form Loads"
+                value={turnstile.totals.pageLoads?.toLocaleString()}
+                sub="Times Turnstile ran"
+                accent="#6366f1"
+              />
+              <StatTile
+                label="Humans Verified"
+                value={turnstile.totals.verified?.toLocaleString()}
+                sub="Passed the check"
+                accent="#16a34a"
+              />
+              <StatTile
+                label="Bots Blocked"
+                value={turnstile.totals.blocked?.toLocaleString()}
+                sub="Stopped before submit"
+                accent="#dc2626"
+              />
+              <StatTile
+                label="Solve Rate"
+                value={turnstile.totals.solveRate != null ? `${turnstile.totals.solveRate}%` : '—'}
+                sub="Humans / total loads"
+                accent="#f59e0b"
+              />
+            </div>
+
+            {turnstile.daily?.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <div style={{ display: 'flex', gap: '20px', marginBottom: '12px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily breakdown</p>
+                  <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: '600' }}>■ Verified</span>
+                  <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>■ Blocked</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '48px' }}>
+                  {turnstile.daily.slice(-14).map((d) => {
+                    const total = Math.max(d.pageLoads, 1);
+                    const maxTotal = Math.max(...turnstile.daily.map((x) => x.pageLoads), 1);
+                    const barH = Math.max(4, Math.round((total / maxTotal) * 48));
+                    const verifiedPct = total > 0 ? d.tokens / total : 1;
+                    return (
+                      <div
+                        key={d.date}
+                        title={`${d.date}: ${d.tokens} verified, ${Math.max(0, d.pageLoads - d.tokens)} blocked`}
+                        style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse' }}
+                      >
+                        <div style={{ height: `${Math.round(verifiedPct * 100)}%`, background: '#16a34a', opacity: 0.85 }} />
+                        <div style={{ flex: 1, background: '#dc2626', opacity: 0.7 }} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{turnstile.daily.slice(-14)[0]?.date}</span>
+                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{turnstile.daily.slice(-1)[0]?.date}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

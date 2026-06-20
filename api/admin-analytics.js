@@ -83,10 +83,11 @@ async function fetchTurnstile(accountId) {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token || !accountId) return { configured: false };
 
-  // Cloudflare caps Turnstile queries at 7 days max
+  // Cloudflare caps Turnstile at 1w1h. Date filters snap to midnight, so
+  // 7 days back overshoots by ~18h. Use 6 days to stay safely under the limit.
   const end = new Date();
   const start = new Date(end);
-  start.setDate(start.getDate() - 7);
+  start.setDate(start.getDate() - 6);
   const startDate = start.toISOString().split('T')[0];
   const endDate = end.toISOString().split('T')[0];
 

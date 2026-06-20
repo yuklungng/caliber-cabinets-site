@@ -421,7 +421,7 @@ async function fetchSearchConsole() {
   try {
     const token = await getGoogleAccessToken(serviceAccount, 'https://www.googleapis.com/auth/webmasters.readonly');
     const encodedSite = encodeURIComponent(siteUrl);
-    const base = `https://www.searchconsole.googleapis.com/webmasters/v3/sites/${encodedSite}/searchAnalytics/query`;
+    const base = `https://www.googleapis.com/webmasters/v3/sites/${encodedSite}/searchAnalytics/query`;
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     const endDate = new Date().toISOString().split('T')[0];

@@ -69,7 +69,9 @@ async function fetchUptimeRobot() {
       };
     });
 
-    return { configured: true, monitors };
+    // Filter to Caliber monitors only — matches current Vercel URL and future calibercabinetshop.com
+    const filtered = monitors.filter((m) => m.url?.toLowerCase().includes('caliber'));
+    return { configured: true, monitors: filtered };
   } catch (err) {
     return { configured: true, error: err.message };
   }

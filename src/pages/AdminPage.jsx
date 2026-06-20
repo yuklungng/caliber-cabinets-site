@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -238,6 +238,124 @@ function NotificationsPanel() {
   );
 }
 
+function RichTextEditor({ value, onChange }) {
+  const editorRef = useRef(null);
+
+  // Set initial HTML once on mount
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.innerHTML = value ?? '';
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function exec(cmd, val = null) {
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand(cmd, false, val);
+    editorRef.current.focus();
+    onChange(editorRef.current.innerHTML);
+  }
+
+  function applyFontSize(px) {
+    editorRef.current.focus();
+    // execCommand only accepts 1-7; use size=7 as a marker then replace with CSS spans
+    document.execCommand('fontSize', false, '7');
+    editorRef.current.querySelectorAll('font[size="7"]').forEach((el) => {
+      const span = document.createElement('span');
+      span.style.fontSize = px;
+      span.innerHTML = el.innerHTML;
+      el.replaceWith(span);
+    });
+    onChange(editorRef.current.innerHTML);
+  }
+
+  const FONTS = ['Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Courier New'];
+  const SIZES = ['10px', '12px', '14px', '16px', '18px', '20px', '24px', '28px', '32px'];
+
+  const sepStyle = { width: '1px', background: '#e5e7eb', margin: '0 3px', alignSelf: 'stretch' };
+  const btnStyle = { padding: '4px 9px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#374151', lineHeight: 1.4 };
+
+  return (
+    <div style={{ border: '1px solid #d1d5db', borderRadius: '8px', overflow: 'hidden' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '8px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', alignItems: 'center' }}>
+
+        {/* Font family */}
+        <select
+          defaultValue=""
+          onChange={(e) => { if (e.target.value) exec('fontName', e.target.value); editorRef.current.focus(); }}
+          style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px', background: '#fff', cursor: 'pointer' }}
+        >
+          <option value="" disabled>Font</option>
+          {FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+        </select>
+
+        {/* Font size */}
+        <select
+          defaultValue=""
+          onChange={(e) => { if (e.target.value) applyFontSize(e.target.value); }}
+          style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px', background: '#fff', cursor: 'pointer' }}
+        >
+          <option value="" disabled>Size</option>
+          {SIZES.map((s) => <option key={s} value={s}>{s.replace('px', '')}</option>)}
+        </select>
+
+        <div style={sepStyle} />
+
+        {/* Style buttons — onMouseDown + preventDefault keeps editor focused */}
+        {[
+          { label: <strong>B</strong>, cmd: 'bold', title: 'Bold' },
+          { label: <em>I</em>, cmd: 'italic', title: 'Italic' },
+          { label: <u>U</u>, cmd: 'underline', title: 'Underline' },
+        ].map(({ label, cmd, title }) => (
+          <button key={cmd} type="button" title={title} onMouseDown={(e) => { e.preventDefault(); exec(cmd); }} style={btnStyle}>
+            {label}
+          </button>
+        ))}
+
+        <div style={sepStyle} />
+
+        {/* Alignment */}
+        {[
+          { label: '⬛L', cmd: 'justifyLeft', title: 'Align left' },
+          { label: '⬛C', cmd: 'justifyCenter', title: 'Center' },
+          { label: '⬛R', cmd: 'justifyRight', title: 'Align right' },
+        ].map(({ label, cmd, title }) => (
+          <button key={cmd} type="button" title={title} onMouseDown={(e) => { e.preventDefault(); exec(cmd); }} style={{ ...btnStyle, fontFamily: 'monospace', letterSpacing: '-1px' }}>
+            {title.replace('Align ', '').replace('Center', 'Ctr')}
+          </button>
+        ))}
+
+        <div style={sepStyle} />
+
+        {/* Text color */}
+        <label title="Text color" style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '13px', fontWeight: '600', color: '#374151', cursor: 'pointer', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff' }}>
+          A
+          <input type="color" defaultValue="#111827" onChange={(e) => exec('foreColor', e.target.value)} style={{ width: '18px', height: '18px', border: 'none', padding: 0, cursor: 'pointer', borderRadius: '2px', background: 'transparent' }} />
+        </label>
+
+        {/* Highlight color */}
+        <label title="Highlight" style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '13px', fontWeight: '600', color: '#374151', cursor: 'pointer', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff' }}>
+          🖍
+          <input type="color" defaultValue="#fef08a" onChange={(e) => exec('hiliteColor', e.target.value)} style={{ width: '18px', height: '18px', border: 'none', padding: 0, cursor: 'pointer', borderRadius: '2px', background: 'transparent' }} />
+        </label>
+
+        <div style={sepStyle} />
+
+        {/* Lists */}
+        <button type="button" title="Bulleted list" onMouseDown={(e) => { e.preventDefault(); exec('insertUnorderedList'); }} style={btnStyle}>• List</button>
+        <button type="button" title="Clear formatting" onMouseDown={(e) => { e.preventDefault(); exec('removeFormat'); }} style={{ ...btnStyle, color: '#9ca3af' }}>✕ Clear</button>
+      </div>
+
+      {/* Editable area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={() => onChange(editorRef.current.innerHTML)}
+        style={{ minHeight: '200px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.7', outline: 'none', color: '#111827' }}
+      />
+    </div>
+  );
+}
+
 function ConfirmationsPanel() {
   const [enabled, setEnabled] = useState(false);
   const [subject, setSubject] = useState('');
@@ -298,16 +416,10 @@ function ConfirmationsPanel() {
           />
         </div>
 
-        <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5 }}>
+        <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? 'auto' : 'none' }}>
           <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Message body</label>
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={!enabled}
-            rows={6}
-            style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.6' }}
-          />
-          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>Plain text only. Sent from leads@calibercabinetshop.com.</p>
+          <RichTextEditor value={message} onChange={setMessage} />
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>HTML email sent from leads@calibercabinetshop.com.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

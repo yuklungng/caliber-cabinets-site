@@ -122,6 +122,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
           to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
+          ...(process.env.HUBSPOT_BCC_EMAIL && { bcc: [process.env.HUBSPOT_BCC_EMAIL] }),
           subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
           text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in Supabase dashboard.`,
           html: htmlBody,
@@ -144,7 +145,19 @@ export default async function handler(req, res) {
   // Step 4: Push lead to HubSpot and store deal ID back in Supabase
   if (process.env.HUBSPOT_ACCESS_TOKEN) {
     try {
-      const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields);
+      // Generate 1-year signed URLs for any uploaded files so Mike can open
+      // them directly from the HubSpot deal description
+      const attachmentUrls = {};
+      if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
+        for (const path of fields.attachments) {
+          const { data } = await supabase.storage
+            .from('lead-uploads')
+            .createSignedUrl(path, 31_536_000); // 1 year in seconds
+          if (data?.signedUrl) attachmentUrls[path] = data.signedUrl;
+        }
+      }
+
+      const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields, attachmentUrls);
       const contactId = await upsertContact(contactProperties);
       const dealId = await createDeal(dealProperties, contactId);
       console.log('[lead-submit] HubSpot contact and deal created, deal ID:', dealId);

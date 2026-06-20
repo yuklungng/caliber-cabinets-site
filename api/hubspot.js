@@ -140,7 +140,7 @@ export async function batchGetDealStages(dealIds) {
 /**
  * Build contact properties and a deal with full form content in the description.
  */
-export function buildHubSpotObjects(formType, fields) {
+export function buildHubSpotObjects(formType, fields, attachmentUrls = {}) {
   const isHomeowner = formType === 'homeowner-consultation';
 
   // --- Contact ---
@@ -232,13 +232,15 @@ export function buildHubSpotObjects(formType, fields) {
     }
   }
 
-  // Attachments (both forms)
+  // Attachments (both forms) — include signed URLs if available
   if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
     lines.push('');
-    const names = fields.attachments
-      .map((p) => p.split('/').pop().replace(/^\d+-/, ''))
-      .join(', ');
-    line('Uploaded Files', names);
+    lines.push('Uploaded Files:');
+    for (const path of fields.attachments) {
+      const filename = path.split('/').pop().replace(/^\d+-/, '');
+      const url = attachmentUrls[path];
+      lines.push(url ? `  ${filename}: ${url}` : `  ${filename}`);
+    }
   }
 
   const dealProperties = {

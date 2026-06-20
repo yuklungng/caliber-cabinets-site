@@ -855,6 +855,15 @@ function MiniBar({ daily, field, color }) {
   );
 }
 
+function EmptyFrame({ label }) {
+  return (
+    <div style={{ minHeight: '80px', background: '#f9fafb', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '6px' }}>
+      <span style={{ fontSize: '11px', color: '#d1d5db' }}>{label}</span>
+      <span style={{ fontSize: '11px', color: '#d1d5db' }}>Waiting for data…</span>
+    </div>
+  );
+}
+
 function NotConfiguredCard({ service, envVars, hint }) {
   return (
     <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '20px 24px' }}>
@@ -871,21 +880,44 @@ function SiteStatsView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
-  useEffect(() => {
+  function loadStats(silent = false) {
+    if (!silent) setLoading(true);
     apiCall('/api/admin-analytics')
       .then((r) => r.json())
-      .then((d) => { setData(d); setLoading(false); })
+      .then((d) => { setData(d); setLoading(false); setLastUpdated(new Date()); })
       .catch(() => { setError('Failed to load stats.'); setLoading(false); });
+  }
+
+  useEffect(() => {
+    loadStats();
+    const interval = setInterval(() => loadStats(true), REFRESH_MS);
+    function onVisibility() { if (!document.hidden) loadStats(true); }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisibility); };
   }, []);
 
-  if (loading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
-  if (error) return <p style={{ color: '#b91c1c' }}>{error}</p>;
+  if (loading && !data) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
+  if (error && !data) return <p style={{ color: '#b91c1c' }}>{error}</p>;
 
   const { uptime, turnstile, ga, gsc, cloudflare } = data ?? {};
 
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
+      {/* Refresh bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+          {loading ? 'Refreshing…' : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+        </span>
+        <button
+          onClick={() => loadStats()}
+          style={{ fontSize: '12px', color: '#78350f', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
+        >
+          ↻ Refresh now
+        </button>
+      </div>
 
       {/* ── UptimeRobot ── */}
       <section>
@@ -1062,76 +1094,63 @@ function SiteStatsView() {
           </p>
         )}
 
-        {gsc?.configured && gsc?.totals && gsc.totals.clicks === 0 && gsc.totals.impressions === 0 && (
-          <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
-            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#374151', fontWeight: '600' }}>No search data yet</p>
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Search Console was just set up. Data typically appears within 2–3 days as Google processes it.</p>
-          </div>
-        )}
-
-        {gsc?.configured && gsc?.totals && (gsc.totals.clicks > 0 || gsc.totals.impressions > 0) && (
+        {gsc?.configured && gsc?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
-            {/* Overview tiles */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
               <StatTile label="Total Clicks" value={gsc.totals.clicks?.toLocaleString()} accent="#4285f4" sub="Visits from Google search" />
               <StatTile label="Impressions" value={gsc.totals.impressions?.toLocaleString()} accent="#34a853" sub="Times shown in results" />
               <StatTile label="Click-Through Rate" value={gsc.totals.ctr != null ? `${gsc.totals.ctr}%` : '—'} accent="#fbbc04" sub="Higher is better" />
-              <StatTile
-                label="Avg Position"
-                value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'}
-                accent="#ea4335"
-                sub="Lower # = higher ranking"
-              />
+              <StatTile label="Avg Position" value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'} accent="#ea4335" sub="Lower # = higher ranking" />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {/* Top queries */}
-              {gsc.queries?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
-                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>What people type to find the site</p>
-                  <div style={{ display: 'grid', gap: '10px' }}>
-                    {gsc.queries.map((q) => (
-                      <div key={q.query} style={{ display: 'grid', gap: '2px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.query}</span>
-                          <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
-                            <span style={{ color: '#4285f4', fontWeight: '700' }}>{q.clicks} clicks</span>
-                            <span style={{ color: '#9ca3af' }}>#{q.position}</span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
+                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>What people type to find the site</p>
+                {gsc.queries?.length > 0
+                  ? <div style={{ display: 'grid', gap: '10px' }}>
+                      {gsc.queries.map((q) => (
+                        <div key={q.query} style={{ display: 'grid', gap: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.query}</span>
+                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                              <span style={{ color: '#4285f4', fontWeight: '700' }}>{q.clicks} clicks</span>
+                              <span style={{ color: '#9ca3af' }}>#{q.position}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${Math.round((q.clicks / gsc.queries[0].clicks) * 100)}%`, height: '100%', background: '#4285f4', borderRadius: '2px', opacity: 0.7 }} />
                           </div>
                         </div>
-                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                          <div style={{ width: `${Math.round((q.clicks / gsc.queries[0].clicks) * 100)}%`, height: '100%', background: '#4285f4', borderRadius: '2px', opacity: 0.7 }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                      ))}
+                    </div>
+                  : <EmptyFrame label="caliber cabinets livermore · custom cabinets…" />
+                }
+              </div>
 
-              {/* Top pages */}
-              {gsc.pages?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pages getting clicks</p>
-                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Which pages Google sends visitors to</p>
-                  <div style={{ display: 'grid', gap: '10px' }}>
-                    {gsc.pages.map((p) => (
-                      <div key={p.page} style={{ display: 'grid', gap: '2px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
-                          <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
-                            <span style={{ color: '#34a853', fontWeight: '700' }}>{p.clicks} clicks</span>
-                            <span style={{ color: '#9ca3af' }}>#{p.position}</span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pages getting clicks</p>
+                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Which pages Google sends visitors to</p>
+                {gsc.pages?.length > 0
+                  ? <div style={{ display: 'grid', gap: '10px' }}>
+                      {gsc.pages.map((p) => (
+                        <div key={p.page} style={{ display: 'grid', gap: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                              <span style={{ color: '#34a853', fontWeight: '700' }}>{p.clicks} clicks</span>
+                              <span style={{ color: '#9ca3af' }}>#{p.position}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${Math.round((p.clicks / (gsc.pages[0].clicks || 1)) * 100)}%`, height: '100%', background: '#34a853', borderRadius: '2px', opacity: 0.7 }} />
                           </div>
                         </div>
-                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                          <div style={{ width: `${Math.round((p.clicks / (gsc.pages[0].clicks || 1)) * 100)}%`, height: '100%', background: '#34a853', borderRadius: '2px', opacity: 0.7 }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                      ))}
+                    </div>
+                  : <EmptyFrame label="/ · /gallery · /contact" />
+                }
+              </div>
             </div>
           </div>
         )}
@@ -1158,14 +1177,7 @@ function SiteStatsView() {
           </p>
         )}
 
-        {ga?.configured && ga?.totals && ga.totals.sessions === 0 && !ga.daily?.length && (
-          <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
-            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#374151', fontWeight: '600' }}>No data yet</p>
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>GA was set up recently. Traffic data will appear here within 24–48 hours as visitors come to the site.</p>
-          </div>
-        )}
-
-        {ga?.configured && ga?.totals && (ga.totals.sessions > 0 || ga.daily?.length > 0) && (
+        {ga?.configured && ga?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
             {/* Row 1: volume */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
@@ -1199,119 +1211,126 @@ function SiteStatsView() {
             </div>
 
             {/* Daily sessions chart */}
-            {ga.daily?.length > 0 && (
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily sessions</p>
-                <MiniBar daily={ga.daily} field="sessions" color="#4285f4" />
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[0]?.date}</span>
-                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[ga.daily.length - 1]?.date}</span>
-                </div>
-              </div>
-            )}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily sessions</p>
+              {ga.daily?.length > 0
+                ? <>
+                    <MiniBar daily={ga.daily} field="sessions" color="#4285f4" />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[0]?.date}</span>
+                      <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[ga.daily.length - 1]?.date}</span>
+                    </div>
+                  </>
+                : <div style={{ height: '40px', background: '#f9fafb', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '12px', color: '#d1d5db' }}>Data will appear as traffic comes in</span>
+                  </div>
+              }
+            </div>
 
             {/* Device split + Traffic sources */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {ga.devices?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Device split</p>
-                  <div style={{ display: 'grid', gap: '10px' }}>
-                    {ga.devices.map((d) => {
-                      const total = ga.devices.reduce((a, x) => a + x.sessions, 0);
-                      const pct = total > 0 ? Math.round((d.sessions / total) * 100) : 0;
-                      const deviceColor = d.device === 'mobile' ? '#4285f4' : d.device === 'desktop' ? '#34a853' : '#fbbc04';
-                      const icon = d.device === 'mobile' ? '📱' : d.device === 'desktop' ? '💻' : '📟';
-                      return (
-                        <div key={d.device} style={{ display: 'grid', gap: '4px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-                            <span style={{ color: '#374151', textTransform: 'capitalize' }}>{icon} {d.device}</span>
-                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}% <span style={{ fontWeight: '400', fontSize: '11px' }}>({d.sessions.toLocaleString()})</span></span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Device split</p>
+                {ga.devices?.length > 0
+                  ? <div style={{ display: 'grid', gap: '10px' }}>
+                      {ga.devices.map((d) => {
+                        const total = ga.devices.reduce((a, x) => a + x.sessions, 0);
+                        const pct = total > 0 ? Math.round((d.sessions / total) * 100) : 0;
+                        const deviceColor = d.device === 'mobile' ? '#4285f4' : d.device === 'desktop' ? '#34a853' : '#fbbc04';
+                        const icon = d.device === 'mobile' ? '📱' : d.device === 'desktop' ? '💻' : '📟';
+                        return (
+                          <div key={d.device} style={{ display: 'grid', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                              <span style={{ color: '#374151', textTransform: 'capitalize' }}>{icon} {d.device}</span>
+                              <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}% <span style={{ fontWeight: '400', fontSize: '11px' }}>({d.sessions.toLocaleString()})</span></span>
+                            </div>
+                            <div style={{ height: '5px', background: '#f3f4f6', borderRadius: '3px' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: deviceColor, borderRadius: '3px' }} />
+                            </div>
+                            {d.engagementRate > 0 && <span style={{ fontSize: '11px', color: '#9ca3af' }}>{d.engagementRate}% engagement</span>}
                           </div>
-                          <div style={{ height: '5px', background: '#f3f4f6', borderRadius: '3px' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: deviceColor, borderRadius: '3px' }} />
-                          </div>
-                          {d.engagementRate > 0 && (
-                            <span style={{ fontSize: '11px', color: '#9ca3af' }}>{d.engagementRate}% engagement</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        );
+                      })}
+                    </div>
+                  : <EmptyFrame label="📱 Mobile · 💻 Desktop · 📟 Tablet" />
+                }
+              </div>
 
-              {ga.sources?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Traffic sources</p>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {ga.sources.map((s) => {
-                      const total = ga.sources.reduce((a, x) => a + x.sessions, 0);
-                      const pct = total > 0 ? Math.round((s.sessions / total) * 100) : 0;
-                      return (
-                        <div key={s.channel} style={{ display: 'grid', gap: '3px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                            <span style={{ color: '#374151' }}>{s.channel}</span>
-                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}%</span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Traffic sources</p>
+                {ga.sources?.length > 0
+                  ? <div style={{ display: 'grid', gap: '8px' }}>
+                      {ga.sources.map((s) => {
+                        const total = ga.sources.reduce((a, x) => a + x.sessions, 0);
+                        const pct = total > 0 ? Math.round((s.sessions / total) * 100) : 0;
+                        return (
+                          <div key={s.channel} style={{ display: 'grid', gap: '3px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                              <span style={{ color: '#374151' }}>{s.channel}</span>
+                              <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}%</span>
+                            </div>
+                            <div style={{ height: '4px', background: '#f3f4f6', borderRadius: '2px' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: '#4285f4', borderRadius: '2px' }} />
+                            </div>
                           </div>
-                          <div style={{ height: '4px', background: '#f3f4f6', borderRadius: '2px' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: '#4285f4', borderRadius: '2px' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        );
+                      })}
+                    </div>
+                  : <EmptyFrame label="Organic · Direct · Referral · Social" />
+                }
+              </div>
             </div>
 
             {/* Top pages + Geo breakdown */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {ga.topPages?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top pages</p>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {ga.topPages.map((p) => {
-                      const maxViews = Math.max(...ga.topPages.map((x) => x.views), 1);
-                      const pct = Math.round((p.views / maxViews) * 100);
-                      return (
-                        <div key={p.page} style={{ display: 'grid', gap: '3px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ flex: 1, fontSize: '13px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
-                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', flexShrink: 0 }}>{p.views.toLocaleString()}</span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top pages</p>
+                {ga.topPages?.length > 0
+                  ? <div style={{ display: 'grid', gap: '8px' }}>
+                      {ga.topPages.map((p) => {
+                        const maxViews = Math.max(...ga.topPages.map((x) => x.views), 1);
+                        const pct = Math.round((p.views / maxViews) * 100);
+                        return (
+                          <div key={p.page} style={{ display: 'grid', gap: '3px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ flex: 1, fontSize: '13px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                              <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', flexShrink: 0 }}>{p.views.toLocaleString()}</span>
+                            </div>
+                            <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: '#fbbc04', borderRadius: '2px' }} />
+                            </div>
                           </div>
-                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: '#fbbc04', borderRadius: '2px' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        );
+                      })}
+                    </div>
+                  : <EmptyFrame label="/ · /gallery · /contact" />
+                }
+              </div>
 
-              {ga.geo?.length > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Visitor cities</p>
-                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Are locals finding the site?</p>
-                  <div style={{ display: 'grid', gap: '7px' }}>
-                    {ga.geo.map((g) => {
-                      const maxSessions = Math.max(...ga.geo.map((x) => x.sessions), 1);
-                      const pct = Math.round((g.sessions / maxSessions) * 100);
-                      return (
-                        <div key={`${g.city}-${g.region}`} style={{ display: 'grid', gap: '3px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                            <span style={{ color: '#374151' }}>{g.city}<span style={{ color: '#9ca3af', fontSize: '11px' }}>, {g.region}</span></span>
-                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{g.sessions.toLocaleString()}</span>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Visitor cities</p>
+                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Are locals finding the site?</p>
+                {ga.geo?.length > 0
+                  ? <div style={{ display: 'grid', gap: '7px' }}>
+                      {ga.geo.map((g) => {
+                        const maxSessions = Math.max(...ga.geo.map((x) => x.sessions), 1);
+                        const pct = Math.round((g.sessions / maxSessions) * 100);
+                        return (
+                          <div key={`${g.city}-${g.region}`} style={{ display: 'grid', gap: '3px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                              <span style={{ color: '#374151' }}>{g.city}<span style={{ color: '#9ca3af', fontSize: '11px' }}>, {g.region}</span></span>
+                              <span style={{ color: '#6b7280', fontWeight: '700' }}>{g.sessions.toLocaleString()}</span>
+                            </div>
+                            <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: '#34a853', borderRadius: '2px' }} />
+                            </div>
                           </div>
-                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: '#34a853', borderRadius: '2px' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        );
+                      })}
+                    </div>
+                  : <EmptyFrame label="Livermore · Dublin · Pleasanton" />
+                }
+              </div>
             </div>
           </div>
         )}

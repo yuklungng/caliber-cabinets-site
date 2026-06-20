@@ -37,13 +37,15 @@ const FIELD_LABELS = {
 
 // HubSpot stage ID → pill color
 const HS_STAGE_COLORS = {
-  appointmentscheduled: { bg: '#fef3c7', color: '#92400e' },
-  qualifiedtobuy:       { bg: '#dbeafe', color: '#1e40af' },
-  presentationscheduled:{ bg: '#ede9fe', color: '#5b21b6' },
-  decisionmakerboughtin:{ bg: '#cffafe', color: '#155e75' },
-  contractsent:         { bg: '#dcfce7', color: '#166534' },
-  closedwon:            { bg: '#14532d', color: '#ffffff' },
-  closedlost:           { bg: '#f3f4f6', color: '#6b7280' },
+  '3869825744':         { bg: '#fef3c7', color: '#92400e' },  // New Request
+  qualifiedtobuy:       { bg: '#dbeafe', color: '#1e40af' },  // Qualified To Buy
+  '3869825755':         { bg: '#ede9fe', color: '#5b21b6' },  // Quote Sent
+  appointmentscheduled: { bg: '#cffafe', color: '#155e75' },  // Appointment Scheduled
+  presentationscheduled:{ bg: '#e0f2fe', color: '#0c4a6e' },  // Presentation Scheduled
+  decisionmakerboughtin:{ bg: '#dcfce7', color: '#166534' },  // Decision Maker Bought-In
+  contractsent:         { bg: '#bbf7d0', color: '#14532d' },  // Contract Sent
+  closedwon:            { bg: '#14532d', color: '#ffffff' },  // Closed Won
+  closedlost:           { bg: '#f3f4f6', color: '#6b7280' },  // Closed Lost
 };
 
 function formatDate(iso) {

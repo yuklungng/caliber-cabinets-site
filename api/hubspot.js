@@ -18,10 +18,12 @@
  *   crm.objects.deals.write
  */
 
-// Fallback labels for HubSpot's built-in default pipeline stages
+// Fallback labels — built-in HubSpot stage IDs + Caliber's custom stages
 const DEFAULT_STAGE_LABELS = {
+  '3869825744': 'New Request',           // Caliber custom
+  '3869825755': 'Quote Sent',            // Caliber custom
+  qualifiedtobuy: 'Qualified To Buy',
   appointmentscheduled: 'Appointment Scheduled',
-  qualifiedtobuy: 'Qualified to Buy',
   presentationscheduled: 'Presentation Scheduled',
   decisionmakerboughtin: 'Decision Maker Bought-In',
   contractsent: 'Contract Sent',

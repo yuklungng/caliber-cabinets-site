@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
+  : null;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -829,22 +834,58 @@ function LeadsView() {
   const [expandedId, setExpandedId] = useState(null);
   const searchRef = useRef(null);
 
-  async function loadLeads() {
-    setIsLoading(true);
+  const [newCount, setNewCount] = useState(0);
+
+  async function loadLeads(silent = false) {
+    if (!silent) setIsLoading(true);
     setLoadError('');
     try {
       const r = await apiCall('/api/admin-leads');
       if (r.status === 401) { sessionStorage.clear(); window.location.reload(); return; }
       const d = await r.json();
-      setLeads(d.leads ?? []);
+      setLeads((prev) => {
+        const incoming = d.leads ?? [];
+        if (silent && prev.length > 0 && incoming.length > prev.length) {
+          setNewCount((n) => n + (incoming.length - prev.length));
+        }
+        return incoming;
+      });
     } catch {
-      setLoadError('Failed to load submissions. Check your connection and refresh.');
+      if (!silent) setLoadError('Failed to load submissions. Check your connection and refresh.');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }
 
-  useEffect(() => { loadLeads(); }, []);
+  useEffect(() => {
+    loadLeads();
+
+    // ── Supabase Realtime: fires the moment a new lead is inserted ──
+    let channel = null;
+    if (supabasePublic) {
+      channel = supabasePublic
+        .channel('leads-inserts')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leads' }, () => {
+          loadLeads(true);
+        })
+        .subscribe();
+    }
+
+    // ── Fallback polling every 30s ──
+    const pollInterval = setInterval(() => loadLeads(true), 30_000);
+
+    // ── Page Visibility: refresh immediately when tab regains focus ──
+    function onVisibility() {
+      if (document.visibilityState === 'visible') loadLeads(true);
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      if (channel) supabasePublic.removeChannel(channel);
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleDelete(id, name) {
     if (!window.confirm(`Delete submission from "${name}"? This cannot be undone.`)) return;
@@ -994,6 +1035,16 @@ function LeadsView() {
           Refresh
         </button>
       </div>
+
+      {newCount > 0 && (
+        <div
+          onClick={() => { setNewCount(0); loadLeads(); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', padding: '10px 16px', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#92400e' }}
+        >
+          <span style={{ fontSize: '18px' }}>🔔</span>
+          {newCount} new submission{newCount !== 1 ? 's' : ''} — click to refresh
+        </div>
+      )}
 
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
         {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery) ? ' (filtered)' : ''}

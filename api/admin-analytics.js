@@ -288,14 +288,15 @@ async function fetchGoogleAnalytics() {
   try {
     const token = await getGoogleAccessToken(serviceAccount);
 
-    // Run three reports in parallel
-    const [dailyData, pagesData, sourcesData] = await Promise.all([
+    // Run five reports in parallel
+    const [dailyData, pagesData, sourcesData, geoData, deviceData] = await Promise.all([
       gaReport(token, propertyId, {
         dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
         metrics: [
           { name: 'sessions' }, { name: 'activeUsers' },
           { name: 'screenPageViews' }, { name: 'newUsers' },
           { name: 'bounceRate' }, { name: 'averageSessionDuration' },
+          { name: 'engagementRate' }, { name: 'screenPageViewsPerSession' },
         ],
         dimensions: [{ name: 'date' }],
         orderBys: [{ dimension: { dimensionName: 'date' } }],
@@ -314,6 +315,21 @@ async function fetchGoogleAnalytics() {
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
         limit: 6,
       }),
+      // City-level geo — more useful than country for a local Tri-Valley business
+      gaReport(token, propertyId, {
+        dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+        metrics: [{ name: 'sessions' }],
+        dimensions: [{ name: 'city' }, { name: 'region' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 8,
+      }),
+      // Device category: mobile / desktop / tablet
+      gaReport(token, propertyId, {
+        dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+        metrics: [{ name: 'sessions' }, { name: 'engagementRate' }],
+        dimensions: [{ name: 'deviceCategory' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      }),
     ]);
 
     if (dailyData.error) return { configured: true, error: dailyData.error.message };
@@ -328,6 +344,8 @@ async function fetchGoogleAnalytics() {
         newUsers: Number(row.metricValues[3].value),
         bounceRate: Number(row.metricValues[4].value),
         avgDuration: Number(row.metricValues[5].value),
+        engagementRate: Number(row.metricValues[6].value),
+        pagesPerSession: Number(row.metricValues[7].value),
       };
     });
 
@@ -342,6 +360,12 @@ async function fetchGoogleAnalytics() {
     const avgDuration = daily.length
       ? Math.round(daily.reduce((s, d) => s + d.avgDuration, 0) / daily.length)
       : null;
+    const avgEngagement = daily.length
+      ? Math.round(daily.reduce((s, d) => s + d.engagementRate, 0) / daily.length * 100)
+      : null;
+    const avgPagesPerSession = daily.length
+      ? Math.round(daily.reduce((s, d) => s + d.pagesPerSession, 0) / daily.length * 10) / 10
+      : null;
 
     const topPages = (pagesData.rows ?? []).map((r) => ({
       page: r.dimensionValues[0].value,
@@ -353,13 +377,29 @@ async function fetchGoogleAnalytics() {
       sessions: Number(r.metricValues[0].value),
     }));
 
+    const geo = (geoData.rows ?? [])
+      .filter((r) => r.dimensionValues[0].value !== '(not set)')
+      .map((r) => ({
+        city: r.dimensionValues[0].value,
+        region: r.dimensionValues[1].value,
+        sessions: Number(r.metricValues[0].value),
+      }));
+
+    const devices = (deviceData.rows ?? []).map((r) => ({
+      device: r.dimensionValues[0].value,
+      sessions: Number(r.metricValues[0].value),
+      engagementRate: Math.round(Number(r.metricValues[1].value) * 100),
+    }));
+
     return {
       configured: true,
       period: 'last 28 days',
-      totals: { ...totals, avgBounceRate, avgDuration },
+      totals: { ...totals, avgBounceRate, avgDuration, avgEngagement, avgPagesPerSession },
       daily,
       topPages,
       sources,
+      geo,
+      devices,
     };
   } catch (err) {
     return { configured: true, error: err.message };

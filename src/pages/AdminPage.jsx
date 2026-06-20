@@ -1064,14 +1064,26 @@ function SiteStatsView() {
 
         {ga?.configured && ga?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
-            {/* Stat tiles */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+            {/* Row 1: volume */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
               <StatTile label="Sessions" value={ga.totals.sessions?.toLocaleString()} accent="#4285f4" />
               <StatTile label="Active Users" value={ga.totals.users?.toLocaleString()} accent="#34a853" />
               <StatTile label="Page Views" value={ga.totals.pageViews?.toLocaleString()} accent="#fbbc04" />
+              <StatTile label="New Users" value={ga.totals.newUsers?.toLocaleString()} accent="#ea4335" />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <StatTile label="New Users" value={ga.totals.newUsers?.toLocaleString()} />
+            {/* Row 2: quality */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              <StatTile
+                label="Engagement Rate"
+                value={ga.totals.avgEngagement != null ? `${ga.totals.avgEngagement}%` : '—'}
+                sub="Visited 2+ pages or 10s+"
+                accent="#4285f4"
+              />
+              <StatTile
+                label="Pages / Session"
+                value={ga.totals.avgPagesPerSession != null ? ga.totals.avgPagesPerSession.toFixed(1) : '—'}
+                sub="Higher = more exploring"
+              />
               <StatTile
                 label="Avg Session"
                 value={ga.totals.avgDuration != null ? `${Math.floor(ga.totals.avgDuration / 60)}m ${ga.totals.avgDuration % 60}s` : '—'}
@@ -1095,23 +1107,36 @@ function SiteStatsView() {
               </div>
             )}
 
+            {/* Device split + Traffic sources */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {/* Top pages */}
-              {ga.topPages?.length > 0 && (
+              {ga.devices?.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top pages</p>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {ga.topPages.map((p) => (
-                      <div key={p.page} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ flex: 1, fontSize: '13px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', flexShrink: 0 }}>{p.views.toLocaleString()}</span>
-                      </div>
-                    ))}
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Device split</p>
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    {ga.devices.map((d) => {
+                      const total = ga.devices.reduce((a, x) => a + x.sessions, 0);
+                      const pct = total > 0 ? Math.round((d.sessions / total) * 100) : 0;
+                      const deviceColor = d.device === 'mobile' ? '#4285f4' : d.device === 'desktop' ? '#34a853' : '#fbbc04';
+                      const icon = d.device === 'mobile' ? '📱' : d.device === 'desktop' ? '💻' : '📟';
+                      return (
+                        <div key={d.device} style={{ display: 'grid', gap: '4px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                            <span style={{ color: '#374151', textTransform: 'capitalize' }}>{icon} {d.device}</span>
+                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{pct}% <span style={{ fontWeight: '400', fontSize: '11px' }}>({d.sessions.toLocaleString()})</span></span>
+                          </div>
+                          <div style={{ height: '5px', background: '#f3f4f6', borderRadius: '3px' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: deviceColor, borderRadius: '3px' }} />
+                          </div>
+                          {d.engagementRate > 0 && (
+                            <span style={{ fontSize: '11px', color: '#9ca3af' }}>{d.engagementRate}% engagement</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Traffic sources */}
               {ga.sources?.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
                   <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Traffic sources</p>
@@ -1135,56 +1160,56 @@ function SiteStatsView() {
                 </div>
               )}
             </div>
-          </div>
-        )}
-      </section>
 
-      {/* ── Cloudflare ── */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Traffic</h2>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare · last 7 days</span>
-        </div>
-
-        {!cloudflare?.configured && (
-          <NotConfiguredCard
-            service="Cloudflare Analytics"
-            envVars={['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ZONE_ID']}
-            hint="Cloudflare must be in proxy mode (orange cloud) for traffic analytics. Enable at the July 25 cutover, then add these env vars in Vercel."
-          />
-        )}
-
-        {cloudflare?.configured && cloudflare?.error && (
-          <p style={{ color: '#b91c1c', fontSize: '14px' }}>Cloudflare error: {cloudflare.error}</p>
-        )}
-
-        {cloudflare?.configured && cloudflare?.totals && (
-          <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <StatTile label="Unique Visitors" value={cloudflare.totals.uniques?.toLocaleString()} accent="#f97316" />
-              <StatTile label="Page Views" value={cloudflare.totals.pageViews?.toLocaleString()} accent="#3b82f6" />
-              <StatTile label="Total Requests" value={cloudflare.totals.requests?.toLocaleString()} accent="#8b5cf6" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <StatTile label="Bandwidth" value={formatBytes(cloudflare.totals.bytes)} />
-              <StatTile label="Cache Hit Rate" value={cloudflare.totals.cacheHitRate != null ? `${cloudflare.totals.cacheHitRate}%` : '—'} sub="Higher = faster site, less origin load" />
-              <StatTile label="Threats Blocked" value={cloudflare.totals.threats?.toLocaleString()} sub="Bad bots, DDoS, etc." />
-            </div>
-
-            {/* Daily sparklines */}
-            {cloudflare.daily?.length > 0 && (
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily visitors (last 7 days)</p>
-                <MiniBar daily={cloudflare.daily} field="uniques" color="#f97316" />
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                  {cloudflare.daily.map((d) => (
-                    <span key={d.date} style={{ fontSize: '10px', color: '#9ca3af', flex: 1, textAlign: 'center' }}>
-                      {new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
-                    </span>
-                  ))}
+            {/* Top pages + Geo breakdown */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {ga.topPages?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top pages</p>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {ga.topPages.map((p) => {
+                      const maxViews = Math.max(...ga.topPages.map((x) => x.views), 1);
+                      const pct = Math.round((p.views / maxViews) * 100);
+                      return (
+                        <div key={p.page} style={{ display: 'grid', gap: '3px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ flex: 1, fontSize: '13px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', flexShrink: 0 }}>{p.views.toLocaleString()}</span>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: '#fbbc04', borderRadius: '2px' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+
+              {ga.geo?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Visitor cities</p>
+                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Are locals finding the site?</p>
+                  <div style={{ display: 'grid', gap: '7px' }}>
+                    {ga.geo.map((g) => {
+                      const maxSessions = Math.max(...ga.geo.map((x) => x.sessions), 1);
+                      const pct = Math.round((g.sessions / maxSessions) * 100);
+                      return (
+                        <div key={`${g.city}-${g.region}`} style={{ display: 'grid', gap: '3px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                            <span style={{ color: '#374151' }}>{g.city}<span style={{ color: '#9ca3af', fontSize: '11px' }}>, {g.region}</span></span>
+                            <span style={{ color: '#6b7280', fontWeight: '700' }}>{g.sessions.toLocaleString()}</span>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: '#34a853', borderRadius: '2px' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>

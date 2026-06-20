@@ -906,24 +906,22 @@ function SiteStatsView() {
 
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
-      {/* Refresh bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '12px', color: '#9ca3af' }}>
-          {loading ? 'Refreshing…' : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-        </span>
-        <button
-          onClick={() => loadStats()}
-          style={{ fontSize: '12px', color: '#78350f', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
-        >
-          ↻ Refresh now
-        </button>
-      </div>
 
       {/* ── UptimeRobot ── */}
       <section>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Uptime</h2>
           <span style={{ fontSize: '12px', color: '#9ca3af' }}>via UptimeRobot</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+            {loading ? 'Refreshing…' : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+          </span>
+          <button
+            onClick={() => loadStats()}
+            style={{ fontSize: '12px', color: '#78350f', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: '4px' }}
+          >
+            ↻
+          </button>
         </div>
 
         {!uptime?.configured && (

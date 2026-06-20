@@ -1,128 +1,93 @@
 import { useEffect, useState } from 'react';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const FIELD_LABELS = {
-  firstName: 'First Name',
-  lastName: 'Last Name',
-  phone: 'Phone',
-  email: 'Email',
-  projectType: 'Project Type',
-  timeline: 'Estimated Timeline',
-  projectAddress: 'Project Address',
-  description: 'Project Description',
-  inspiration: 'Inspiration / Style',
-  needsDesignServices: 'Needs Design Services',
-  companyName: 'Company / Firm',
-  tradeRole: 'Trade Role',
-  licenseNumber: 'License Number',
-  preferredContact: 'Preferred Contact',
-  gcNameAndPhone: 'General Contractor',
-  clientFirstName: 'Client First Name',
-  clientLastName: 'Client Last Name',
-  partnerFirstName: 'Partner First Name',
-  partnerLastName: 'Partner Last Name',
-  streetAddress: 'Street Address',
-  city: 'City',
-  state: 'State',
-  zipCode: 'ZIP Code',
-  areasRequiringCabinetry: 'Areas',
-  installationTimeline: 'Installation Timeline',
-  constructionMethod: 'Construction Method',
-  crownMolding: 'Crown Molding',
-  doorStyle: 'Door Style',
-  woodSpecies: 'Wood Species / Material',
-  accessories: 'Accessories & Upgrades',
-  comments: 'Comments',
-  attachments: 'Uploaded Files',
+  firstName: 'First Name', lastName: 'Last Name', phone: 'Phone', email: 'Email',
+  projectType: 'Project Type', timeline: 'Estimated Timeline', projectAddress: 'Project Address',
+  description: 'Project Description', inspiration: 'Inspiration / Style',
+  needsDesignServices: 'Needs Design Services', companyName: 'Company / Firm',
+  tradeRole: 'Trade Role', licenseNumber: 'License Number', preferredContact: 'Preferred Contact',
+  gcNameAndPhone: 'General Contractor', clientFirstName: 'Client First Name',
+  clientLastName: 'Client Last Name', partnerFirstName: 'Partner First Name',
+  partnerLastName: 'Partner Last Name', streetAddress: 'Street Address', city: 'City',
+  state: 'State', zipCode: 'ZIP Code', areasRequiringCabinetry: 'Areas',
+  installationTimeline: 'Installation Timeline', constructionMethod: 'Construction Method',
+  crownMolding: 'Crown Molding', doorStyle: 'Door Style', woodSpecies: 'Wood Species / Material',
+  accessories: 'Accessories & Upgrades', comments: 'Comments', attachments: 'Uploaded Files',
 };
 
-// HubSpot stage ID → pill color
 const HS_STAGE_COLORS = {
-  '3869825744':         { bg: '#fef3c7', color: '#92400e' },  // New Request
-  qualifiedtobuy:       { bg: '#dbeafe', color: '#1e40af' },  // Qualified To Buy
-  '3869825755':         { bg: '#ede9fe', color: '#5b21b6' },  // Quote Sent
-  appointmentscheduled: { bg: '#cffafe', color: '#155e75' },  // Appointment Scheduled
-  presentationscheduled:{ bg: '#e0f2fe', color: '#0c4a6e' },  // Presentation Scheduled
-  decisionmakerboughtin:{ bg: '#dcfce7', color: '#166534' },  // Decision Maker Bought-In
-  contractsent:         { bg: '#bbf7d0', color: '#14532d' },  // Contract Sent
-  closedwon:            { bg: '#14532d', color: '#ffffff' },  // Closed Won
-  closedlost:           { bg: '#f3f4f6', color: '#6b7280' },  // Closed Lost
+  '3869825744':          { bg: '#fef3c7', color: '#92400e' },
+  qualifiedtobuy:        { bg: '#dbeafe', color: '#1e40af' },
+  '3869825755':          { bg: '#ede9fe', color: '#5b21b6' },
+  appointmentscheduled:  { bg: '#cffafe', color: '#155e75' },
+  presentationscheduled: { bg: '#e0f2fe', color: '#0c4a6e' },
+  decisionmakerboughtin: { bg: '#dcfce7', color: '#166534' },
+  contractsent:          { bg: '#bbf7d0', color: '#14532d' },
+  closedwon:             { bg: '#14532d', color: '#ffffff' },
+  closedlost:            { bg: '#f3f4f6', color: '#6b7280' },
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  });
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
-
 function formatTime(iso) {
-  return new Date(iso).toLocaleTimeString('en-US', {
-    hour: 'numeric', minute: '2-digit',
-  });
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
-
 function formatFieldValue(value) {
   if (value === true) return 'Yes';
   if (value === false || value === null || value === undefined) return '—';
   if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : '—';
   return String(value) || '—';
 }
-
 function isEmpty(value) {
   if (value === null || value === undefined || value === '' || value === false) return true;
   if (Array.isArray(value) && value.length === 0) return true;
   return false;
 }
+function getToken() { return sessionStorage.getItem('admin_token') ?? ''; }
+function getUser() {
+  try { return JSON.parse(sessionStorage.getItem('admin_user') ?? '{}'); } catch { return {}; }
+}
+
+async function apiCall(path, options = {}) {
+  return fetch(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+}
+
+// ─── Lead sub-components ──────────────────────────────────────────────────────
 
 function HsBadge({ stageId, stageLabel }) {
   if (!stageLabel) {
     return (
-      <span style={{
-        display: 'inline-block',
-        padding: '2px 10px',
-        borderRadius: '999px',
-        fontSize: '12px',
-        fontWeight: '600',
-        letterSpacing: '0.03em',
-        background: '#f3f4f6',
-        color: '#9ca3af',
-      }}>
+      <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', background: '#f3f4f6', color: '#9ca3af' }}>
         Not in HubSpot
       </span>
     );
   }
   const style = HS_STAGE_COLORS[stageId] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 10px',
-      borderRadius: '999px',
-      fontSize: '12px',
-      fontWeight: '700',
-      letterSpacing: '0.03em',
-      background: style.bg,
-      color: style.color,
-    }}>
+    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', letterSpacing: '0.03em', background: style.bg, color: style.color }}>
       {stageLabel}
     </span>
   );
 }
 
 function TypeBadge({ formType }) {
-  const label = formType === 'homeowner-consultation' ? 'Homeowner' : 'Trade';
   const isHomeowner = formType === 'homeowner-consultation';
   return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 10px',
-      borderRadius: '4px',
-      fontSize: '11px',
-      fontWeight: '700',
-      letterSpacing: '0.05em',
-      textTransform: 'uppercase',
-      background: isHomeowner ? '#fff7ed' : '#f0fdf4',
-      color: isHomeowner ? '#c2410c' : '#166534',
-    }}>
-      {label}
+    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', background: isHomeowner ? '#fff7ed' : '#f0fdf4', color: isHomeowner ? '#c2410c' : '#166534' }}>
+      {isHomeowner ? 'Homeowner' : 'Trade'}
     </span>
   );
 }
@@ -134,15 +99,13 @@ function LeadDetail({ fields }) {
         <tbody>
           {Object.entries(fields).map(([k, v]) => {
             if (isEmpty(v)) return null;
-            const label = FIELD_LABELS[k] ?? k;
-            const value = formatFieldValue(v);
             return (
               <tr key={k} style={{ borderBottom: '1px solid #f3f4f6' }}>
                 <td style={{ padding: '8px 16px 8px 0', color: '#6b7280', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em', width: '32%', verticalAlign: 'top' }}>
-                  {label}
+                  {FIELD_LABELS[k] ?? k}
                 </td>
                 <td style={{ padding: '8px 0', color: '#111827', verticalAlign: 'top', lineHeight: '1.55' }}>
-                  {value}
+                  {formatFieldValue(v)}
                 </td>
               </tr>
             );
@@ -156,21 +119,9 @@ function LeadDetail({ fields }) {
 function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
   const f = lead.fields ?? {};
   const name = [f.firstName, f.lastName].filter(Boolean).join(' ') || '(no name)';
-  const company = f.companyName || null;
-
   return (
-    <div style={{
-      background: '#ffffff',
-      border: '1px solid #e5e7eb',
-      borderRadius: '8px',
-      overflow: 'hidden',
-    }}>
-      {/* Card header row */}
-      <div
-        style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gap: '12px' }}
-        onClick={onToggle}
-      >
-        {/* Top row: name + badges + date */}
+    <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gap: '12px' }} onClick={onToggle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} />
@@ -179,161 +130,359 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
             {formatDate(lead.created_at)} · {formatTime(lead.created_at)}
           </span>
         </div>
-
-        {/* Bottom row: contact info + actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-          {company && (
-            <span style={{ fontSize: '13px', color: '#374151' }}>{company}</span>
-          )}
-          {f.phone && (
-            <a href={`tel:${f.phone}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>
-              {f.phone}
-            </a>
-          )}
-          {f.email && (
-            <a href={`mailto:${f.email}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>
-              {f.email}
-            </a>
-          )}
-
-          {/* HubSpot link + delete */}
+          {f.companyName && <span style={{ fontSize: '13px', color: '#374151' }}>{f.companyName}</span>}
+          {f.phone && <a href={`tel:${f.phone}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{f.phone}</a>}
+          {f.email && <a href={`mailto:${f.email}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{f.email}</a>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             {lead.hs_deal_url && (
-              <a
-                href={lead.hs_deal_url}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  fontSize: '13px',
-                  padding: '4px 10px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  background: '#ffffff',
-                  color: '#374151',
-                  textDecoration: 'none',
-                  fontWeight: '600',
-                  lineHeight: 1.5,
-                }}
-              >
+              <a href={lead.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', padding: '4px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#ffffff', color: '#374151', textDecoration: 'none', fontWeight: '600' }}>
                 View in HubSpot ↗
               </a>
             )}
-            <button
-              onClick={() => onDelete(lead.id, name)}
-              title="Delete submission"
-              style={{
-                background: 'transparent',
-                border: '1px solid #fca5a5',
-                color: '#dc2626',
-                borderRadius: '4px',
-                padding: '4px 8px',
-                fontSize: '13px',
-                cursor: 'pointer',
-                lineHeight: 1,
-              }}
-            >
+            <button onClick={() => onDelete(lead.id, name)} style={{ background: 'transparent', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', cursor: 'pointer' }}>
               Delete
             </button>
           </div>
         </div>
       </div>
-
-      {/* Expanded detail */}
       {isExpanded && <LeadDetail fields={lead.fields ?? {}} />}
     </div>
   );
 }
 
-// ─── Login screen ─────────────────────────────────────────────────────────────
+// ─── Settings panels ──────────────────────────────────────────────────────────
 
-function LoginScreen({ onLogin }) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
-
-    const res = await fetch('/api/admin-leads', {
-      headers: { Authorization: `Bearer ${password}` },
-    });
-
-    if (res.ok) {
-      onLogin(password);
-    } else {
-      setError('Incorrect password. Try again.');
-      setIsLoading(false);
-    }
-  }
-
+function PanelShell({ title, description, children }) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
-      <div style={{ width: '100%', maxWidth: '380px', padding: '0 16px' }}>
-        <div style={{ background: '#ffffff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.1)' }}>
-          <div style={{ background: '#78350f', padding: '24px 32px' }}>
-            <p style={{ margin: 0, color: '#ffffff', fontSize: '18px', fontWeight: '700' }}>Caliber Cabinets</p>
-            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Lead Management</p>
-          </div>
-          <form onSubmit={handleSubmit} style={{ padding: '28px 32px', display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gap: '6px' }}>
-              <label htmlFor="admin-password" style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Password</label>
-              <input
-                id="admin-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoFocus
-                style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
-              />
-            </div>
-            {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{ padding: '10px', background: '#78350f', color: '#ffffff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', opacity: isLoading ? 0.6 : 1 }}
-            >
-              {isLoading ? 'Signing in…' : 'Sign In'}
-            </button>
-          </form>
-        </div>
-      </div>
+    <div style={{ maxWidth: '640px' }}>
+      <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>{title}</h2>
+      <p style={{ margin: '0 0 28px', fontSize: '14px', color: '#6b7280' }}>{description}</p>
+      {children}
     </div>
   );
 }
 
-// ─── Main dashboard ───────────────────────────────────────────────────────────
+function SaveFeedback({ saved }) {
+  if (!saved) return null;
+  return <span style={{ fontSize: '13px', color: '#166534', marginLeft: '12px' }}>✓ Saved</span>;
+}
 
-export function AdminPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => !!sessionStorage.getItem('admin_token'),
+function NotificationsPanel() {
+  const [emails, setEmails] = useState([]);
+  const [newEmail, setNewEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    apiCall('/api/admin-settings')
+      .then((r) => r.json())
+      .then((d) => {
+        setEmails(d.settings?.notification_emails ?? []);
+        setLoading(false);
+      });
+  }, []);
+
+  async function save(list) {
+    setSaving(true);
+    await apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'notification_emails', value: list } });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  function add() {
+    const val = newEmail.trim().toLowerCase();
+    if (!val || emails.includes(val)) return;
+    const updated = [...emails, val];
+    setEmails(updated);
+    setNewEmail('');
+    save(updated);
+  }
+
+  function remove(email) {
+    const updated = emails.filter((e) => e !== email);
+    setEmails(updated);
+    save(updated);
+  }
+
+  if (loading) return <p style={{ color: '#9ca3af' }}>Loading…</p>;
+
+  return (
+    <PanelShell title="Notifications" description="These email addresses receive a notification whenever a new form is submitted on the website.">
+      <div style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        {emails.length === 0 && <p style={{ color: '#9ca3af', fontSize: '14px', margin: 0 }}>No recipients yet.</p>}
+        {emails.map((email) => (
+          <div key={email} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+            <span style={{ flex: 1, fontSize: '14px', color: '#111827' }}>{email}</span>
+            <button onClick={() => remove(email)} style={{ background: 'transparent', border: 0, color: '#6b7280', cursor: 'pointer', fontSize: '18px', lineHeight: 1, padding: '0 4px' }}>×</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          type="email"
+          placeholder="Add email address"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          style={{ flex: 1, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
+        />
+        <button onClick={add} disabled={saving} style={{ padding: '8px 18px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+          Add
+        </button>
+        <SaveFeedback saved={saved} />
+      </div>
+    </PanelShell>
   );
+}
+
+function ConfirmationsPanel() {
+  const [enabled, setEnabled] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    apiCall('/api/admin-settings')
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d.settings ?? {};
+        setEnabled(s.confirmations_enabled === true || s.confirmations_enabled === 'true');
+        setSubject(s.confirmation_subject ?? '');
+        setMessage(s.confirmation_message ?? '');
+        setLoading(false);
+      });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await Promise.all([
+      apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'confirmations_enabled', value: enabled } }),
+      apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'confirmation_subject', value: subject } }),
+      apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'confirmation_message', value: message } }),
+    ]);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  if (loading) return <p style={{ color: '#9ca3af' }}>Loading…</p>;
+
+  return (
+    <PanelShell title="Confirmations" description="When enabled, leads automatically receive a reply email after submitting the form.">
+      <div style={{ display: 'grid', gap: '20px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+          <div
+            onClick={() => setEnabled(!enabled)}
+            style={{ width: '44px', height: '24px', borderRadius: '999px', background: enabled ? '#78350f' : '#d1d5db', position: 'relative', transition: 'background 200ms', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <div style={{ position: 'absolute', top: '3px', left: enabled ? '23px' : '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left 200ms', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </div>
+          <span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+            {enabled ? 'Auto-reply enabled' : 'Auto-reply disabled'}
+          </span>
+        </label>
+
+        <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5 }}>
+          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Subject line</label>
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            disabled={!enabled}
+            style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5 }}>
+          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Message body</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            disabled={!enabled}
+            rows={6}
+            style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.6' }}
+          />
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>Plain text only. Sent from leads@calibercabinetshop.com.</p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 20px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <SaveFeedback saved={saved} />
+        </div>
+      </div>
+    </PanelShell>
+  );
+}
+
+function UsersPanel({ currentUser }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ name: '', email: '', password: '', is_super_admin: false });
+  const [adding, setAdding] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [resetId, setResetId] = useState(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetSaved, setResetSaved] = useState(false);
+
+  useEffect(() => { loadUsers(); }, []);
+
+  async function loadUsers() {
+    const r = await apiCall('/api/admin-users');
+    const d = await r.json();
+    setUsers(d.users ?? []);
+    setLoading(false);
+  }
+
+  async function addUser(e) {
+    e.preventDefault();
+    setFormError('');
+    setAdding(true);
+    const r = await apiCall('/api/admin-users', { method: 'POST', body: form });
+    const d = await r.json();
+    if (!r.ok) { setFormError(d.error ?? 'Failed to add user'); setAdding(false); return; }
+    setUsers((prev) => [...prev, d.user]);
+    setForm({ name: '', email: '', password: '', is_super_admin: false });
+    setAdding(false);
+  }
+
+  async function deleteUser(id, name) {
+    if (!window.confirm(`Remove ${name}? They will lose admin access immediately.`)) return;
+    await apiCall('/api/admin-users', { method: 'DELETE', body: { id } });
+    setUsers((prev) => prev.filter((u) => u.id !== id));
+  }
+
+  async function resetPw(id) {
+    if (!resetPassword.trim()) return;
+    await apiCall('/api/admin-users', { method: 'PATCH', body: { id, password: resetPassword } });
+    setResetId(null);
+    setResetPassword('');
+    setResetSaved(true);
+    setTimeout(() => setResetSaved(false), 2500);
+  }
+
+  if (loading) return <p style={{ color: '#9ca3af' }}>Loading…</p>;
+
+  const isSuperAdmin = currentUser?.is_super_admin;
+
+  return (
+    <PanelShell title="User Access" description="Manage who can log in to this admin panel. Super admins can manage users and settings.">
+      {!isSuperAdmin && (
+        <p style={{ color: '#6b7280', fontSize: '14px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px' }}>
+          Only super admins can manage users. Contact Morris at NexPerion to add or remove access.
+        </p>
+      )}
+
+      {isSuperAdmin && (
+        <>
+          {/* User list */}
+          <div style={{ display: 'grid', gap: '8px', marginBottom: '32px' }}>
+            {users.map((u) => (
+              <div key={u.id} style={{ padding: '12px 16px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: '600', fontSize: '14px', color: '#111827' }}>{u.name}</span>
+                      {u.is_super_admin && (
+                        <span style={{ fontSize: '11px', fontWeight: '700', padding: '1px 8px', borderRadius: '999px', background: '#fef3c7', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Super Admin</span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '13px', color: '#6b7280' }}>{u.email}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPassword(''); }}
+                      style={{ fontSize: '13px', padding: '4px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', cursor: 'pointer' }}
+                    >
+                      Reset password
+                    </button>
+                    <button
+                      onClick={() => deleteUser(u.id, u.name)}
+                      style={{ fontSize: '13px', padding: '4px 10px', border: '1px solid #fca5a5', borderRadius: '4px', background: 'transparent', color: '#dc2626', cursor: 'pointer' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                {resetId === u.id && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="password"
+                      placeholder="New password"
+                      value={resetPassword}
+                      onChange={(e) => setResetPassword(e.target.value)}
+                      style={{ flex: 1, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                    />
+                    <button onClick={() => resetPw(u.id)} style={{ padding: '7px 16px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                      Save
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {resetSaved && <span style={{ fontSize: '13px', color: '#166534' }}>✓ Password updated</span>}
+          </div>
+
+          {/* Add user form */}
+          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '24px' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '700', color: '#111827' }}>Add new user</h3>
+            <form onSubmit={addUser} style={{ display: 'grid', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'grid', gap: '5px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Full name</label>
+                  <input required type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                </div>
+                <div style={{ display: 'grid', gap: '5px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Email</label>
+                  <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: '5px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Temporary password</label>
+                <input required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>
+                <input type="checkbox" checked={form.is_super_admin} onChange={(e) => setForm({ ...form, is_super_admin: e.target.checked })} />
+                Super admin (can manage users and settings)
+              </label>
+              {formError && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{formError}</p>}
+              <div>
+                <button type="submit" disabled={adding} style={{ padding: '8px 20px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', opacity: adding ? 0.6 : 1 }}>
+                  {adding ? 'Adding…' : 'Add user'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+// ─── Leads view ───────────────────────────────────────────────────────────────
+
+function LeadsView() {
   const [leads, setLeads] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
 
-  function getToken() {
-    return sessionStorage.getItem('admin_token') ?? '';
-  }
-
-  async function loadLeads(token) {
+  async function loadLeads() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const res = await fetch('/api/admin-leads', {
-        headers: { Authorization: `Bearer ${token ?? getToken()}` },
-      });
-      if (res.status === 401) {
-        handleLogout();
-        return;
-      }
-      const data = await res.json();
-      setLeads(data.leads ?? []);
+      const r = await apiCall('/api/admin-leads');
+      if (r.status === 401) { sessionStorage.clear(); window.location.reload(); return; }
+      const d = await r.json();
+      setLeads(d.leads ?? []);
     } catch {
       setLoadError('Failed to load submissions. Check your connection and refresh.');
     } finally {
@@ -341,47 +490,17 @@ export function AdminPage() {
     }
   }
 
-  function handleLogin(password) {
-    sessionStorage.setItem('admin_token', password);
-    setIsAuthenticated(true);
-    loadLeads(password);
-  }
-
-  function handleLogout() {
-    sessionStorage.removeItem('admin_token');
-    setIsAuthenticated(false);
-    setLeads([]);
-  }
+  useEffect(() => { loadLeads(); }, []);
 
   async function handleDelete(id, name) {
     if (!window.confirm(`Delete submission from "${name}"? This cannot be undone.`)) return;
-    try {
-      const res = await fetch('/api/admin-leads', {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${getToken()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id }),
-      });
-      if (res.ok) {
-        setLeads((prev) => prev.filter((l) => l.id !== id));
-        if (expandedId === id) setExpandedId(null);
-      }
-    } catch {
-      alert('Delete failed. Please try again.');
+    const r = await apiCall('/api/admin-leads', { method: 'DELETE', body: { id } });
+    if (r.ok) {
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+      if (expandedId === id) setExpandedId(null);
     }
   }
 
-  useEffect(() => {
-    if (isAuthenticated) loadLeads();
-  }, [isAuthenticated]);
-
-  if (!isAuthenticated) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
-
-  // Filtering + search
   const filtered = leads
     .filter((l) => filterType === 'all' || l.form_type === filterType)
     .filter((l) => {
@@ -396,122 +515,291 @@ export function AdminPage() {
       );
     });
 
-  // Stats
   const totalLeads = leads.length;
   const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
   const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+    <div>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
+        {[
+          { label: 'Total Submissions', value: totalLeads },
+          { label: 'Homeowner Consults', value: homeownerLeads },
+          { label: 'Trade Estimates', value: tradeLeads },
+        ].map((stat) => (
+          <div key={stat.label} style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</p>
+            <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : stat.value}</p>
+          </div>
+        ))}
+      </div>
 
-      {/* Header */}
-      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px' }}>
-        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
-          Caliber Cabinets <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
-        </p>
-        <button
-          onClick={() => loadLeads()}
-          style={{ background: 'rgba(255,255,255,0.15)', border: 0, color: '#ffffff', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}
-        >
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', background: '#ffffff' }}>
+          {[{ value: 'all', label: 'All Types' }, { value: 'homeowner-consultation', label: 'Homeowner' }, { value: 'trade-estimate', label: 'Trade' }].map((opt) => (
+            <button key={opt.value} onClick={() => setFilterType(opt.value)} style={{ padding: '7px 14px', border: 0, borderRight: '1px solid #e5e7eb', background: filterType === opt.value ? '#78350f' : 'transparent', color: filterType === opt.value ? '#ffffff' : '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <input type="search" placeholder="Search by name, email, phone, or company…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ flex: 1, minWidth: '200px', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none' }} />
+        <button onClick={loadLeads} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
           Refresh
         </button>
-        <button
-          onClick={handleLogout}
-          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}
-        >
+      </div>
+
+      <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
+        {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery) ? ' (filtered)' : ''}
+      </p>
+
+      {isLoading && <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading submissions…</p>}
+      {loadError && <p style={{ color: '#b91c1c', padding: '16px', background: '#fef2f2', borderRadius: '8px', fontSize: '14px' }}>{loadError}</p>}
+      {!isLoading && !loadError && filtered.length === 0 && (
+        <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>
+          {leads.length === 0 ? 'No submissions yet.' : 'No submissions match your filters.'}
+        </p>
+      )}
+      {!isLoading && (
+        <div style={{ display: 'grid', gap: '10px' }}>
+          {filtered.map((lead) => (
+            <LeadCard key={lead.id} lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Login / Setup screens ────────────────────────────────────────────────────
+
+function AuthShell({ children }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      <div style={{ width: '100%', maxWidth: '400px', padding: '0 16px' }}>
+        <div style={{ background: '#ffffff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.1)' }}>
+          <div style={{ background: '#78350f', padding: '24px 32px' }}>
+            <p style={{ margin: 0, color: '#ffffff', fontSize: '18px', fontWeight: '700' }}>Caliber Cabinets</p>
+            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Lead Management</p>
+          </div>
+          <div style={{ padding: '28px 32px' }}>{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SetupScreen({ onComplete }) {
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setup', ...form }),
+    });
+    const d = await r.json();
+    if (!r.ok) { setError(d.error ?? 'Setup failed'); setLoading(false); return; }
+    onComplete();
+  }
+
+  return (
+    <AuthShell>
+      <p style={{ margin: '0 0 20px', fontSize: '15px', fontWeight: '600', color: '#111827' }}>Create first admin account</p>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
+        {[['name', 'Full name', 'text'], ['email', 'Email', 'email'], ['password', 'Password', 'password']].map(([key, label, type]) => (
+          <div key={key} style={{ display: 'grid', gap: '5px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{label}</label>
+            <input type={type} required value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+          </div>
+        ))}
+        {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
+        <button type="submit" disabled={loading} style={{ padding: '10px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+          {loading ? 'Creating account…' : 'Create account'}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) { setError(d.error ?? 'Login failed'); setLoading(false); return; }
+    onLogin(d.token, d.user);
+  }
+
+  return (
+    <AuthShell>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
+        <div style={{ display: 'grid', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Email</label>
+          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+        </div>
+        <div style={{ display: 'grid', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Password</label>
+          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+        </div>
+        {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
+        <button type="submit" disabled={loading} style={{ padding: '10px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+          {loading ? 'Signing in…' : 'Sign In'}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+const NAV_ITEMS = [
+  { key: 'leads', label: 'Leads', section: null },
+  { key: 'notifications', label: 'Notifications', section: 'Settings' },
+  { key: 'confirmations', label: 'Confirmations', section: 'Settings' },
+  { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: false },
+];
+
+function Sidebar({ activeView, onNavigate, currentUser }) {
+  const sections = [];
+  let lastSection = null;
+
+  for (const item of NAV_ITEMS) {
+    if (item.section !== lastSection) {
+      sections.push({ type: 'heading', label: item.section });
+      lastSection = item.section;
+    }
+    sections.push({ type: 'item', ...item });
+  }
+
+  return (
+    <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
+      {sections.map((entry, i) => {
+        if (entry.type === 'heading') {
+          return entry.label ? (
+            <p key={i} style={{ margin: '20px 0 6px 16px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {entry.label}
+            </p>
+          ) : null;
+        }
+        const isActive = activeView === entry.key;
+        return (
+          <button
+            key={entry.key}
+            onClick={() => onNavigate(entry.key)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '8px 16px', border: 0, borderRadius: '6px',
+              background: isActive ? '#78350f' : 'transparent',
+              color: isActive ? '#ffffff' : '#374151',
+              fontSize: '14px', fontWeight: isActive ? '700' : '500',
+              cursor: 'pointer', marginBottom: '2px',
+            }}
+          >
+            {entry.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export function AdminPage() {
+  const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeView, setActiveView] = useState('leads');
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('admin_token');
+    const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
+
+    if (token && user) {
+      setCurrentUser(user);
+      setAuthState('authed');
+      return;
+    }
+
+    // Check if first-time setup is needed
+    fetch('/api/admin-auth')
+      .then((r) => r.json())
+      .then((d) => setAuthState(d.needsSetup ? 'setup' : 'login'))
+      .catch(() => setAuthState('login'));
+  }, []);
+
+  function handleLogin(token, user) {
+    sessionStorage.setItem('admin_token', token);
+    sessionStorage.setItem('admin_user', JSON.stringify(user));
+    setCurrentUser(user);
+    setAuthState('authed');
+  }
+
+  async function handleLogout() {
+    await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'logout' }),
+    });
+    sessionStorage.removeItem('admin_token');
+    sessionStorage.removeItem('admin_user');
+    setCurrentUser(null);
+    setAuthState('login');
+  }
+
+  if (authState === 'loading') return null;
+  if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
+  if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
+
+  function renderView() {
+    switch (activeView) {
+      case 'notifications': return <NotificationsPanel />;
+      case 'confirmations': return <ConfirmationsPanel />;
+      case 'users': return <UsersPanel currentUser={currentUser} />;
+      default: return <LeadsView />;
+    }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      {/* Header */}
+      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
+          Caliber Cabinets
+          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
+        </p>
+        {currentUser?.name && (
+          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
+        )}
+        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
           Sign Out
         </button>
       </header>
 
-      <main style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 16px' }}>
-
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
-          {[
-            { label: 'Total Submissions', value: totalLeads },
-            { label: 'Homeowner Consults', value: homeownerLeads },
-            { label: 'Trade Estimates', value: tradeLeads },
-          ].map((stat) => (
-            <div key={stat.label} style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-              <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</p>
-              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#111827' }}>{stat.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Filters + Search */}
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Type filter */}
-          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', background: '#ffffff' }}>
-            {[
-              { value: 'all', label: 'All Types' },
-              { value: 'homeowner-consultation', label: 'Homeowner' },
-              { value: 'trade-estimate', label: 'Trade' },
-            ].map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setFilterType(opt.value)}
-                style={{
-                  padding: '7px 14px',
-                  border: 0,
-                  borderRight: '1px solid #e5e7eb',
-                  background: filterType === opt.value ? '#78350f' : 'transparent',
-                  color: filterType === opt.value ? '#ffffff' : '#374151',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Search */}
-          <input
-            type="search"
-            placeholder="Search by name, email, phone, or company…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ flex: 1, minWidth: '200px', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
-          />
-        </div>
-
-        {/* Results count */}
-        <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
-          {filtered.length} submission{filtered.length !== 1 ? 's' : ''}
-          {(filterType !== 'all' || searchQuery) ? ' (filtered)' : ''}
-        </p>
-
-        {/* Content */}
-        {isLoading && (
-          <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading submissions…</p>
-        )}
-
-        {loadError && (
-          <p style={{ color: '#b91c1c', padding: '16px', background: '#fef2f2', borderRadius: '8px', fontSize: '14px' }}>{loadError}</p>
-        )}
-
-        {!isLoading && !loadError && filtered.length === 0 && (
-          <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>
-            {leads.length === 0 ? 'No submissions yet.' : 'No submissions match your filters.'}
-          </p>
-        )}
-
-        {!isLoading && (
-          <div style={{ display: 'grid', gap: '10px' }}>
-            {filtered.map((lead) => (
-              <LeadCard
-                key={lead.id}
-                lead={lead}
-                isExpanded={expandedId === lead.id}
-                onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        )}
-      </main>
+      {/* Body */}
+      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
+        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          {renderView()}
+        </main>
+      </div>
     </div>
   );
 }

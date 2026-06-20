@@ -16,7 +16,7 @@ export function PrivacyPolicyPage() {
             <header className="privacy-header">
               <h1>Privacy Policy</h1>
               <p className="privacy-meta">
-                Effective June 1, 2026 &nbsp;·&nbsp; Caliber Cabinets, Inc. &nbsp;·&nbsp;
+                Effective July 25, 2026 &nbsp;·&nbsp; Caliber Cabinets, Inc. &nbsp;·&nbsp;
                 Livermore, CA
               </p>
             </header>

@@ -58,6 +58,19 @@ export default async function handler(req, res) {
 
   console.log('[lead-submit] Lead saved to Supabase:', formType);
 
+  // Read notification recipients from settings (falls back to Mike's address)
+  let notificationEmails = ['mike@calibercabinetshop.com'];
+  try {
+    const { data: emailSetting } = await supabase
+      .from('admin_settings')
+      .select('value')
+      .eq('key', 'notification_emails')
+      .single();
+    if (Array.isArray(emailSetting?.value) && emailSetting.value.length > 0) {
+      notificationEmails = emailSetting.value;
+    }
+  } catch { /* use default */ }
+
   // Step 3: Send notification email via Resend (direct HTTP — no SDK)
   if (process.env.RESEND_API_KEY) {
     try {
@@ -121,7 +134,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
-          to: ['morrisng@nexperionsolutions.com'], // TODO: change to mike@calibercabinetshop.com before go-live
+          to: notificationEmails,
           ...(process.env.HUBSPOT_BCC_EMAIL && { bcc: [process.env.HUBSPOT_BCC_EMAIL] }),
           subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
           text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in Supabase dashboard.`,

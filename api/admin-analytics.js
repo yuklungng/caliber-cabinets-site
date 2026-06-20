@@ -20,14 +20,15 @@ export default async function handler(req, res) {
 
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 
-  const [uptime, turnstile, ga, cloudflare] = await Promise.all([
+  const [uptime, turnstile, ga, gsc, cloudflare] = await Promise.all([
     fetchUptimeRobot(),
     fetchTurnstile(accountId),
     fetchGoogleAnalytics(),
+    fetchSearchConsole(),
     fetchCloudflare(),
   ]);
 
-  return res.status(200).json({ uptime, turnstile, ga, cloudflare });
+  return res.status(200).json({ uptime, turnstile, ga, gsc, cloudflare });
 }
 
 // ── UptimeRobot ──────────────────────────────────────────────────────────────
@@ -234,12 +235,12 @@ async function fetchTurnstileSimple(accountId, token, startDate, endDate) {
 
 // ── Google Analytics 4 ───────────────────────────────────────────────────────
 
-async function getGoogleAccessToken(serviceAccount) {
+async function getGoogleAccessToken(serviceAccount, scope = 'https://www.googleapis.com/auth/analytics.readonly') {
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const payload = Buffer.from(JSON.stringify({
     iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    scope,
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
@@ -401,6 +402,76 @@ async function fetchGoogleAnalytics() {
       geo,
       devices,
     };
+  } catch (err) {
+    return { configured: true, error: err.message };
+  }
+}
+
+// ── Google Search Console ────────────────────────────────────────────────────
+
+async function fetchSearchConsole() {
+  const saJson = process.env.GA_SERVICE_ACCOUNT_JSON;
+  const siteUrl = process.env.SEARCH_CONSOLE_SITE;
+  if (!saJson || !siteUrl) return { configured: false };
+
+  let serviceAccount;
+  try { serviceAccount = JSON.parse(saJson); }
+  catch { return { configured: true, error: 'Invalid GA_SERVICE_ACCOUNT_JSON' }; }
+
+  try {
+    const token = await getGoogleAccessToken(serviceAccount, 'https://www.googleapis.com/auth/webmasters.readonly');
+    const encodedSite = encodeURIComponent(siteUrl);
+    const base = `https://www.searchconsole.googleapis.com/webmasters/v3/sites/${encodedSite}/searchAnalytics/query`;
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const body = (extra) => JSON.stringify({ startDate, endDate, ...extra });
+
+    const [overviewRes, queriesRes, pagesRes] = await Promise.all([
+      fetch(base, { method: 'POST', headers, body: body({ rowLimit: 1 }) }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['query'], rowLimit: 10 }) }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['page'], rowLimit: 5 }) }),
+    ]);
+
+    const [overview, queriesData, pagesData] = await Promise.all([
+      overviewRes.json(), queriesRes.json(), pagesRes.json(),
+    ]);
+
+    if (overview.error) return { configured: true, error: overview.error.message };
+
+    const t = overview.rows?.[0] ?? {};
+    const totals = {
+      clicks: t.clicks ?? 0,
+      impressions: t.impressions ?? 0,
+      ctr: t.ctr != null ? Math.round(t.ctr * 100) : 0,
+      position: t.position != null ? Math.round(t.position * 10) / 10 : null,
+    };
+
+    const queries = (queriesData.rows ?? []).map((r) => ({
+      query: r.keys[0],
+      clicks: r.clicks,
+      impressions: r.impressions,
+      ctr: Math.round(r.ctr * 100),
+      position: Math.round(r.position * 10) / 10,
+    }));
+
+    // Strip domain prefix from page URLs for readability
+    const stripDomain = (url) => url
+      .replace('https://calibercabinetshop.com', '')
+      .replace('https://caliber-cabinets-site.vercel.app', '')
+      || '/';
+
+    const pages = (pagesData.rows ?? []).map((r) => ({
+      page: stripDomain(r.keys[0]),
+      fullUrl: r.keys[0],
+      clicks: r.clicks,
+      impressions: r.impressions,
+      position: Math.round(r.position * 10) / 10,
+    }));
+
+    return { configured: true, period: `${startDate} to ${endDate}`, totals, queries, pages };
   } catch (err) {
     return { configured: true, error: err.message };
   }

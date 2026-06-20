@@ -882,7 +882,7 @@ function SiteStatsView() {
   if (loading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading site stats…</p>;
   if (error) return <p style={{ color: '#b91c1c' }}>{error}</p>;
 
-  const { uptime, turnstile, ga, cloudflare } = data ?? {};
+  const { uptime, turnstile, ga, gsc, cloudflare } = data ?? {};
 
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
@@ -1037,6 +1037,102 @@ function SiteStatsView() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Google Search Console ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Google Search</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Search Console · last 28 days</span>
+        </div>
+
+        {!gsc?.configured && (
+          <NotConfiguredCard
+            service="Google Search Console"
+            envVars={['SEARCH_CONSOLE_SITE']}
+            hint="Set SEARCH_CONSOLE_SITE to sc-domain:calibercabinetshop.com and add the service account to Search Console as a Full user."
+          />
+        )}
+
+        {gsc?.configured && gsc?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
+            Search Console error: {gsc.error}
+          </p>
+        )}
+
+        {gsc?.configured && gsc?.totals && gsc.totals.clicks === 0 && gsc.totals.impressions === 0 && (
+          <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#374151', fontWeight: '600' }}>No search data yet</p>
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Search Console was just set up. Data typically appears within 2–3 days as Google processes it.</p>
+          </div>
+        )}
+
+        {gsc?.configured && gsc?.totals && (gsc.totals.clicks > 0 || gsc.totals.impressions > 0) && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {/* Overview tiles */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              <StatTile label="Total Clicks" value={gsc.totals.clicks?.toLocaleString()} accent="#4285f4" sub="Visits from Google search" />
+              <StatTile label="Impressions" value={gsc.totals.impressions?.toLocaleString()} accent="#34a853" sub="Times shown in results" />
+              <StatTile label="Click-Through Rate" value={gsc.totals.ctr != null ? `${gsc.totals.ctr}%` : '—'} accent="#fbbc04" sub="Higher is better" />
+              <StatTile
+                label="Avg Position"
+                value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'}
+                accent="#ea4335"
+                sub="Lower # = higher ranking"
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Top queries */}
+              {gsc.queries?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
+                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>What people type to find the site</p>
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    {gsc.queries.map((q) => (
+                      <div key={q.query} style={{ display: 'grid', gap: '2px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.query}</span>
+                          <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                            <span style={{ color: '#4285f4', fontWeight: '700' }}>{q.clicks} clicks</span>
+                            <span style={{ color: '#9ca3af' }}>#{q.position}</span>
+                          </div>
+                        </div>
+                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                          <div style={{ width: `${Math.round((q.clicks / gsc.queries[0].clicks) * 100)}%`, height: '100%', background: '#4285f4', borderRadius: '2px', opacity: 0.7 }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top pages */}
+              {gsc.pages?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pages getting clicks</p>
+                  <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Which pages Google sends visitors to</p>
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    {gsc.pages.map((p) => (
+                      <div key={p.page} style={{ display: 'grid', gap: '2px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                          <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                            <span style={{ color: '#34a853', fontWeight: '700' }}>{p.clicks} clicks</span>
+                            <span style={{ color: '#9ca3af' }}>#{p.position}</span>
+                          </div>
+                        </div>
+                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                          <div style={{ width: `${Math.round((p.clicks / (gsc.pages[0].clicks || 1)) * 100)}%`, height: '100%', background: '#34a853', borderRadius: '2px', opacity: 0.7 }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>

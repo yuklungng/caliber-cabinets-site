@@ -1062,7 +1062,14 @@ function SiteStatsView() {
           </p>
         )}
 
-        {ga?.configured && ga?.totals && (
+        {ga?.configured && ga?.totals && ga.totals.sessions === 0 && !ga.daily?.length && (
+          <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#374151', fontWeight: '600' }}>No data yet</p>
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>GA was set up recently. Traffic data will appear here within 24–48 hours as visitors come to the site.</p>
+          </div>
+        )}
+
+        {ga?.configured && ga?.totals && (ga.totals.sessions > 0 || ga.daily?.length > 0) && (
           <div style={{ display: 'grid', gap: '16px' }}>
             {/* Row 1: volume */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>

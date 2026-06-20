@@ -83,10 +83,10 @@ async function fetchTurnstile(accountId) {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token || !accountId) return { configured: false };
 
-  // Last 30 days for Turnstile — gives better context than 7
+  // Cloudflare caps Turnstile queries at 7 days max
   const end = new Date();
   const start = new Date(end);
-  start.setDate(start.getDate() - 30);
+  start.setDate(start.getDate() - 7);
   const startDate = start.toISOString().split('T')[0];
   const endDate = end.toISOString().split('T')[0];
 

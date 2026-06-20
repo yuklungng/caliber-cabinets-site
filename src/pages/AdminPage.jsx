@@ -955,7 +955,7 @@ function SiteStatsView() {
       <section>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Bot Protection</h2>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare Turnstile · last 30 days</span>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare Turnstile · last 7 days</span>
         </div>
 
         {!turnstile?.configured && (

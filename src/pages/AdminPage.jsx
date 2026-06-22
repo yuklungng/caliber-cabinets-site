@@ -867,6 +867,66 @@ function MiniBar({ daily, field, color }) {
   );
 }
 
+// TrendChart — SVG area/line chart, supports 1 or 2 independently-scaled lines
+function TrendChart({ daily, lines, height = 90 }) {
+  if (!daily?.length) return <EmptyFrame label="No trend data yet" />;
+  const allZero = lines.every((l) => daily.every((d) => !d[l.key]));
+  if (allZero) return <EmptyFrame label="Data will appear as traffic accumulates" />;
+
+  const W = 600;
+  const H = height;
+  const PL = 4; const PR = 4; const PT = 8; const PB = 18;
+  const cW = W - PL - PR;
+  const cH = H - PT - PB;
+  const n = daily.length;
+
+  const rendered = lines.map((line) => {
+    const values = daily.map((d) => Number(d[line.key] ?? 0));
+    const max = Math.max(...values, 1);
+    const pts = values.map((v, i) => ({
+      x: PL + (n === 1 ? cW / 2 : (i / (n - 1)) * cW),
+      y: PT + cH - (v / max) * cH,
+      v, date: daily[i].date,
+    }));
+    const poly = pts.map((p) => `${p.x},${p.y}`).join(' ');
+    const area = `${pts[0].x},${PT + cH} ${poly} ${pts[pts.length - 1].x},${PT + cH}`;
+    return { ...line, pts, poly, area };
+  });
+
+  return (
+    <div>
+      {/* Legend */}
+      {lines.length > 1 && (
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '6px' }}>
+          {lines.map((l) => (
+            <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+              <span style={{ width: '20px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
+              {l.label}
+              {lines.length > 1 && <span style={{ color: '#9ca3af', fontSize: '10px' }}>(own scale)</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
+        {rendered.map((line) => (
+          <g key={line.key}>
+            <polygon points={line.area} fill={line.color} opacity={0.12} />
+            <polyline points={line.poly} fill="none" stroke={line.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            {line.pts.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r="0">
+                <title>{`${p.date}: ${p.v.toLocaleString()} ${line.label}`}</title>
+              </circle>
+            ))}
+          </g>
+        ))}
+        {/* Date labels */}
+        <text x={PL} y={H - 2} fontSize="9" fill="#9ca3af">{daily[0]?.date}</text>
+        <text x={W - PR} y={H - 2} fontSize="9" fill="#9ca3af" textAnchor="end">{daily[daily.length - 1]?.date}</text>
+      </svg>
+    </div>
+  );
+}
+
 function EmptyFrame({ label }) {
   return (
     <div style={{ minHeight: '80px', background: '#f9fafb', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '6px' }}>
@@ -1113,6 +1173,18 @@ function SiteStatsView() {
               <StatTile label="Avg Position" value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'} accent="#ea4335" sub="Lower # = higher ranking" />
             </div>
 
+            {/* Search trend chart */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Clicks &amp; impressions over time · last 28 days</p>
+              <TrendChart
+                daily={gsc.daily}
+                lines={[
+                  { key: 'clicks', label: 'Clicks', color: '#4285f4' },
+                  { key: 'impressions', label: 'Impressions', color: '#34a853' },
+                ]}
+              />
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
                 <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
@@ -1220,21 +1292,16 @@ function SiteStatsView() {
               />
             </div>
 
-            {/* Daily sessions chart */}
+            {/* Traffic trend chart */}
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily sessions</p>
-              {ga.daily?.length > 0
-                ? <>
-                    <MiniBar daily={ga.daily} field="sessions" color="#4285f4" />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                      <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[0]?.date}</span>
-                      <span style={{ fontSize: '10px', color: '#9ca3af' }}>{ga.daily[ga.daily.length - 1]?.date}</span>
-                    </div>
-                  </>
-                : <div style={{ height: '40px', background: '#f9fafb', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: '12px', color: '#d1d5db' }}>Data will appear as traffic comes in</span>
-                  </div>
-              }
+              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sessions over time · last 28 days</p>
+              <TrendChart
+                daily={ga.daily}
+                lines={[
+                  { key: 'sessions', label: 'Sessions', color: '#4285f4' },
+                  { key: 'pageViews', label: 'Page Views', color: '#34a853' },
+                ]}
+              />
             </div>
 
             {/* Device split + Traffic sources */}

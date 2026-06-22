@@ -429,14 +429,15 @@ async function fetchSearchConsole() {
 
     const body = (extra) => JSON.stringify({ startDate, endDate, ...extra });
 
-    const [overviewRes, queriesRes, pagesRes] = await Promise.all([
+    const [overviewRes, queriesRes, pagesRes, dailyRes] = await Promise.all([
       fetch(base, { method: 'POST', headers, body: body({ rowLimit: 1 }) }),
       fetch(base, { method: 'POST', headers, body: body({ dimensions: ['query'], rowLimit: 10 }) }),
       fetch(base, { method: 'POST', headers, body: body({ dimensions: ['page'], rowLimit: 5 }) }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['date'], rowLimit: 28 }) }),
     ]);
 
-    const [overview, queriesData, pagesData] = await Promise.all([
-      overviewRes.json(), queriesRes.json(), pagesRes.json(),
+    const [overview, queriesData, pagesData, dailyData] = await Promise.all([
+      overviewRes.json(), queriesRes.json(), pagesRes.json(), dailyRes.json(),
     ]);
 
     if (overview.error) return { configured: true, error: overview.error.message };
@@ -471,7 +472,17 @@ async function fetchSearchConsole() {
       position: Math.round(r.position * 10) / 10,
     }));
 
-    return { configured: true, period: `${startDate} to ${endDate}`, totals, queries, pages };
+    const daily = (dailyData.rows ?? [])
+      .sort((a, b) => a.keys[0].localeCompare(b.keys[0]))
+      .map((r) => ({
+        date: r.keys[0],
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: Math.round(r.ctr * 100),
+        position: Math.round(r.position * 10) / 10,
+      }));
+
+    return { configured: true, period: `${startDate} to ${endDate}`, totals, queries, pages, daily };
   } catch (err) {
     return { configured: true, error: err.message };
   }

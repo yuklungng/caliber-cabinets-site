@@ -1493,18 +1493,17 @@ function LeadsView() {
       {/* Stage counts */}
       {/* Pipeline stage view */}
       <div style={{ marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-        <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '12px' }}>Stage</span>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_PIPELINE.length + 1}, 1fr)`, gap: '6px', alignItems: 'stretch' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_PIPELINE.length + 1}, 1fr)`, gap: '6px', alignItems: 'stretch', gridAutoRows: '1fr' }}>
           {HS_PIPELINE.map((stage, i) => {
             const ids = Array.isArray(stage.id) ? stage.id : [stage.id];
             const count = ids.reduce((sum, id) => sum + (stageCountById[id] ?? 0), 0);
             const primaryId = ids[0];
             const s = HS_STAGE_COLORS[primaryId] ?? { bg: '#f3f4f6', color: '#6b7280' };
             return (
-              <div key={Array.isArray(stage.id) ? stage.id.join('-') : stage.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div key={Array.isArray(stage.id) ? stage.id.join('-') : stage.id} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
                 <div style={{
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: '5px', padding: '10px 6px', borderRadius: '8px',
+                  gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
                   background: s.bg, border: `1.5px solid ${s.color}22`,
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
@@ -1520,11 +1519,11 @@ function LeadsView() {
           {(() => {
             const count = stageCountById[HS_CLOSED_LOST.id] ?? 0;
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ width: '1px', height: '100%', background: '#e5e7eb', flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
+                <div style={{ width: '1px', background: '#e5e7eb', flexShrink: 0 }} />
                 <div style={{
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: '5px', padding: '10px 6px', borderRadius: '8px',
+                  gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
                   background: '#fee2e2', border: '1.5px solid #fca5a522',
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', lineHeight: 1 }}>{count}</span>

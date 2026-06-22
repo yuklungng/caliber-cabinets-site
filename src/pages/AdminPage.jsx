@@ -34,6 +34,19 @@ const HS_STAGE_COLORS = {
   closedlost:            { bg: '#f3f4f6', color: '#6b7280' },
 };
 
+// Ordered pipeline stages — defines the linear lifecycle view
+const HS_PIPELINE = [
+  { id: '3869825744',          label: 'New Request' },
+  { id: 'appointmentscheduled', label: 'Appt Scheduled' },
+  { id: 'presentationscheduled', label: 'Presentation' },
+  { id: '3869825755',          label: 'Quote Sent' },
+  { id: 'qualifiedtobuy',      label: 'Qualified' },
+  { id: 'decisionmakerboughtin', label: 'Decision Made' },
+  { id: 'contractsent',        label: 'Contract Sent' },
+  { id: 'closedwon',           label: 'Closed Won' },
+];
+const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso) {
@@ -1429,16 +1442,13 @@ function LeadsView() {
   const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
   const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
 
-  // Stage breakdown — count by hs_stage_label
-  const stageCounts = {};
+  // Stage breakdown — count by stage ID across all pipeline stages
+  const stageCountById = {};
   for (const l of leads) {
-    if (l.hs_stage_label) {
-      stageCounts[l.hs_stage_label] = (stageCounts[l.hs_stage_label] ?? 0) + 1;
-      if (!stageCounts.__ids) stageCounts.__ids = {};
-      stageCounts.__ids[l.hs_stage_label] = l.hs_stage_id;
+    if (l.hs_stage_id) {
+      stageCountById[l.hs_stage_id] = (stageCountById[l.hs_stage_id] ?? 0) + 1;
     }
   }
-  const stageEntries = Object.entries(stageCounts).filter(([k]) => k !== '__ids').sort((a, b) => b[1] - a[1]);
 
   // Search suggestions — up to 6 leads matching current query
   const suggestions = searchQuery.trim().length > 0
@@ -1468,7 +1478,7 @@ function LeadsView() {
   return (
     <div>
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: stageEntries.length > 0 ? '12px' : '28px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '12px' }}>
         {[
           { label: 'Total Submissions', value: totalLeads },
           { label: 'Homeowner Consults', value: homeownerLeads },
@@ -1482,21 +1492,52 @@ function LeadsView() {
       </div>
 
       {/* Stage counts */}
-      {!isLoading && stageEntries.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', alignSelf: 'center', marginRight: '4px' }}>By Stage</span>
-          {stageEntries.map(([label, count]) => {
-            const stageId = stageCounts.__ids?.[label];
-            const style = HS_STAGE_COLORS[stageId] ?? { bg: '#f3f4f6', color: '#374151' };
+      {/* Pipeline stage view */}
+      <div style={{ marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '12px' }}>Stage</span>
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: '0', overflowX: 'auto' }}>
+          {HS_PIPELINE.map((stage, i) => {
+            const count = stageCountById[stage.id] ?? 0;
+            const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+            const active = count > 0;
             return (
-              <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', background: style.bg, color: style.color, fontSize: '12px', fontWeight: '700' }}>
-                {label}
-                <span style={{ background: style.color, color: style.bg, borderRadius: '999px', padding: '0 5px', fontSize: '11px', fontWeight: '800', lineHeight: '18px', minWidth: '18px', textAlign: 'center' }}>{count}</span>
-              </span>
+              <div key={stage.id} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', minWidth: '72px',
+                  background: active ? s.bg : '#f9fafb',
+                  opacity: active ? 1 : 0.5,
+                  transition: 'opacity 0.2s',
+                }}>
+                  <span style={{ fontSize: '18px', fontWeight: '800', color: active ? s.color : '#9ca3af', lineHeight: 1 }}>{count}</span>
+                  <span style={{ fontSize: '10px', fontWeight: '600', color: active ? s.color : '#9ca3af', textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
+                </div>
+                {i < HS_PIPELINE.length - 1 && (
+                  <span style={{ fontSize: '14px', color: '#d1d5db', padding: '0 2px', flexShrink: 0 }}>›</span>
+                )}
+              </div>
             );
           })}
+          {/* Closed Lost — separated as a terminal loss state */}
+          <div style={{ display: 'flex', alignItems: 'center', marginLeft: '8px', paddingLeft: '10px', borderLeft: '1px dashed #e5e7eb', flexShrink: 0 }}>
+            {(() => {
+              const count = stageCountById[HS_CLOSED_LOST.id] ?? 0;
+              const active = count > 0;
+              return (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', minWidth: '72px',
+                  background: active ? '#fee2e2' : '#f9fafb',
+                  opacity: active ? 1 : 0.4,
+                }}>
+                  <span style={{ fontSize: '18px', fontWeight: '800', color: active ? '#991b1b' : '#9ca3af', lineHeight: 1 }}>{count}</span>
+                  <span style={{ fontSize: '10px', fontWeight: '600', color: active ? '#991b1b' : '#9ca3af', textAlign: 'center', lineHeight: 1.3 }}>Closed Lost</span>
+                </div>
+              );
+            })()}
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>

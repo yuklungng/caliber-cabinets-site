@@ -35,15 +35,14 @@ const HS_STAGE_COLORS = {
 };
 
 // Ordered pipeline stages — defines the linear lifecycle view
+// Appt/Presentation is a combined step (both IDs count toward it)
 const HS_PIPELINE = [
-  { id: '3869825744',          label: 'New Request' },
-  { id: 'appointmentscheduled', label: 'Appt Scheduled' },
-  { id: 'presentationscheduled', label: 'Presentation' },
-  { id: '3869825755',          label: 'Quote Sent' },
-  { id: 'qualifiedtobuy',      label: 'Qualified' },
-  { id: 'decisionmakerboughtin', label: 'Decision Made' },
-  { id: 'contractsent',        label: 'Contract Sent' },
-  { id: 'closedwon',           label: 'Closed Won' },
+  { id: '3869825744',                                          label: 'New Request' },
+  { id: 'qualifiedtobuy',                                      label: 'Qualified' },
+  { id: '3869825755',                                          label: 'Quote Sent' },
+  { id: ['appointmentscheduled', 'presentationscheduled'],     label: 'Appt / Presentation' },
+  { id: 'contractsent',                                        label: 'Contract Sent' },
+  { id: 'closedwon',                                          label: 'Closed Won' },
 ];
 const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
 
@@ -1497,8 +1496,10 @@ function LeadsView() {
         <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '12px' }}>Stage</span>
         <div style={{ display: 'flex', alignItems: 'stretch', gap: '0', overflowX: 'auto' }}>
           {HS_PIPELINE.map((stage, i) => {
-            const count = stageCountById[stage.id] ?? 0;
-            const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+            const ids = Array.isArray(stage.id) ? stage.id : [stage.id];
+            const count = ids.reduce((sum, id) => sum + (stageCountById[id] ?? 0), 0);
+            const primaryId = ids[0];
+            const s = HS_STAGE_COLORS[primaryId] ?? { bg: '#f3f4f6', color: '#6b7280' };
             const active = count > 0;
             return (
               <div key={stage.id} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>

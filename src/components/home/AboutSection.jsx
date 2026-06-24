@@ -23,7 +23,15 @@ export function AboutSection() {
         <div className="about-grid">
           <div className="image-frame">
             {/* TODO: Confirm correct image file for Mike photo - AI Studio uses a different shot */}
-            <img src="/images/mike-photo.webp" alt="Mike, owner of Caliber Cabinets" width="2560" height="1708" loading="lazy" />
+            <img
+              src="/images/mike-photo.webp"
+              srcSet="/images/mike-photo-900.webp 900w, /images/mike-photo.webp 2560w"
+              sizes="(max-width: 768px) 900px, 2560px"
+              alt="Mike, owner of Caliber Cabinets"
+              width="2560"
+              height="1708"
+              loading="lazy"
+            />
           </div>
           <div className="section-copy">
             <h2 id="about-title">About Caliber Cabinets</h2>

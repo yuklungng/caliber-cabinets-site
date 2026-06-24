@@ -20,7 +20,7 @@ export function HeroSection() {
         playsInline
         aria-hidden="true"
       >
-        <source src="/videos/caliber-hero-craft-loop.mp4" type="video/mp4" />
+        <source src="/videos/caliber-hero-craft-loop-web.mp4" type="video/mp4" />
       </video>
       <div className="hero-scrim" aria-hidden="true" />
 

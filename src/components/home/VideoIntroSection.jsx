@@ -11,7 +11,7 @@ export function VideoIntroSection() {
             preload="metadata"
             poster="/images/caliber-showroom-video-poster.webp"
           >
-            <source src="/videos/caliber-about-film-captioned-web-review.mp4" type="video/mp4" />
+            <source src="/videos/caliber-about-film-web.mp4" type="video/mp4" />
           </video>
         </div>
       </div>

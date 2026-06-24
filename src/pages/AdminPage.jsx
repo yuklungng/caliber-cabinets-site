@@ -1516,6 +1516,29 @@ function LeadsView() {
     }
   }
 
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const wonCount  = stageCountById['closedwon']  ?? 0;
+  const lostCount = stageCountById['closedlost'] ?? 0;
+  const closedTotal = wonCount + lostCount;
+  const winRate = closedTotal > 0 ? Math.round((wonCount / closedTotal) * 100) : null;
+
+  // Active = has a stage but not Won or Lost
+  const activeCount = leads.filter(
+    (l) => l.hs_stage_id && l.hs_stage_id !== 'closedwon' && l.hs_stage_id !== 'closedlost'
+  ).length;
+
+  // Lead-to-Quote = reached Quote Sent or any later stage
+  const quoteOrBeyond = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'contractsent', 'closedwon']);
+  const quotedCount = leads.filter((l) => quoteOrBeyond.has(l.hs_stage_id)).length;
+  const leadToQuoteRate = totalLeads > 0 ? Math.round((quotedCount / totalLeads) * 100) : null;
+
+  // New this calendar month
+  const now = new Date();
+  const thisMonthCount = leads.filter((l) => {
+    const d = new Date(l.created_at);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
   // Search suggestions — up to 6 leads matching current query
   const suggestions = searchQuery.trim().length > 0
     ? leads.filter((l) => {
@@ -1543,18 +1566,44 @@ function LeadsView() {
 
   return (
     <div>
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '12px' }}>
-        {[
-          { label: 'Total Submissions', value: totalLeads },
-          { label: 'Homeowner Consults', value: homeownerLeads },
-          { label: 'Trade Estimates', value: tradeLeads },
-        ].map((stat) => (
-          <div key={stat.label} style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</p>
-            <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : stat.value}</p>
-          </div>
-        ))}
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+        {/* Win Rate */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Win Rate</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : winRate === null ? '#9ca3af' : winRate >= 50 ? '#16a34a' : '#dc2626' }}>
+            {isLoading ? '–' : winRate !== null ? `${winRate}%` : '—'}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : closedTotal > 0 ? `${wonCount} won · ${lostCount} lost` : 'No closed deals yet'}
+          </p>
+        </div>
+        {/* Active Pipeline */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active Pipeline</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : activeCount}</p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : `${homeownerLeads} homeowner · ${tradeLeads} trade`}
+          </p>
+        </div>
+        {/* Lead → Quote */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lead → Quote</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>
+            {isLoading ? '–' : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : `${quotedCount} of ${totalLeads} leads`}
+          </p>
+        </div>
+        {/* New This Month */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>New This Month</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : thisMonthCount}</p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </p>
+        </div>
       </div>
 
       {/* Stage counts */}
@@ -1575,6 +1624,11 @@ function LeadsView() {
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
+                  {totalLeads > 0 && (
+                    <span style={{ fontSize: '10px', color: s.color, opacity: 0.7, lineHeight: 1 }}>
+                      {Math.round((count / totalLeads) * 100)}%
+                    </span>
+                  )}
                 </div>
                 {i < HS_PIPELINE.length - 1 && (
                   <span style={{ fontSize: '12px', color: '#d1d5db', flexShrink: 0 }}>›</span>
@@ -1595,6 +1649,11 @@ function LeadsView() {
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: '#991b1b', textAlign: 'center', lineHeight: 1.3 }}>Closed Lost</span>
+                  {totalLeads > 0 && (
+                    <span style={{ fontSize: '10px', color: '#991b1b', opacity: 0.7, lineHeight: 1 }}>
+                      {Math.round((count / totalLeads) * 100)}%
+                    </span>
+                  )}
                 </div>
               </div>
             );

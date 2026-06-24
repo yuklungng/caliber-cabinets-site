@@ -1,16 +1,16 @@
 const teamMembers = [
   {
-    image: '/images/linda-photo.jpg',
+    image: '/images/linda-photo.webp',
     name: 'Linda',
     role: 'Office Manager',
   },
   {
-    image: '/images/fedincio-photo.jpg',
+    image: '/images/fedincio-photo.webp',
     name: 'Fedincio',
     role: 'Lead Craftsman',
   },
   {
-    image: '/images/carlos-photo.jpg',
+    image: '/images/carlos-photo.webp',
     name: 'Carlos',
     role: 'Installer',
   },
@@ -23,7 +23,7 @@ export function AboutSection() {
         <div className="about-grid">
           <div className="image-frame">
             {/* TODO: Confirm correct image file for Mike photo - AI Studio uses a different shot */}
-            <img src="/images/mike-photo.jpg" alt="Mike, owner of Caliber Cabinets" />
+            <img src="/images/mike-photo.webp" alt="Mike, owner of Caliber Cabinets" width="2560" height="1708" loading="lazy" />
           </div>
           <div className="section-copy">
             <h2 id="about-title">About Caliber Cabinets</h2>
@@ -52,7 +52,7 @@ export function AboutSection() {
           <div className="team-grid">
             {teamMembers.map((member) => (
               <article key={member.name} className="team-member">
-                <img src={member.image} alt={member.name} className="team-member-photo" />
+                <img src={member.image} alt={`${member.name}, ${member.role}`} className="team-member-photo" loading="lazy" />
                 <p className="team-member-name">{member.name}</p>
                 <p className="team-member-role">{member.role}</p>
               </article>

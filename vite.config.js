@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   build: {
-    sourcemap: true,
+    // Disable sourcemaps in production — they expose source code and roughly double JS file weight.
+    // React.lazy() in App.jsx handles automatic code splitting for AdminPage.
+    sourcemap: false,
   },
 });

@@ -176,7 +176,21 @@ export function EstimatePage() {
   const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
-    document.title = 'Trade Partner Design & Estimate Request | Caliber Cabinets';
+    const prevTitle = document.title;
+    const metaDesc = document.querySelector('meta[name="description"]');
+    const canonical = document.querySelector('link[rel="canonical"]');
+    const prevDesc = metaDesc?.getAttribute('content') ?? '';
+    const prevCanonical = canonical?.getAttribute('href') ?? '';
+
+    document.title = 'Trade Partner Estimate Request | Caliber Cabinets Livermore';
+    metaDesc?.setAttribute('content', 'Request a cabinetry design and estimate for your client project. Caliber Cabinets works with interior designers, general contractors, and architects across the Tri-Valley, CA.');
+    canonical?.setAttribute('href', 'https://calibercabinetshop.com/request-design-estimate');
+
+    return () => {
+      document.title = prevTitle;
+      metaDesc?.setAttribute('content', prevDesc);
+      canonical?.setAttribute('href', prevCanonical);
+    };
   }, []);
 
   // Warn on browser navigation (tab close, back button, address bar)
@@ -355,8 +369,8 @@ export function EstimatePage() {
                   </div>
                   <div className="lead-field">
                     <label htmlFor="estimate-license-number">License Number</label>
-                    <input id="estimate-license-number" name="licenseNumber" type="text" />
-                    <p className="lead-helper-text">If applicable</p>
+                    <input id="estimate-license-number" name="licenseNumber" type="text" aria-describedby="estimate-license-number-hint" />
+                    <p id="estimate-license-number-hint" className="lead-helper-text">If applicable</p>
                   </div>
                 </div>
 
@@ -372,8 +386,8 @@ export function EstimatePage() {
 
                 <div className="lead-field">
                   <label htmlFor="estimate-gc-contact">General Contractor Name &amp; Phone</label>
-                  <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" />
-                  <p className="lead-helper-text">If different from above</p>
+                  <input id="estimate-gc-contact" name="gcNameAndPhone" type="text" aria-describedby="estimate-gc-contact-hint" />
+                  <p id="estimate-gc-contact-hint" className="lead-helper-text">If different from above</p>
                 </div>
 
                 <div className="form-section-title">
@@ -413,8 +427,8 @@ export function EstimatePage() {
                   </div>
                   <div className="lead-field">
                     <label htmlFor="estimate-zip">ZIP Code</label>
-                    <input id="estimate-zip" name="zipCode" type="text" />
-                    <p className="lead-helper-text">For sales tax &amp; bid accuracy</p>
+                    <input id="estimate-zip" name="zipCode" type="text" aria-describedby="estimate-zip-hint" />
+                    <p id="estimate-zip-hint" className="lead-helper-text">For sales tax &amp; bid accuracy</p>
                   </div>
                 </div>
 
@@ -623,7 +637,7 @@ export function EstimatePage() {
                   {isSending ? 'Sending...' : 'Send My Request'}
                 </button>
 
-                {submitError ? <p className="lead-error">{submitError}</p> : null}
+                {submitError ? <p className="lead-error" role="alert">{submitError}</p> : null}
               </form>
             </>
           )}

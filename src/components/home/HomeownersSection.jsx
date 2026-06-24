@@ -52,8 +52,11 @@ export function HomeownersSection() {
         <div className="homeowners-media">
           <img
             className="homeowners-photo"
-            src="/images/homeowners-family.jpg"
+            src="/images/homeowners-family.webp"
             alt="Family gathering in a warm, custom-built kitchen"
+            width="2070"
+            height="1380"
+            loading="lazy"
           />
           <aside className="homeowner-quote" aria-label="Homeowner pull quote">
             <blockquote>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 const consultationAnchorUrl = '/#consultation';
 
@@ -10,6 +10,20 @@ const navItems = [
 
 export function SiteHeader({ hideCta = false }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
+
+  // Close mobile menu on Escape key — returns focus to the toggle button
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        setIsMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isMenuOpen]);
 
   return (
     <header className="site-header">
@@ -39,6 +53,7 @@ export function SiteHeader({ hideCta = false }) {
         )}
 
         <button
+          ref={menuButtonRef}
           className="icon-button mobile-menu-button"
           type="button"
           aria-controls="mobile-menu"

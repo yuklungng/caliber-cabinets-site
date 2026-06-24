@@ -7,7 +7,7 @@ const projects = [
   {
     title: 'Two-Tone Kitchen Design',
     location: 'Pleasanton, CA',
-    image: '/images/caliber-project-pleasanton-kitchen.jpg',
+    image: '/images/caliber-project-pleasanton-kitchen.webp',
   },
   {
     title: 'Traditional Wood Cabinetry',
@@ -30,7 +30,7 @@ export function FeaturedWork() {
         {projects.map((project) => (
           <article className="project-card" key={project.title}>
             <div className="project-image">
-              <img src={project.image} alt={`${project.title} by Caliber Cabinets`} />
+              <img src={project.image} alt={`${project.title} by Caliber Cabinets`} loading="lazy" />
             </div>
             <div className="project-card-body">
               <p>{project.location}</p>

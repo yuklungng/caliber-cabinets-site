@@ -67,7 +67,21 @@ export function ConsultationPage() {
   const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
-    document.title = 'Request a Design Consultation | Caliber Cabinets';
+    const prevTitle = document.title;
+    const metaDesc = document.querySelector('meta[name="description"]');
+    const canonical = document.querySelector('link[rel="canonical"]');
+    const prevDesc = metaDesc?.getAttribute('content') ?? '';
+    const prevCanonical = canonical?.getAttribute('href') ?? '';
+
+    document.title = 'Request a Free Design Consultation | Caliber Cabinets Livermore';
+    metaDesc?.setAttribute('content', 'Schedule a free cabinetry design consultation with Caliber Cabinets in Livermore, CA. Tell us about your kitchen, bathroom, or custom built-in project — we respond within 1 business day.');
+    canonical?.setAttribute('href', 'https://calibercabinetshop.com/request-a-design-consultation');
+
+    return () => {
+      document.title = prevTitle;
+      metaDesc?.setAttribute('content', prevDesc);
+      canonical?.setAttribute('href', prevCanonical);
+    };
   }, []);
 
   // Warn on browser navigation (tab close, back button, address bar)
@@ -200,8 +214,8 @@ export function ConsultationPage() {
 
                 <div className="lead-field">
                   <label htmlFor="c-street-address">Street Address</label>
-                  <input id="c-street-address" name="streetAddress" type="text" />
-                  <p className="lead-helper-text">Optional — helps us prepare for your consultation</p>
+                  <input id="c-street-address" name="streetAddress" type="text" aria-describedby="c-street-address-hint" />
+                  <p id="c-street-address-hint" className="lead-helper-text">Optional — helps us prepare for your consultation</p>
                 </div>
 
                 <div className="lead-field-grid lead-field-grid--three">
@@ -245,8 +259,8 @@ export function ConsultationPage() {
 
                 <div className="lead-field">
                   <label htmlFor="c-inspiration">Links or Style Description</label>
-                  <textarea id="c-inspiration" name="inspiration" rows="3" />
-                  <p className="lead-helper-text">
+                  <textarea id="c-inspiration" name="inspiration" rows="3" aria-describedby="c-inspiration-hint" />
+                  <p id="c-inspiration-hint" className="lead-helper-text">
                     Optional — share links, style references, or describe your vision
                   </p>
                 </div>
@@ -296,7 +310,7 @@ export function ConsultationPage() {
                   {isSending ? 'Sending…' : 'Send My Request'}
                 </button>
 
-                {submitError ? <p className="lead-error">{submitError}</p> : null}
+                {submitError ? <p className="lead-error" role="alert">{submitError}</p> : null}
               </form>
             </>
           )}

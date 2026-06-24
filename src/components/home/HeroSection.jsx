@@ -5,7 +5,7 @@ export function HeroSection() {
     <section className="hero-section" aria-labelledby="home-title">
       <video
         className="hero-video"
-        poster="/images/caliber-showroom-hero-fallback.jpg"
+        poster="/images/caliber-showroom-hero-fallback.webp"
         autoPlay
         muted
         loop

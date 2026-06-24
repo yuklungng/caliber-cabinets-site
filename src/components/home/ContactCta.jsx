@@ -11,6 +11,7 @@ export function ContactCta() {
               alt=""
               className="cta-image"
               aria-hidden="true"
+              loading="lazy"
             />
           </div>
           <div className="cta-content">

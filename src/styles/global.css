@@ -79,6 +79,27 @@ h3 {
   margin-inline: auto;
 }
 
+/* ── Global focus indicators (WCAG 2.1 AA keyboard navigation) ──────────── */
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.button:focus-visible,
+.nav-cta:focus-visible,
+.lead-submit:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.lead-choice:focus-within {
+  border-color: #78350f;
+  box-shadow: 0 0 0 2px rgba(120, 53, 15, 0.2);
+}
+
 .skip-link {
   position: absolute;
   top: 12px;
@@ -683,7 +704,7 @@ h3 {
 }
 
 .process-step span {
-  color: rgba(120, 53, 15, 0.3);
+  color: rgba(120, 53, 15, 0.6); /* 3.26:1 on white — passes WCAG AA large text (≥24px) */
   font-family: var(--font-serif);
   font-size: 3rem;
   font-weight: 700;
@@ -1216,7 +1237,7 @@ h3 {
   gap: 4px;
   font-size: 0.9rem;
   line-height: 1.5;
-  color: var(--color-text);
+  color: var(--color-ink);
 }
 
 .lead-file-size {

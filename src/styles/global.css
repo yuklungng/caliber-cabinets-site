@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap");
+/* Google Fonts is loaded via <link> tags in index.html to avoid render-blocking.
+   CSS @import chains block parsing; the <link rel="preload"> approach removes fonts
+   from the critical path entirely. */
 
 :root {
   color-scheme: light;

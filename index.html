@@ -30,6 +30,20 @@
     <meta name="author" content="Caliber Cabinets, Inc." />
     <!-- Preload hero poster image — it is the LCP element before the video loads -->
     <link rel="preload" as="image" href="/images/caliber-showroom-hero-fallback.webp" fetchpriority="high" />
+    <!-- Google Fonts: preconnect first, then async-load the stylesheet.
+         Using rel="preload" + onload swap removes fonts from the render-blocking critical path.
+         A CSS @import would add a 3-hop chain (CSS → Fonts CSS → woff2) that blocks FCP/LCP. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" />
+    </noscript>
     <!-- Structured Data: LocalBusiness (SEO + AIEO) -->
     <script type="application/ld+json">
     {

@@ -139,6 +139,103 @@ export async function batchGetDealStages(dealIds) {
 }
 
 /**
+ * Fetch every deal in the configured pipeline, with associated contact details.
+ * Returns an array of lead-shaped objects (same shape as Supabase leads after enrichment)
+ * so they can be merged into the admin leads list without frontend changes.
+ *
+ * source: 'hubspot' distinguishes these from web-form submissions.
+ */
+export async function getAllPipelineDeals() {
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
+  const portalId   = process.env.HUBSPOT_PORTAL_ID;
+
+  // Resolve stage labels for this pipeline
+  let stageLabels = { ...DEFAULT_STAGE_LABELS };
+  try {
+    const stagesRes = await hs(`/crm/v3/pipelines/deals/${pipelineId}/stages`, 'GET');
+    if (stagesRes.ok) {
+      for (const stage of (await stagesRes.json()).results ?? []) {
+        stageLabels[stage.id] = stage.label;
+      }
+    }
+  } catch { /* use fallback labels */ }
+
+  // Paginate through all deals in the pipeline
+  const allDeals = [];
+  let after;
+  do {
+    const res = await hs('/crm/v3/objects/deals/search', 'POST', {
+      filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
+      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate'],
+      limit: 100,
+      ...(after ? { after } : {}),
+    });
+    if (!res.ok) break;
+    const data = await res.json();
+    allDeals.push(...(data.results ?? []));
+    after = data.paging?.next?.after;
+  } while (after);
+
+  if (allDeals.length === 0) return [];
+
+  // Batch-fetch contact associations, then resolve contact properties
+  const dealIds = allDeals.map((d) => d.id);
+  const contactByDealId = {};
+  try {
+    const assocRes = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
+      inputs: dealIds.map((id) => ({ id })),
+    });
+    if (assocRes.ok) {
+      const dealToContactId = {};
+      for (const r of (await assocRes.json()).results ?? []) {
+        if (r.to?.length > 0) dealToContactId[r.from.id] = String(r.to[0].toObjectId);
+      }
+      const contactIds = [...new Set(Object.values(dealToContactId))];
+      if (contactIds.length > 0) {
+        const cRes = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
+          properties: ['firstname', 'lastname', 'email', 'phone'],
+          inputs: contactIds.map((id) => ({ id })),
+        });
+        if (cRes.ok) {
+          const contactMap = {};
+          for (const c of (await cRes.json()).results ?? []) contactMap[c.id] = c.properties;
+          for (const [dealId, contactId] of Object.entries(dealToContactId)) {
+            contactByDealId[dealId] = contactMap[contactId] ?? {};
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[hubspot] getAllPipelineDeals association fetch error:', e.message);
+  }
+
+  return allDeals.map((deal) => {
+    const contact = contactByDealId[deal.id] ?? {};
+    const stageId = deal.properties?.dealstage ?? '';
+    return {
+      id: `hs-${deal.id}`,
+      source: 'hubspot',
+      form_type: null,
+      created_at: deal.properties?.createdate ?? new Date().toISOString(),
+      hubspot_deal_id: deal.id,
+      fields: {
+        firstName: contact.firstname ?? '',
+        lastName:  contact.lastname  ?? '',
+        email:     contact.email     ?? '',
+        phone:     contact.phone     ?? '',
+        dealName:  deal.properties?.dealname ?? '',
+      },
+      hs_stage_id:    stageId,
+      hs_stage_label: stageLabels[stageId] ?? stageId,
+      hs_stage_date:  deal.properties?.hs_lastmodifieddate ?? null,
+      hs_deal_url:    portalId
+        ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
+        : null,
+    };
+  });
+}
+
+/**
  * Build contact properties and a deal with full form content in the description.
  */
 export function buildHubSpotObjects(formType, fields, attachmentUrls = {}) {

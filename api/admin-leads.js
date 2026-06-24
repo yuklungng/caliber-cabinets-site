@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages } from './hubspot.js';
+import { batchGetDealStages, getAllPipelineDeals } from './hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 export default async function handler(req, res) {
@@ -48,7 +48,23 @@ export default async function handler(req, res) {
       };
     });
 
-    return res.status(200).json({ leads: enriched });
+    // Merge in HubSpot-only deals (deals that exist in HubSpot but not from a web form)
+    let hsOnlyDeals = [];
+    if (process.env.HUBSPOT_ACCESS_TOKEN) {
+      try {
+        const allHsDeals = await getAllPipelineDeals();
+        const supabaseDealIds = new Set(data.map((l) => l.hubspot_deal_id).filter(Boolean));
+        hsOnlyDeals = allHsDeals.filter((d) => !supabaseDealIds.has(d.hubspot_deal_id));
+      } catch (hsErr) {
+        console.error('[admin-leads] HubSpot-only deals fetch error:', hsErr.message);
+      }
+    }
+
+    const combined = [...enriched, ...hsOnlyDeals].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    );
+
+    return res.status(200).json({ leads: combined });
   }
 
   // DELETE — permanently remove a lead

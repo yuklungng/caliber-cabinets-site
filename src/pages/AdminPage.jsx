@@ -115,7 +115,14 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
   );
 }
 
-function TypeBadge({ formType }) {
+function TypeBadge({ formType, source }) {
+  if (source === 'hubspot') {
+    return (
+      <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', background: '#f5f3ff', color: '#6d28d9' }}>
+        HubSpot
+      </span>
+    );
+  }
   const isHomeowner = formType === 'homeowner-consultation';
   return (
     <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', background: isHomeowner ? '#fff7ed' : '#f0fdf4', color: isHomeowner ? '#c2410c' : '#166534' }}>
@@ -224,6 +231,32 @@ function AttachmentChip({ path }) {
 
 function LeadDetail({ lead }) {
   const f = lead.fields ?? {};
+
+  // HubSpot-only deals have no web form data — show a minimal summary instead
+  if (lead.source === 'hubspot') {
+    return (
+      <div style={{ padding: '20px 32px', background: '#fff', borderTop: '2px solid #f3e8d0' }}>
+        <SectionHeading>Deal Details</SectionHeading>
+        <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 32px' }}>
+          {f.dealName && <FieldCell label="Deal Name">{f.dealName}</FieldCell>}
+          {f.firstName || f.lastName
+            ? <FieldCell label="Contact">{[f.firstName, f.lastName].filter(Boolean).join(' ')}</FieldCell>
+            : null}
+          {f.email && <FieldCell label="Email"><a href={`mailto:${f.email}`} style={{ color: '#78350f' }}>{f.email}</a></FieldCell>}
+          {f.phone && <FieldCell label="Phone"><a href={`tel:${f.phone}`} style={{ color: '#78350f' }}>{formatPhone(f.phone)}</a></FieldCell>}
+        </dl>
+        {lead.hs_deal_url && (
+          <p style={{ margin: '20px 0 0', fontSize: '13px', color: '#6b7280' }}>
+            Full deal details are in HubSpot.{' '}
+            <a href={lead.hs_deal_url} target="_blank" rel="noreferrer" style={{ color: '#78350f', fontWeight: '600' }}>
+              Open deal ↗
+            </a>
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const isHomeowner = lead.form_type === 'homeowner-consultation';
 
   const addr = [
@@ -375,19 +408,26 @@ function LeadDetail({ lead }) {
 
 function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
   const f = lead.fields ?? {};
-  const name = [f.firstName, f.lastName].filter(Boolean).join(' ') || '(no name)';
+  const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
+  // HubSpot-only deals may have no contact name — fall back to the deal name
+  const name = contactName || f.dealName || '(no name)';
+  const isHubSpotOnly = lead.source === 'hubspot';
   return (
     <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
       <div style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gap: '12px' }} onClick={onToggle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
-          <TypeBadge formType={lead.form_type} />
+          <TypeBadge formType={lead.form_type} source={lead.source} />
           <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
             {formatDate(lead.created_at)} · {formatTime(lead.created_at)}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+          {/* Show deal name as subtitle when contact name is the fallback display */}
+          {isHubSpotOnly && contactName && f.dealName && (
+            <span style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>{f.dealName}</span>
+          )}
           {f.companyName && <span style={{ fontSize: '13px', color: '#374151' }}>{f.companyName}</span>}
           {f.phone && <a href={`tel:${f.phone}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{formatPhone(f.phone)}</a>}
           {f.email && <a href={`mailto:${f.email}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: '13px', color: '#78350f', textDecoration: 'none' }}>{f.email}</a>}
@@ -397,9 +437,12 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
                 View in HubSpot ↗
               </a>
             )}
-            <button onClick={() => onDelete(lead.id, name)} style={{ background: 'transparent', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', cursor: 'pointer' }}>
-              Delete
-            </button>
+            {/* HubSpot-only deals don't exist in Supabase — nothing to delete */}
+            {!isHubSpotOnly && (
+              <button onClick={() => onDelete(lead.id, name)} style={{ background: 'transparent', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', cursor: 'pointer' }}>
+                Delete
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1548,14 +1591,15 @@ function LeadsView() {
           `${f.firstName ?? ''} ${f.lastName ?? ''}`.toLowerCase().includes(q) ||
           (f.email ?? '').toLowerCase().includes(q) ||
           (f.phone ?? '').toLowerCase().includes(q) ||
-          (f.companyName ?? '').toLowerCase().includes(q)
+          (f.companyName ?? '').toLowerCase().includes(q) ||
+          (f.dealName ?? '').toLowerCase().includes(q)
         );
       }).slice(0, 6)
     : [];
 
   function selectSuggestion(lead) {
     const f = lead.fields ?? {};
-    setSearchQuery(`${f.firstName ?? ''} ${f.lastName ?? ''}`.trim() || f.email || '');
+    setSearchQuery(`${f.firstName ?? ''} ${f.lastName ?? ''}`.trim() || f.dealName || f.email || '');
     setExpandedId(lead.id);
     setSearchFocused(false);
     // Scroll to card after render

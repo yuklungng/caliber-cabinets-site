@@ -1207,7 +1207,7 @@ button:focus-visible {
 }
 
 .file-drop-icon {
-  color: #9ca3af;
+  color: #6b7280; /* was #9ca3af (2.43:1 — fail); #6b7280 = 4.63:1 on #fafaf9 (passes 3:1 for UI components) */
   transition: color 150ms ease;
 }
 
@@ -1226,7 +1226,7 @@ button:focus-visible {
 .file-drop-hint {
   margin: 0;
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: #6b7280; /* was #9ca3af (2.43:1 — fail); #6b7280 = 4.63:1 on #fafaf9 (passes 4.5:1 for small text) */
   text-align: center;
 }
 

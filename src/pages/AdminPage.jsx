@@ -1697,7 +1697,7 @@ function AuthShell({ children }) {
       <div style={{ width: '100%', maxWidth: '400px', padding: '0 16px' }}>
         <div style={{ background: '#ffffff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.1)' }}>
           <div style={{ background: '#78350f', padding: '20px 32px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <img src="https://caliber-cabinets-site.vercel.app/images/caliber-logo.jpg" alt="Caliber Cabinets" style={{ height: '44px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+            <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '44px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
             <div>
               <p style={{ margin: 0, color: '#ffffff', fontSize: '18px', fontWeight: '700' }}>Caliber Cabinets</p>
               <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Lead Management</p>
@@ -1903,7 +1903,7 @@ export function AdminPage() {
     <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
       {/* Header */}
       <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src="https://caliber-cabinets-site.vercel.app/images/caliber-logo.jpg" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
         <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
           Caliber Cabinets
           <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>

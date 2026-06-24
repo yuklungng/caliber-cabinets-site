@@ -26,7 +26,7 @@ export function AboutSection() {
             <img
               src="/images/mike-photo.webp"
               srcSet="/images/mike-photo-900.webp 900w, /images/mike-photo.webp 2560w"
-              sizes="(max-width: 768px) 900px, 2560px"
+              sizes="(max-width: 768px) 390px, 550px"
               alt="Mike, owner of Caliber Cabinets"
               width="2560"
               height="1708"

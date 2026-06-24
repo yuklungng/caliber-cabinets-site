@@ -1648,7 +1648,7 @@ button:focus-visible {
   .hero-section {
     background:
       linear-gradient(90deg, rgba(17, 24, 39, 0.76), rgba(17, 24, 39, 0.42)),
-      url("/images/caliber-showroom-hero-fallback.jpg") center / cover;
+      url("/images/caliber-showroom-hero-fallback.webp") center / cover;
   }
 }
 

@@ -1,11 +1,19 @@
 import { ArrowRight } from 'lucide-react';
 
+// Serve a smaller poster on mobile. <video poster> doesn't support srcset so we
+// pick the right file once at render time. The matching version is also preloaded
+// in index.html via <link rel="preload" media="(max-width: 768px)"> / "(min-width: 769px)".
+const heroPoster =
+  typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+    ? '/images/caliber-showroom-hero-mobile.webp'
+    : '/images/caliber-showroom-hero-fallback.webp';
+
 export function HeroSection() {
   return (
     <section className="hero-section" aria-labelledby="home-title">
       <video
         className="hero-video"
-        poster="/images/caliber-showroom-hero-fallback.webp"
+        poster={heroPoster}
         autoPlay
         muted
         loop

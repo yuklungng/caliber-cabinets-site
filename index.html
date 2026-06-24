@@ -25,11 +25,13 @@
     />
     <meta name="twitter:image" content="/images/caliber-showroom-hero-fallback.jpg" />
     <meta name="theme-color" content="#78350f" />
-    <link rel="icon" href="/caliber-logo.jpg" type="image/jpeg" />
-    <link rel="apple-touch-icon" href="/caliber-logo.jpg" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="author" content="Caliber Cabinets, Inc." />
-    <!-- Preload hero poster image — it is the LCP element before the video loads -->
-    <link rel="preload" as="image" href="/images/caliber-showroom-hero-fallback.webp" fetchpriority="high" />
+    <!-- Preload hero poster image — LCP element before the video loads.
+         Mobile gets the 700px version (21KB); desktop gets the full version (63KB). -->
+    <link rel="preload" as="image" href="/images/caliber-showroom-hero-mobile.webp" fetchpriority="high" media="(max-width: 768px)" />
+    <link rel="preload" as="image" href="/images/caliber-showroom-hero-fallback.webp" fetchpriority="high" media="(min-width: 769px)" />
     <!-- Google Fonts: preconnect first, then async-load the stylesheet.
          Using rel="preload" + onload swap removes fonts from the render-blocking critical path.
          A CSS @import would add a 3-hop chain (CSS → Fonts CSS → woff2) that blocks FCP/LCP. -->

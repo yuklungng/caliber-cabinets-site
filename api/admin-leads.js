@@ -50,6 +50,8 @@ export default async function handler(req, res) {
         hs_date_entered_qualified:     hs?.dateEnteredQualified    ?? null,
         hs_date_entered_quote_sent:    hs?.dateEnteredQuoteSent    ?? null,
         hs_date_entered_contract_sent: hs?.dateEnteredContractSent ?? null,
+        hs_date_entered_closed_won:    hs?.dateEnteredClosedWon    ?? null,
+        hs_date_entered_closed_lost:   hs?.dateEnteredClosedLost   ?? null,
       };
     });
 

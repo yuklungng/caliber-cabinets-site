@@ -152,6 +152,8 @@ export async function batchGetDealStages(dealIds) {
       dateEnteredQualified:    firstEnteredStage['qualifiedtobuy'] ?? null,
       dateEnteredQuoteSent:    firstEnteredStage['3869825755']     ?? null,
       dateEnteredContractSent: firstEnteredStage['contractsent']   ?? null,
+      dateEnteredClosedWon:    firstEnteredStage['closedwon']      ?? null,
+      dateEnteredClosedLost:   firstEnteredStage['closedlost']     ?? null,
     };
   }
   return out;
@@ -280,6 +282,8 @@ export async function getAllPipelineDeals() {
       hs_date_entered_qualified:     firstEntered['qualifiedtobuy'] ?? null,
       hs_date_entered_quote_sent:    firstEntered['3869825755']     ?? null,
       hs_date_entered_contract_sent: firstEntered['contractsent']   ?? null,
+      hs_date_entered_closed_won:    firstEntered['closedwon']      ?? null,
+      hs_date_entered_closed_lost:   firstEntered['closedlost']     ?? null,
     };
   });
 }

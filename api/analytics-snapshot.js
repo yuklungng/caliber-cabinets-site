@@ -18,7 +18,9 @@
  *   SITE_URL          — e.g. https://calibercabinetshop.com (no trailing slash)
  */
 export default async function handler(req, res) {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  // UptimeRobot's HTTP(s) monitor sends HEAD requests — accept both GET and HEAD.
+  // The analytics fetch runs on either; HEAD responses have no body (stripped by HTTP layer).
+  if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(405).json({ error: 'Method not allowed' });
 
   // Validate snapshot secret
   const secret = process.env.SNAPSHOT_SECRET;

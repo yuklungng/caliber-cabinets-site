@@ -133,6 +133,13 @@ export async function batchGetDealStages(dealIds) {
   for (const deal of results ?? []) {
     const stageId = deal.properties?.dealstage ?? '';
     const p = deal.properties ?? {};
+    // DEBUG: log stage-entry dates to confirm HubSpot is returning them
+    console.log(`[hubspot] deal ${deal.id} stage-entry dates:`, {
+      newRequest:   p['hs_date_entered_3869825744'],
+      qualified:    p['hs_date_entered_qualifiedtobuy'],
+      quoteSent:    p['hs_date_entered_3869825755'],
+      contractSent: p['hs_date_entered_contractsent'],
+    });
     out[deal.id] = {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,

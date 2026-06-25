@@ -2160,17 +2160,24 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
 
 function PerformanceView() {
   const [leads, setLeads] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     setIsLoading(true);
-    apiCall('/api/admin-leads')
-      .then((r) => {
-        if (r.status === 401) { sessionStorage.clear(); window.location.reload(); return r.json(); }
+    Promise.all([
+      apiCall('/api/admin-leads').then((r) => {
+        if (r.status === 401) { sessionStorage.clear(); window.location.reload(); }
         return r.json();
+      }),
+      apiCall('/api/admin-analytics').then((r) => r.json()).catch(() => null),
+    ])
+      .then(([leadsData, analyticsData]) => {
+        setLeads(leadsData.leads ?? []);
+        setAnalytics(analyticsData);
+        setIsLoading(false);
       })
-      .then((d) => { setLeads(d.leads ?? []); setIsLoading(false); })
       .catch(() => { setLoadError('Failed to load performance data.'); setIsLoading(false); });
   }, []);
 
@@ -2313,6 +2320,50 @@ function PerformanceView() {
       {content}
     </div>
   );
+
+  // ── Marketing computations (last 28 days) ───────────────────────────────────
+  const cutoff28 = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+  const leads28 = leads.filter((l) => new Date(l.created_at) >= cutoff28).length;
+
+  // Leads per calendar day for the last 28 days (for trend chart)
+  const leadsByDay = {};
+  for (const l of leads) {
+    const d = new Date(l.created_at);
+    if (d >= cutoff28) {
+      const key = d.toISOString().split('T')[0];
+      leadsByDay[key] = (leadsByDay[key] ?? 0) + 1;
+    }
+  }
+
+  const ga  = analytics?.ga;
+  const gsc = analytics?.gsc;
+  const gaTotal  = ga?.totals  ?? {};
+  const gscTotal = gsc?.totals ?? {};
+
+  // Merge GA sessions + GSC clicks/impressions by date for the overlay chart
+  const gaDailyMap  = {};
+  const gscDailyMap = {};
+  for (const d of ga?.daily  ?? []) gaDailyMap[d.date]  = d;
+  for (const d of gsc?.daily ?? []) gscDailyMap[d.date] = d;
+  const allDates = [...new Set([
+    ...(ga?.daily  ?? []).map((d) => d.date),
+    ...(gsc?.daily ?? []).map((d) => d.date),
+  ])].sort();
+  const mktDailyData = allDates.map((date) => ({
+    key:         date,
+    label:       new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    impressions: gscDailyMap[date]?.impressions ?? null,
+    clicks:      gscDailyMap[date]?.clicks      ?? null,
+    sessions:    gaDailyMap[date]?.sessions     ?? null,
+    leadsCount:  leadsByDay[date]               ?? 0,
+  }));
+
+  // Derived funnel rates
+  const organicCTR         = gscTotal.ctr ?? null;                         // % impressions→clicks
+  const clickToLeadRate    = (gscTotal.clicks > 0 && leads28 > 0)
+    ? Math.round((leads28 / gscTotal.clicks) * 100) : null;                // % clicks→leads
+  const sessionToLeadRate  = (gaTotal.sessions > 0 && leads28 > 0)
+    ? Math.round((leads28 / gaTotal.sessions) * 100) : null;               // % all sessions→leads
 
   if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading performance data…</p>;
   if (loadError) return <p style={{ color: '#b91c1c' }}>{loadError}</p>;
@@ -2506,6 +2557,197 @@ function PerformanceView() {
                 ? `Average of ${fullCycleSamples.length} closed-won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full stage history`
                 : 'No won deals with full stage history yet'}
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Marketing Effectiveness ───────────────────────────────────────────── */}
+      <section>
+        {sectionLabel('Marketing Effectiveness · Last 28 Days')}
+
+        {/* Funnel: Impressions → Clicks → Leads */}
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', marginBottom: '12px' }}>
+          <p style={{ margin: '0 0 16px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Organic Search Funnel</p>
+          {(!gsc?.configured && !ga?.configured) ? (
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Connect Google Search Console and Google Analytics to see marketing data.</p>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+              {[
+                {
+                  label: 'Impressions',
+                  value: gscTotal.impressions != null ? gscTotal.impressions.toLocaleString() : '—',
+                  sub: 'shown in search results',
+                  color: '#4285f4',
+                  bg: '#eff6ff',
+                  configured: gsc?.configured,
+                  noData: !gsc?.configured,
+                },
+                {
+                  label: 'Clicks',
+                  value: gscTotal.clicks != null ? gscTotal.clicks.toLocaleString() : '—',
+                  sub: organicCTR != null ? `${organicCTR}% click-through rate` : 'visited from search',
+                  color: '#059669',
+                  bg: '#f0fdf4',
+                  configured: gsc?.configured,
+                  noData: !gsc?.configured,
+                  rate: organicCTR != null ? `${organicCTR}% CTR` : null,
+                },
+                {
+                  label: 'Form Leads',
+                  value: leads28.toLocaleString(),
+                  sub: clickToLeadRate != null
+                    ? `${clickToLeadRate}% of organic clicks`
+                    : sessionToLeadRate != null
+                      ? `${sessionToLeadRate}% of site sessions`
+                      : 'last 28 days',
+                  color: '#78350f',
+                  bg: '#fff7ed',
+                  configured: true,
+                  noData: false,
+                  rate: clickToLeadRate != null ? `${clickToLeadRate}% click→lead` : null,
+                },
+              ].map((step, i, arr) => (
+                <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                  {/* Arrow between steps */}
+                  {i > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', flexShrink: 0 }}>
+                      <span style={{ fontSize: '18px', color: '#d1d5db', lineHeight: 1 }}>›</span>
+                      {step.rate && (
+                        <span style={{ fontSize: '10px', color: '#9ca3af', whiteSpace: 'nowrap', marginTop: '2px' }}>{step.rate}</span>
+                      )}
+                    </div>
+                  )}
+                  <div style={{
+                    flex: 1, textAlign: 'center', padding: '14px 10px', borderRadius: '8px',
+                    background: step.noData ? '#f9fafb' : step.bg,
+                    border: `1px solid ${step.noData ? '#e5e7eb' : step.color}22`,
+                  }}>
+                    <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{step.label}</p>
+                    <p style={{ margin: '0 0 4px', fontSize: '28px', fontWeight: '700', color: step.noData ? '#d1d5db' : step.color, lineHeight: 1 }}>
+                      {step.noData ? '—' : step.value}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+                      {step.noData ? 'Not connected' : step.sub}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Two charts side by side */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+
+          {/* Search visibility trend */}
+          {chartCard(
+            'Search Visibility',
+            gsc?.configured
+              ? <>
+                  <span style={{ color: '#4285f4', fontWeight: '700' }}>■</span> Impressions&nbsp;&nbsp;
+                  <span style={{ color: '#059669', fontWeight: '700' }}>■</span> Clicks · last 28 days
+                </>
+              : 'Google Search Console not connected',
+            gsc?.configured && mktDailyData.length > 0
+              ? <MonthlyLineChart
+                  data={mktDailyData}
+                  lines={[
+                    { key: 'impressions', label: 'Impressions', color: '#4285f4' },
+                    { key: 'clicks',      label: 'Clicks',      color: '#059669' },
+                  ]}
+                  formatTip={(v) => v.toLocaleString()}
+                />
+              : <EmptyFrame label={gsc?.configured ? 'No GSC data yet' : 'Connect Google Search Console'} />,
+          )}
+
+          {/* Sessions → Leads trend */}
+          {chartCard(
+            'Sessions → Leads',
+            ga?.configured
+              ? <>
+                  <span style={{ color: '#7c3aed', fontWeight: '700' }}>■</span> Sessions (GA)&nbsp;&nbsp;
+                  <span style={{ color: '#78350f', fontWeight: '700' }}>■</span> Form submissions · last 28 days
+                </>
+              : 'Google Analytics not connected',
+            ga?.configured && mktDailyData.length > 0
+              ? <MonthlyLineChart
+                  data={mktDailyData}
+                  lines={[
+                    { key: 'sessions',   label: 'Sessions', color: '#7c3aed' },
+                    { key: 'leadsCount', label: 'Leads',    color: '#78350f' },
+                  ]}
+                  formatTip={(v) => v.toLocaleString()}
+                />
+              : <EmptyFrame label={ga?.configured ? 'No GA data yet' : 'Connect Google Analytics'} />,
+          )}
+        </div>
+
+        {/* Traffic sources + top pages */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+          {/* Traffic Sources */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Traffic by Source</p>
+            {!ga?.configured ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Google Analytics not connected.</p>
+            ) : !ga.sources?.length ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No source data yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {ga.sources.map((s) => {
+                  const total = ga.sources.reduce((sum, x) => sum + x.sessions, 0);
+                  const pct = total > 0 ? Math.round((s.sessions / total) * 100) : 0;
+                  const channelColors = {
+                    'Organic Search': '#4285f4', 'Direct': '#6b7280',
+                    'Organic Social': '#ec4899', 'Referral': '#f59e0b',
+                    'Email': '#10b981', 'Paid Search': '#ef4444',
+                  };
+                  const color = channelColors[s.channel] ?? '#9ca3af';
+                  return (
+                    <div key={s.channel}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span style={{ fontSize: '12px', color: '#374151' }}>{s.channel}</span>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280' }}>{pct}% <span style={{ fontWeight: '400', color: '#9ca3af' }}>({s.sessions.toLocaleString()})</span></span>
+                      </div>
+                      <div style={{ height: '5px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '3px', opacity: 0.8 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Top Organic Pages */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Top Pages by Organic Clicks</p>
+            {!gsc?.configured ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Google Search Console not connected.</p>
+            ) : !gsc.pages?.length ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No page data yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {gsc.pages.map((p) => {
+                  const maxClicks = Math.max(...gsc.pages.map((x) => x.clicks), 1);
+                  const barPct = Math.max(p.clicks > 0 ? 4 : 0, Math.round((p.clicks / maxClicks) * 100));
+                  return (
+                    <div key={p.page}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '3px' }}>
+                        <span style={{ fontSize: '12px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }} title={p.page}>{p.page || '/'}</span>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                          <span style={{ fontSize: '12px', fontWeight: '700', color: '#059669' }}>{p.clicks.toLocaleString()} clicks</span>
+                          <span style={{ fontSize: '11px', color: '#9ca3af' }}>#{p.position}</span>
+                        </div>
+                      </div>
+                      <div style={{ height: '4px', background: '#f3f4f6', borderRadius: '2px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: '#059669', borderRadius: '2px', opacity: 0.7 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </section>

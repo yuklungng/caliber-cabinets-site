@@ -1494,7 +1494,7 @@ function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: '14px 18px', cursor: 'default' }}
+      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: '14px 18px', cursor: 'default', textAlign: 'center' }}
     >
       <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         {title}
@@ -1552,7 +1552,7 @@ function MetricCards({
   return (
     <>
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '6px' }}>
         <KpiCard
           title="Win Rate"
           value={isLoading ? dash : winRate !== null ? `${winRate}%` : '—'}
@@ -1604,9 +1604,8 @@ function MetricCards({
 
       {/* Ops metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '12px' }}>
-        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Operations</span>
-          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ height: '1px', background: '#f3e8d0' }} />
         </div>
         <KpiCard
           title="Avg Response Time"
@@ -1695,6 +1694,7 @@ function LeadsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
+  const [sortOrder, setSortOrder] = useState('desc'); // 'desc' = newest first, 'asc' = oldest first
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
@@ -1774,6 +1774,11 @@ function LeadsView() {
         (f.phone ?? '').toLowerCase().includes(q) ||
         (f.companyName ?? '').toLowerCase().includes(q)
       );
+    })
+    .sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortOrder === 'desc' ? tb - ta : ta - tb;
     });
 
   const totalLeads = leads.length;
@@ -1918,11 +1923,6 @@ function LeadsView() {
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
-                  {totalLeads > 0 && (
-                    <span style={{ fontSize: '10px', color: s.color, opacity: 0.7, lineHeight: 1 }}>
-                      {Math.round((count / totalLeads) * 100)}%
-                    </span>
-                  )}
                 </div>
                 {i < HS_PIPELINE.length - 1 && (
                   <span style={{ fontSize: '12px', color: '#d1d5db', flexShrink: 0 }}>›</span>
@@ -1943,11 +1943,6 @@ function LeadsView() {
                 }}>
                   <span style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: '#991b1b', textAlign: 'center', lineHeight: 1.3 }}>Closed Lost</span>
-                  {totalLeads > 0 && (
-                    <span style={{ fontSize: '10px', color: '#991b1b', opacity: 0.7, lineHeight: 1 }}>
-                      {Math.round((count / totalLeads) * 100)}%
-                    </span>
-                  )}
                 </div>
               </div>
             );
@@ -2002,6 +1997,14 @@ function LeadsView() {
             </div>
           )}
         </div>
+
+        <button
+          onClick={() => setSortOrder((o) => o === 'desc' ? 'asc' : 'desc')}
+          title={sortOrder === 'desc' ? 'Showing newest first — click for oldest first' : 'Showing oldest first — click for newest first'}
+          style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}
+        >
+          {sortOrder === 'desc' ? '↓' : '↑'} {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+        </button>
 
         <button onClick={loadLeads} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
           Refresh
@@ -2060,6 +2063,101 @@ const PERF_STAGE_REACH_ORDER = [
 
 const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'contractsent', 'closedwon']);
 
+// Monthly stacked bar chart (Homeowner vs Trade volume)
+function MonthlyVolumeBars({ data }) {
+  if (!data?.length || data.every((d) => d.newLeads === 0)) return <EmptyFrame label="No leads submitted yet" />;
+  const maxVal = Math.max(...data.map((d) => d.newLeads), 1);
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '90px' }}>
+        {data.map((d) => {
+          const barH = Math.max(d.newLeads > 0 ? 4 : 0, Math.round((d.newLeads / maxVal) * 90));
+          const trH = d.newLeads > 0 ? Math.round((d.tradeLeads / d.newLeads) * barH) : 0;
+          const hwH = barH - trH;
+          return (
+            <div key={d.key}
+              title={`${d.label}: ${d.newLeads} total — ${d.homeownerLeads} homeowner, ${d.tradeLeads} trade`}
+              style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            >
+              {trH > 0 && <div style={{ height: `${trH}px`, background: '#166534', opacity: 0.8 }} />}
+              {hwH > 0 && <div style={{ height: `${hwH}px`, background: '#c2410c', opacity: 0.8 }} />}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: '3px', marginTop: '5px' }}>
+        {data.map((d) => (
+          <span key={d.key} style={{ flex: 1, fontSize: '8px', color: '#9ca3af', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{d.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Monthly line chart with gap support for null months
+function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
+  if (!data?.length) return <EmptyFrame label="No trend data yet" />;
+  const hasAny = lines.some((l) => data.some((d) => d[l.key] !== null && d[l.key] !== undefined));
+  if (!hasAny) return <EmptyFrame label="Data will appear as deals progress and close" />;
+
+  const W = 600; const H = height;
+  const PL = 6; const PR = 6; const PT = 10; const PB = 22;
+  const cW = W - PL - PR; const cH = H - PT - PB;
+  const n = data.length;
+
+  const rendered = lines.map((line) => {
+    const defined = data.map((d) => d[line.key]).filter((v) => v !== null && v !== undefined);
+    if (!defined.length) return { ...line, segments: [], dots: [] };
+    const max = Math.max(...defined, 1);
+    const pts = data.map((d, i) => ({
+      x: PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW),
+      y: d[line.key] != null ? PT + cH - (d[line.key] / max) * cH : null,
+      v: d[line.key], label: d.label,
+    }));
+    const segments = [];
+    let seg = [];
+    for (const p of pts) {
+      if (p.y !== null) { seg.push(p); } else { if (seg.length) { segments.push(seg); seg = []; } }
+    }
+    if (seg.length) segments.push(seg);
+    return { ...line, segments, dots: pts.filter((p) => p.y !== null) };
+  });
+
+  return (
+    <div>
+      {lines.length > 1 && (
+        <div style={{ display: 'flex', gap: '14px', marginBottom: '8px' }}>
+          {lines.map((l) => (
+            <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+              <span style={{ width: '18px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
+        {rendered.map((line) => (
+          <g key={line.key}>
+            {line.segments.map((sg, si) => (
+              <polyline key={si} points={sg.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none" stroke={line.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            ))}
+            {line.dots.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={line.color}>
+                <title>{`${p.label}: ${formatTip ? formatTip(p.v) : p.v}`}</title>
+              </circle>
+            ))}
+          </g>
+        ))}
+        {data.map((d, i) => (
+          <text key={i} x={PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW)} y={H - 4}
+            fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 function PerformanceView() {
   const [leads, setLeads] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -2077,6 +2175,79 @@ function PerformanceView() {
   }, []);
 
   function startDate(l) { return l.hs_date_entered_new_request ?? l.created_at; }
+
+  // Build last-12-month buckets
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      year: d.getFullYear(),
+      month: d.getMonth(),
+    });
+  }
+
+  const monthlyStats = months.map(({ key, label, year, month }) => {
+    const newLeads = leads.filter((l) => {
+      const d = new Date(l.created_at);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    const wonThisMonth = leads.filter((l) => {
+      if (!l.hs_date_entered_closed_won) return false;
+      const d = new Date(l.hs_date_entered_closed_won);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    const lostThisMonth = leads.filter((l) => {
+      if (!l.hs_date_entered_closed_lost) return false;
+      const d = new Date(l.hs_date_entered_closed_lost);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    const closedCount = wonThisMonth.length + lostThisMonth.length;
+    // Require ≥2 closed to avoid 100%/0% noise from single deals
+    const winRate = closedCount >= 2 ? Math.round((wonThisMonth.length / closedCount) * 100) : null;
+
+    // Lead→Quote: of leads created this month, how many eventually reached Quote Sent or beyond
+    const leadToQuote = newLeads.length >= 2
+      ? Math.round((newLeads.filter((l) => PERF_QUOTE_OR_BEYOND.has(l.hs_stage_id)).length / newLeads.length) * 100)
+      : null;
+
+    const quotedThisMonth = leads.filter((l) => {
+      if (!l.hs_date_entered_quote_sent) return false;
+      const d = new Date(l.hs_date_entered_quote_sent);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    const timeToQuoteSamples = quotedThisMonth
+      .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+      .filter((d) => d !== null && d >= 0);
+    const avgTimeToQuote = timeToQuoteSamples.length > 0
+      ? timeToQuoteSamples.reduce((a, b) => a + b, 0) / timeToQuoteSamples.length : null;
+
+    const fullCycleSamplesMonth = wonThisMonth
+      .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
+      .filter((d) => d !== null && d >= 0);
+    const avgFullCycle = fullCycleSamplesMonth.length > 0
+      ? fullCycleSamplesMonth.reduce((a, b) => a + b, 0) / fullCycleSamplesMonth.length : null;
+
+    return {
+      key, label,
+      newLeads: newLeads.length,
+      homeownerLeads: newLeads.filter((l) => l.form_type === 'homeowner-consultation').length,
+      tradeLeads: newLeads.filter((l) => l.form_type === 'trade-estimate').length,
+      wonCount: wonThisMonth.length,
+      lostCount: lostThisMonth.length,
+      closedCount,
+      winRate,
+      leadToQuote,
+      avgTimeToQuote,
+      avgFullCycle,
+    };
+  });
 
   // Stage Velocity
   const stageVelocity = PERF_STAGE_VELOCITY_DEFS.map((def) => {
@@ -2119,13 +2290,29 @@ function PerformanceView() {
   const homeownerStats = typeStats('homeowner-consultation');
   const tradeStats     = typeStats('trade-estimate');
 
-  // Avg Full Cycle
+  // Avg Full Cycle (all-time)
   const fullCycleSamples = leads
     .filter((l) => l.hs_date_entered_closed_won)
     .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
     .filter((d) => d !== null && d >= 0);
   const avgFullCycleDays = fullCycleSamples.length > 0
     ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
+
+  const sectionLabel = (text) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+      <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{text}</span>
+      <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+    </div>
+  );
+
+  const chartCard = (title, sub, content) => (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+      <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>{title}</p>
+      {sub && <p style={{ margin: '0 0 10px', fontSize: '11px', color: '#9ca3af' }}>{sub}</p>}
+      {!sub && <div style={{ marginBottom: '10px' }} />}
+      {content}
+    </div>
+  );
 
   if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading performance data…</p>;
   if (loadError) return <p style={{ color: '#b91c1c' }}>{loadError}</p>;
@@ -2135,19 +2322,61 @@ function PerformanceView() {
       <div>
         <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Pipeline Performance</h2>
         <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-          How deals move through each stage, where they stall or drop off, and how Homeowner vs. Trade leads compare.
+          Monthly trends, stage-by-stage velocity, and lead-type breakdowns.
         </p>
       </div>
 
-      {/* Pipeline Health */}
+      {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
       <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Pipeline Health</span>
-          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-        </div>
+        {sectionLabel('Trends · Last 12 Months')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
 
-          {/* Stage Velocity */}
+          {chartCard(
+            'New Leads per Month',
+            <><span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Homeowner &nbsp;<span style={{ color: '#166534', fontWeight: '700' }}>■</span> Trade</>,
+            <MonthlyVolumeBars data={monthlyStats} />,
+          )}
+
+          {chartCard(
+            'Conversion Rates',
+            'Win Rate % and Lead → Quote % by month  ·  min. 2 data points to plot',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[
+                { key: 'winRate',     label: 'Win Rate',     color: '#16a34a' },
+                { key: 'leadToQuote', label: 'Lead → Quote', color: '#7c3aed' },
+              ]}
+              formatTip={(v) => `${v}%`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Time to Quote',
+            'Days from New Request → Quote Sent, grouped by month the quote was sent',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Full Cycle',
+            'Days from New Request → Closed Won, grouped by month the deal was won',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+        </div>
+      </section>
+
+      {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
+      <section>
+        {sectionLabel('Pipeline Health')}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
@@ -2179,7 +2408,7 @@ function PerformanceView() {
                         </div>
                       </div>
                       <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                        <div style={{ width: stage.avg !== null ? `${barPct}%` : '0%', height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
+                        <div style={{ width: `${barPct}%`, height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
                       </div>
                     </div>
                   );
@@ -2188,7 +2417,6 @@ function PerformanceView() {
             )}
           </div>
 
-          {/* Where Deals Are Lost */}
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
@@ -2232,12 +2460,9 @@ function PerformanceView() {
         </div>
       </section>
 
-      {/* Conversion by Lead Type */}
+      {/* ── Conversion by Lead Type ───────────────────────────────────────────── */}
       <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Conversion by Lead Type</span>
-          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-        </div>
+        {sectionLabel('Conversion by Lead Type')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           {[
             { label: 'Homeowner', stats: homeownerStats, bg: '#fff7ed', accent: '#c2410c' },
@@ -2247,30 +2472,13 @@ function PerformanceView() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</span>
                 <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-                <span style={{ fontSize: '11px', padding: '2px 8px', background: bg, color: accent, borderRadius: '999px', fontWeight: '600' }}>
-                  {stats.total} total
-                </span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', background: bg, color: accent, borderRadius: '999px', fontWeight: '600' }}>{stats.total} total</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 {[
-                  {
-                    label: 'Win Rate',
-                    value: stats.winRate !== null ? `${stats.winRate}%` : '—',
-                    sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals',
-                    color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af',
-                  },
-                  {
-                    label: 'Lead → Quote',
-                    value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—',
-                    sub: `${stats.quoted} of ${stats.total} leads`,
-                    color: '#111827',
-                  },
-                  {
-                    label: 'Active Now',
-                    value: stats.active,
-                    sub: `${stats.total - stats.active - stats.closed} untracked`,
-                    color: accent,
-                  },
+                  { label: 'Win Rate', value: stats.winRate !== null ? `${stats.winRate}%` : '—', sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals', color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af' },
+                  { label: 'Lead → Quote', value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—', sub: `${stats.quoted} of ${stats.total} leads`, color: '#111827' },
+                  { label: 'Active Now', value: stats.active, sub: `${stats.total - stats.active - stats.closed} untracked`, color: accent },
                 ].map((cell) => (
                   <div key={cell.label} style={{ textAlign: 'center', padding: '10px 6px', background: bg, borderRadius: '6px' }}>
                     <p style={{ margin: '0 0 2px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cell.label}</p>
@@ -2284,12 +2492,9 @@ function PerformanceView() {
         </div>
       </section>
 
-      {/* Avg Full Cycle */}
+      {/* ── Avg Full Cycle (all-time) ─────────────────────────────────────────── */}
       <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Avg Full Cycle</span>
-          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-        </div>
+        {sectionLabel('Avg Full Cycle')}
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', display: 'flex', alignItems: 'baseline', gap: '16px' }}>
           <span style={{ fontSize: '40px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
             {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}

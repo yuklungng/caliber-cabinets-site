@@ -1009,6 +1009,7 @@ function NotConfiguredCard({ service, envVars, hint }) {
 
 function SiteStatsView() {
   const [data, setData] = useState(null);
+  const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -1022,8 +1023,16 @@ function SiteStatsView() {
       .catch(() => { setError('Failed to load stats.'); setLoading(false); });
   }
 
+  function loadHistory() {
+    apiCall('/api/admin-analytics-history?months=12')
+      .then((r) => r.json())
+      .then((d) => setHistory(d))
+      .catch(() => {}); // history is best-effort; don't surface errors
+  }
+
   useEffect(() => {
     loadStats();
+    loadHistory();
     const interval = setInterval(() => loadStats(true), REFRESH_MS);
     function onVisibility() { if (!document.hidden) loadStats(true); }
     document.addEventListener('visibilitychange', onVisibility);
@@ -1470,6 +1479,131 @@ function SiteStatsView() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* ── Historical Trends ────────────────────────────────────────────────── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Historical Trends</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>stored in Supabase · last 12 months</span>
+        </div>
+
+        {(() => {
+          // Aggregate daily Supabase rows into monthly buckets
+          function toMonthly(rows, sumFields, avgFields = []) {
+            if (!rows?.length) return [];
+            const byMonth = {};
+            for (const row of rows) {
+              const d = new Date(row.date + 'T12:00:00');
+              const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+              if (!byMonth[key]) {
+                byMonth[key] = {
+                  key,
+                  label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+                  _rows: [],
+                };
+              }
+              byMonth[key]._rows.push(row);
+            }
+            return Object.values(byMonth)
+              .sort((a, b) => a.key.localeCompare(b.key))
+              .map((m) => {
+                const out = { key: m.key, label: m.label };
+                for (const f of sumFields) out[f] = m._rows.reduce((s, r) => s + (r[f] ?? 0), 0);
+                for (const f of avgFields) {
+                  const vals = m._rows.map((r) => r[f]).filter((v) => v != null);
+                  out[f] = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+                }
+                return out;
+              });
+          }
+
+          const gaMonthly  = toMonthly(history?.ga,        ['sessions', 'users', 'page_views', 'new_users'], ['bounce_rate', 'engagement_rate']);
+          const gscMonthly = toMonthly(history?.gsc,       ['clicks', 'impressions'], ['position']);
+          const tsMonthly  = toMonthly(history?.turnstile, ['passed', 'failed']);
+
+          const noHistory = !history || (gaMonthly.length === 0 && gscMonthly.length === 0 && tsMonthly.length === 0);
+
+          if (noHistory) {
+            return (
+              <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: '8px', padding: '28px 24px', textAlign: 'center' }}>
+                <p style={{ margin: '0 0 6px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>No history yet</p>
+                <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
+                  Data accumulates automatically every time the Site Stats page loads. Run the Supabase migration SQL first, then come back after your next visit here.
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+              {/* GA Sessions */}
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Monthly Sessions</p>
+                <p style={{ margin: '0 0 10px', fontSize: '11px', color: '#9ca3af' }}>from Google Analytics</p>
+                {gaMonthly.length > 0
+                  ? <MonthlyLineChart
+                      data={gaMonthly}
+                      lines={[{ key: 'sessions', label: 'Sessions', color: '#7c3aed' }]}
+                      formatTip={(v) => v.toLocaleString()}
+                    />
+                  : <EmptyFrame label="No GA history yet" />}
+              </div>
+
+              {/* GSC Clicks + Impressions */}
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Organic Clicks &amp; Impressions</p>
+                <p style={{ margin: '0 0 10px', fontSize: '11px', color: '#9ca3af' }}>
+                  <span style={{ color: '#059669', fontWeight: '700' }}>■</span> Clicks &nbsp;
+                  <span style={{ color: '#4285f4', fontWeight: '700' }}>■</span> Impressions · from Google Search Console
+                </p>
+                {gscMonthly.length > 0
+                  ? <MonthlyLineChart
+                      data={gscMonthly}
+                      lines={[
+                        { key: 'clicks',      label: 'Clicks',      color: '#059669' },
+                        { key: 'impressions', label: 'Impressions', color: '#4285f4' },
+                      ]}
+                      formatTip={(v) => v.toLocaleString()}
+                    />
+                  : <EmptyFrame label="No GSC history yet" />}
+              </div>
+
+              {/* GSC Avg Position */}
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Avg Search Position</p>
+                <p style={{ margin: '0 0 10px', fontSize: '11px', color: '#9ca3af' }}>monthly average — lower is better</p>
+                {gscMonthly.length > 0
+                  ? <MonthlyLineChart
+                      data={gscMonthly}
+                      lines={[{ key: 'position', label: 'Avg position', color: '#d97706' }]}
+                      formatTip={(v) => `#${Math.round(v * 10) / 10}`}
+                    />
+                  : <EmptyFrame label="No GSC history yet" />}
+              </div>
+
+              {/* Turnstile security */}
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Form Security (Turnstile)</p>
+                <p style={{ margin: '0 0 10px', fontSize: '11px', color: '#9ca3af' }}>
+                  <span style={{ color: '#16a34a', fontWeight: '700' }}>■</span> Passed &nbsp;
+                  <span style={{ color: '#dc2626', fontWeight: '700' }}>■</span> Blocked · monthly totals
+                </p>
+                {tsMonthly.length > 0
+                  ? <MonthlyLineChart
+                      data={tsMonthly}
+                      lines={[
+                        { key: 'passed', label: 'Passed', color: '#16a34a' },
+                        { key: 'failed', label: 'Blocked', color: '#dc2626' },
+                      ]}
+                      formatTip={(v) => v.toLocaleString()}
+                    />
+                  : <EmptyFrame label="No Turnstile history yet" />}
+              </div>
+            </div>
+          );
+        })()}
       </section>
     </div>
   );

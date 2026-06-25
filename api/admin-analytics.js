@@ -1,5 +1,6 @@
 /* global process */
 import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import { checkAuth } from './_lib/auth.js';
 
 /**
@@ -27,6 +28,12 @@ export default async function handler(req, res) {
     fetchSearchConsole(),
     fetchCloudflare(),
   ]);
+
+  // Persist daily rows to Supabase for historical trend storage (fire-and-forget style,
+  // but awaited so the function doesn't exit before writes complete on Vercel).
+  await persistAnalytics({ ga, gsc, turnstile }).catch((err) =>
+    console.error('[admin-analytics] persist error:', err.message),
+  );
 
   return res.status(200).json({ uptime, turnstile, ga, gsc, cloudflare });
 }
@@ -488,7 +495,7 @@ async function fetchSearchConsole() {
   }
 }
 
-// ── Cloudflare Traffic (requires orange-cloud proxying) ──────────────────────
+// ── Cloudflare Traffic (requires orange-cloud proxying) ─────────────────────
 
 async function fetchCloudflare() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
@@ -569,5 +576,70 @@ async function fetchCloudflare() {
     };
   } catch (err) {
     return { configured: true, error: err.message };
+  }
+}
+
+// ── Supabase persistence ──────────────────────────────────────────────────────
+// Upserts daily rows from GA, GSC, and Turnstile into Supabase history tables.
+// Called on every admin analytics request — no extra API calls to Google or Cloudflare.
+// Tables must exist first: run the migration SQL in Supabase SQL editor.
+
+async function persistAnalytics({ ga, gsc, turnstile }) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return;
+
+  const supabase = createClient(url, key);
+  const now = new Date().toISOString();
+  const ops = [];
+
+  // GA — sessions/users/pageViews per day
+  if (ga?.configured && !ga.error && ga.daily?.length) {
+    const rows = ga.daily.map((d) => ({
+      date:              d.date,
+      sessions:          d.sessions        ?? 0,
+      users:             d.users           ?? 0,
+      page_views:        d.pageViews       ?? 0,
+      new_users:         d.newUsers        ?? 0,
+      bounce_rate:       d.bounceRate      ?? null,
+      avg_duration:      d.avgDuration     ?? null,
+      engagement_rate:   d.engagementRate  ?? null,
+      pages_per_session: d.pagesPerSession ?? null,
+      updated_at:        now,
+    }));
+    ops.push(supabase.from('analytics_ga_daily').upsert(rows, { onConflict: 'date' }));
+  }
+
+  // GSC — clicks/impressions/ctr/position per day
+  if (gsc?.configured && !gsc.error && gsc.daily?.length) {
+    const rows = gsc.daily.map((d) => ({
+      date:        d.date,
+      clicks:      d.clicks      ?? 0,
+      impressions: d.impressions ?? 0,
+      ctr:         d.ctr         ?? null,
+      position:    d.position    ?? null,
+      updated_at:  now,
+    }));
+    ops.push(supabase.from('analytics_gsc_daily').upsert(rows, { onConflict: 'date' }));
+  }
+
+  // Turnstile — passed/failed bot-check counts per day
+  if (turnstile?.configured && !turnstile.error && turnstile.daily?.length) {
+    const rows = turnstile.daily.map((d) => ({
+      date:       d.date,
+      passed:     d.passed ?? 0,
+      failed:     d.failed ?? 0,
+      updated_at: now,
+    }));
+    ops.push(supabase.from('analytics_turnstile_daily').upsert(rows, { onConflict: 'date' }));
+  }
+
+  if (ops.length) {
+    const results = await Promise.allSettled(ops);
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.error) {
+        console.error('[admin-analytics] Supabase upsert error:', r.value.error.message);
+      }
+    }
   }
 }

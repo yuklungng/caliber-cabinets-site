@@ -1502,22 +1502,22 @@ function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5
       <p style={{ margin: 0, fontSize: '26px', fontWeight: '700', color: valueColor, lineHeight: 1.2 }}>
         {value}
       </p>
-      {/* Hover tooltip bubble */}
+      {/* Hover tooltip bubble — renders below the card to avoid viewport clipping */}
       {hovered && tooltip && (
         <div style={{
-          position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
           background: '#1f2937', borderRadius: '10px', padding: '10px 14px',
           zIndex: 50, boxShadow: '0 6px 20px rgba(0,0,0,0.22)',
-          minWidth: '180px', maxWidth: '280px',
+          minWidth: '200px', maxWidth: '280px',
         }}>
-          {tooltip}
-          {/* Caret */}
+          {/* Caret pointing up at the card */}
           <span style={{
-            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
             width: 0, height: 0,
             borderLeft: '7px solid transparent', borderRight: '7px solid transparent',
-            borderTop: '7px solid #1f2937',
+            borderBottom: '7px solid #1f2937',
           }} />
+          {tooltip}
         </div>
       )}
     </div>

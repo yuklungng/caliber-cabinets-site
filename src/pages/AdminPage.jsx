@@ -1858,64 +1858,6 @@ function LeadsView() {
   const avgFullCycleDays = fullCycleSamples.length > 0
     ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
 
-  // ── Tier 2: Stage Velocity ─────────────────────────────────────────────────
-  // Avg days a deal spent in each stage (only for deals that have fully exited it)
-  const STAGE_VELOCITY_DEFS = [
-    { label: 'New Request',   startKey: 'hs_date_entered_new_request',   endKey: 'hs_date_entered_qualified',    id: '3869825744' },
-    { label: 'Qualified',     startKey: 'hs_date_entered_qualified',      endKey: 'hs_date_entered_quote_sent',   id: 'qualifiedtobuy' },
-    { label: 'Quote Sent',    startKey: 'hs_date_entered_quote_sent',     endKey: 'hs_date_entered_contract_sent',id: '3869825755' },
-    { label: 'Contract Sent', startKey: 'hs_date_entered_contract_sent',  endKey: 'hs_date_entered_closed_won',   id: 'contractsent' },
-  ];
-  const stageVelocity = STAGE_VELOCITY_DEFS.map((def) => {
-    const samples = leads
-      .filter((l) => l[def.startKey] && l[def.endKey])
-      .map((l) => daysBetween(l[def.startKey], l[def.endKey]))
-      .filter((d) => d !== null && d >= 0);
-    const avg = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : null;
-    // Also count deals currently stuck in this stage (haven't exited yet)
-    const activeInStage = leads.filter(
-      (l) => l.hs_stage_id === def.id && l[def.startKey] && !l[def.endKey]
-    ).length;
-    return { ...def, avg, n: samples.length, activeInStage };
-  });
-
-  // ── Tier 2: Lost-Stage Distribution ───────────────────────────────────────
-  // For each closed-lost deal, find the highest active stage it reached
-  const STAGE_REACH_ORDER = [
-    { key: 'hs_date_entered_contract_sent', label: 'Contract Sent', id: 'contractsent' },
-    { key: 'hs_date_entered_quote_sent',    label: 'Quote Sent',    id: '3869825755' },
-    { key: 'hs_date_entered_qualified',     label: 'Qualified',     id: 'qualifiedtobuy' },
-    { key: 'hs_date_entered_new_request',   label: 'New Request',   id: '3869825744' },
-  ];
-  const lostLeads = leads.filter((l) => l.hs_stage_id === 'closedlost');
-  const lostByStage = {};
-  for (const lead of lostLeads) {
-    const reached = STAGE_REACH_ORDER.find((s) => lead[s.key]);
-    if (reached) lostByStage[reached.id] = (lostByStage[reached.id] ?? 0) + 1;
-  }
-
-  // ── Tier 3: Conversion by Lead Type ───────────────────────────────────────
-  function typeStats(type) {
-    const subset = type === 'all' ? leads : leads.filter((l) => l.form_type === type);
-    const won  = subset.filter((l) => l.hs_stage_id === 'closedwon').length;
-    const lost = subset.filter((l) => l.hs_stage_id === 'closedlost').length;
-    const closed = won + lost;
-    const quoted = subset.filter((l) => quoteOrBeyond.has(l.hs_stage_id)).length;
-    const active = subset.filter(
-      (l) => l.hs_stage_id && l.hs_stage_id !== 'closedwon' && l.hs_stage_id !== 'closedlost'
-    ).length;
-    return {
-      total: subset.length,
-      active,
-      won, lost, closed,
-      winRate: closed > 0 ? Math.round((won / closed) * 100) : null,
-      quoted,
-      quoteRate: subset.length > 0 ? Math.round((quoted / subset.length) * 100) : null,
-    };
-  }
-  const homeownerStats = typeStats('homeowner-consultation');
-  const tradeStats     = typeStats('trade-estimate');
-
   // Search suggestions — up to 6 leads matching current query
   const suggestions = searchQuery.trim().length > 0
     ? leads.filter((l) => {
@@ -2013,140 +1955,6 @@ function LeadsView() {
         </div>
       </div>
 
-      {/* ── Tier 2: Pipeline Health ─────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-
-        {/* Stage Velocity */}
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
-            <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
-          </div>
-          {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
-          ) : (
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {stageVelocity.map((stage) => {
-                const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
-                const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
-                const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
-                return (
-                  <div key={stage.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {stage.avg !== null
-                          ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
-                          : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
-                        {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
-                        {stage.activeInStage > 0 && (
-                          <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
-                            {stage.activeInStage} active
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                      <div style={{ width: stage.avg !== null ? `${barPct}%` : '0%', height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Lost-Stage Distribution */}
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
-            <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
-          </div>
-          {lostLeads.length === 0 ? (
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
-          ) : (
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
-                const count = lostByStage[stageDef.id] ?? 0;
-                const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
-                const barPct = Math.max(count > 0 ? 4 : 0, pct);
-                const s = HS_STAGE_COLORS[stageDef.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
-                return (
-                  <div key={stageDef.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
-                        {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
-                      </div>
-                    </div>
-                    <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                      <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
-                    </div>
-                  </div>
-                );
-              })}
-              {lostLeads.length > 0 && (
-                <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
-                  {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
-                   lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
-                   lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
-                   'Losses at early stages — lead quality or response time may be the issue.'}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Tier 3: Conversion by Lead Type ─────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-        {[
-          { label: 'Homeowner', stats: homeownerStats, bg: '#fff7ed', accent: '#c2410c', subtleAccent: '#fed7aa' },
-          { label: 'Trade Partner', stats: tradeStats,     bg: '#f0fdf4', accent: '#166534', subtleAccent: '#bbf7d0' },
-        ].map(({ label, stats, bg, accent, subtleAccent }) => (
-          <div key={label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</span>
-              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', padding: '2px 8px', background: bg, color: accent, borderRadius: '999px', fontWeight: '600' }}>
-                {stats.total} total
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-              {[
-                {
-                  label: 'Win Rate',
-                  value: stats.winRate !== null ? `${stats.winRate}%` : '—',
-                  sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals',
-                  color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af',
-                },
-                {
-                  label: 'Lead → Quote',
-                  value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—',
-                  sub: `${stats.quoted} of ${stats.total} leads`,
-                  color: '#111827',
-                },
-                {
-                  label: 'Active Now',
-                  value: stats.active,
-                  sub: `${stats.total - stats.active - stats.closed} untracked`,
-                  color: accent,
-                },
-              ].map((cell) => (
-                <div key={cell.label} style={{ textAlign: 'center', padding: '10px 6px', background: bg, borderRadius: '6px' }}>
-                  <p style={{ margin: '0 0 2px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cell.label}</p>
-                  <p style={{ margin: '0 0 2px', fontSize: '20px', fontWeight: '700', color: cell.color, lineHeight: 1.1 }}>{cell.value}</p>
-                  <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af' }}>{cell.sub}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
       {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', background: '#ffffff' }}>
@@ -2230,6 +2038,272 @@ function LeadsView() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Performance view ─────────────────────────────────────────────────────────
+
+const PERF_STAGE_VELOCITY_DEFS = [
+  { label: 'New Request',   startKey: 'hs_date_entered_new_request',   endKey: 'hs_date_entered_qualified',     id: '3869825744' },
+  { label: 'Qualified',     startKey: 'hs_date_entered_qualified',      endKey: 'hs_date_entered_quote_sent',    id: 'qualifiedtobuy' },
+  { label: 'Quote Sent',    startKey: 'hs_date_entered_quote_sent',     endKey: 'hs_date_entered_contract_sent', id: '3869825755' },
+  { label: 'Contract Sent', startKey: 'hs_date_entered_contract_sent',  endKey: 'hs_date_entered_closed_won',    id: 'contractsent' },
+];
+
+const PERF_STAGE_REACH_ORDER = [
+  { key: 'hs_date_entered_contract_sent', label: 'Contract Sent', id: 'contractsent' },
+  { key: 'hs_date_entered_quote_sent',    label: 'Quote Sent',    id: '3869825755' },
+  { key: 'hs_date_entered_qualified',     label: 'Qualified',     id: 'qualifiedtobuy' },
+  { key: 'hs_date_entered_new_request',   label: 'New Request',   id: '3869825744' },
+];
+
+const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'contractsent', 'closedwon']);
+
+function PerformanceView() {
+  const [leads, setLeads] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    setIsLoading(true);
+    apiCall('/api/admin-leads')
+      .then((r) => {
+        if (r.status === 401) { sessionStorage.clear(); window.location.reload(); return r.json(); }
+        return r.json();
+      })
+      .then((d) => { setLeads(d.leads ?? []); setIsLoading(false); })
+      .catch(() => { setLoadError('Failed to load performance data.'); setIsLoading(false); });
+  }, []);
+
+  function startDate(l) { return l.hs_date_entered_new_request ?? l.created_at; }
+
+  // Stage Velocity
+  const stageVelocity = PERF_STAGE_VELOCITY_DEFS.map((def) => {
+    const samples = leads
+      .filter((l) => l[def.startKey] && l[def.endKey])
+      .map((l) => daysBetween(l[def.startKey], l[def.endKey]))
+      .filter((d) => d !== null && d >= 0);
+    const avg = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : null;
+    const activeInStage = leads.filter(
+      (l) => l.hs_stage_id === def.id && l[def.startKey] && !l[def.endKey]
+    ).length;
+    return { ...def, avg, n: samples.length, activeInStage };
+  });
+
+  // Lost-Stage Distribution
+  const lostLeads = leads.filter((l) => l.hs_stage_id === 'closedlost');
+  const lostByStage = {};
+  for (const lead of lostLeads) {
+    const reached = PERF_STAGE_REACH_ORDER.find((s) => lead[s.key]);
+    if (reached) lostByStage[reached.id] = (lostByStage[reached.id] ?? 0) + 1;
+  }
+
+  // Conversion by Lead Type
+  function typeStats(type) {
+    const subset = type === 'all' ? leads : leads.filter((l) => l.form_type === type);
+    const won  = subset.filter((l) => l.hs_stage_id === 'closedwon').length;
+    const lost = subset.filter((l) => l.hs_stage_id === 'closedlost').length;
+    const closed = won + lost;
+    const quoted = subset.filter((l) => PERF_QUOTE_OR_BEYOND.has(l.hs_stage_id)).length;
+    const active = subset.filter(
+      (l) => l.hs_stage_id && l.hs_stage_id !== 'closedwon' && l.hs_stage_id !== 'closedlost'
+    ).length;
+    return {
+      total: subset.length, active, won, lost, closed,
+      winRate: closed > 0 ? Math.round((won / closed) * 100) : null,
+      quoted,
+      quoteRate: subset.length > 0 ? Math.round((quoted / subset.length) * 100) : null,
+    };
+  }
+  const homeownerStats = typeStats('homeowner-consultation');
+  const tradeStats     = typeStats('trade-estimate');
+
+  // Avg Full Cycle
+  const fullCycleSamples = leads
+    .filter((l) => l.hs_date_entered_closed_won)
+    .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
+    .filter((d) => d !== null && d >= 0);
+  const avgFullCycleDays = fullCycleSamples.length > 0
+    ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
+
+  if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading performance data…</p>;
+  if (loadError) return <p style={{ color: '#b91c1c' }}>{loadError}</p>;
+
+  return (
+    <div style={{ display: 'grid', gap: '28px' }}>
+      <div>
+        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Pipeline Performance</h2>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
+          How deals move through each stage, where they stall or drop off, and how Homeowner vs. Trade leads compare.
+        </p>
+      </div>
+
+      {/* Pipeline Health */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Pipeline Health</span>
+          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+          {/* Stage Velocity */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
+            </div>
+            {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {stageVelocity.map((stage) => {
+                  const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
+                  const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
+                  const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+                  return (
+                    <div key={stage.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {stage.avg !== null
+                            ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
+                            : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
+                          {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
+                          {stage.activeInStage > 0 && (
+                            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
+                              {stage.activeInStage} active
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: stage.avg !== null ? `${barPct}%` : '0%', height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Where Deals Are Lost */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
+            </div>
+            {lostLeads.length === 0 ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
+                  const count = lostByStage[stageDef.id] ?? 0;
+                  const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
+                  const barPct = Math.max(count > 0 ? 4 : 0, pct);
+                  return (
+                    <div key={stageDef.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
+                          {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {lostLeads.length > 0 && (
+                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                    {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
+                     lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
+                     lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
+                     'Losses at early stages — lead quality or response time may be the issue.'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Conversion by Lead Type */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Conversion by Lead Type</span>
+          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          {[
+            { label: 'Homeowner', stats: homeownerStats, bg: '#fff7ed', accent: '#c2410c' },
+            { label: 'Trade Partner', stats: tradeStats, bg: '#f0fdf4', accent: '#166534' },
+          ].map(({ label, stats, bg, accent }) => (
+            <div key={label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</span>
+                <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+                <span style={{ fontSize: '11px', padding: '2px 8px', background: bg, color: accent, borderRadius: '999px', fontWeight: '600' }}>
+                  {stats.total} total
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                {[
+                  {
+                    label: 'Win Rate',
+                    value: stats.winRate !== null ? `${stats.winRate}%` : '—',
+                    sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals',
+                    color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af',
+                  },
+                  {
+                    label: 'Lead → Quote',
+                    value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—',
+                    sub: `${stats.quoted} of ${stats.total} leads`,
+                    color: '#111827',
+                  },
+                  {
+                    label: 'Active Now',
+                    value: stats.active,
+                    sub: `${stats.total - stats.active - stats.closed} untracked`,
+                    color: accent,
+                  },
+                ].map((cell) => (
+                  <div key={cell.label} style={{ textAlign: 'center', padding: '10px 6px', background: bg, borderRadius: '6px' }}>
+                    <p style={{ margin: '0 0 2px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cell.label}</p>
+                    <p style={{ margin: '0 0 2px', fontSize: '20px', fontWeight: '700', color: cell.color, lineHeight: 1.1 }}>{cell.value}</p>
+                    <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af' }}>{cell.sub}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Avg Full Cycle */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Avg Full Cycle</span>
+          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', display: 'flex', alignItems: 'baseline', gap: '16px' }}>
+          <span style={{ fontSize: '40px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
+            {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
+          </span>
+          <div>
+            <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>New Request → Closed Won</p>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
+              {fullCycleSamples.length > 0
+                ? `Average of ${fullCycleSamples.length} closed-won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full stage history`
+                : 'No won deals with full stage history yet'}
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -2337,6 +2411,7 @@ function LoginScreen({ onLogin }) {
 
 const NAV_ITEMS = [
   { key: 'leads', label: 'Leads', section: null },
+  { key: 'performance', label: 'Performance', section: null },
   { key: 'site-stats', label: 'Site Stats', section: null },
   { key: 'notifications', label: 'Notifications', section: 'Settings' },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings' },
@@ -2436,6 +2511,7 @@ export function AdminPage() {
 
   function renderView() {
     switch (activeView) {
+      case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
       case 'users': return <UsersPanel currentUser={currentUser} />;

@@ -1528,7 +1528,7 @@ function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5
 function TipBody({ desc, children }) {
   return (
     <div>
-      <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>{desc}</p>
+      <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#f3f4f6', lineHeight: 1.5 }}>{desc}</p>
       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>{children}</div>
     </div>
   );
@@ -1562,9 +1562,9 @@ function MetricCards({
                 <>
                   <Pill bg="#166534" color="#bbf7d0">{wonCount} won</Pill>
                   <Pill bg="#991b1b" color="#fecaca">{lostCount} lost</Pill>
-                  <Pill bg="#374151" color="#9ca3af">{closedTotal} total closed</Pill>
+                  <Pill bg="#374151" color="#f3f4f6">{closedTotal} total closed</Pill>
                 </>
-              ) : <Pill bg="#374151" color="#9ca3af">No closed deals yet</Pill>}
+              ) : <Pill bg="#374151" color="#f3f4f6">No closed deals yet</Pill>}
             </TipBody>
           )}
         />
@@ -1575,7 +1575,7 @@ function MetricCards({
             <TipBody desc="Deals currently in progress — any stage except Closed Won or Closed Lost.">
               <Pill bg="#78350f" color="#fed7aa">{homeownerLeads} homeowner</Pill>
               <Pill bg="#14532d" color="#bbf7d0">{tradeLeads} trade</Pill>
-              <Pill bg="#374151" color="#9ca3af">{activeCount} total active</Pill>
+              <Pill bg="#374151" color="#f3f4f6">{activeCount} total active</Pill>
             </TipBody>
           )}
         />
@@ -1585,7 +1585,7 @@ function MetricCards({
           tooltip={!isLoading && (
             <TipBody desc="Percentage of all leads that reached Quote Sent or a later stage. Measures how many inquiries become real proposals.">
               <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} reached Quote Sent</Pill>
-              <Pill bg="#374151" color="#9ca3af">{totalLeads} total leads</Pill>
+              <Pill bg="#374151" color="#f3f4f6">{totalLeads} total leads</Pill>
             </TipBody>
           )}
         />
@@ -1594,8 +1594,8 @@ function MetricCards({
           value={isLoading ? dash : thisMonthCount}
           tooltip={!isLoading && (
             <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>
-              <Pill bg="#374151" color="#9ca3af">{monthLabel}</Pill>
-              <Pill bg="#374151" color="#9ca3af">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
+              <Pill bg="#374151" color="#f3f4f6">{monthLabel}</Pill>
+              <Pill bg="#374151" color="#f3f4f6">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
             </TipBody>
           )}
         />
@@ -1616,9 +1616,9 @@ function MetricCards({
               {responseSamples.length > 0 ? (
                 <>
                   <Pill bg="#14532d" color="#bbf7d0">New Request → Qualified</Pill>
-                  <Pill bg="#374151" color="#9ca3af">avg of {responseSamples.length} deal{responseSamples.length !== 1 ? 's' : ''}</Pill>
+                  <Pill bg="#374151" color="#f3f4f6">avg of {responseSamples.length} deal{responseSamples.length !== 1 ? 's' : ''}</Pill>
                 </>
-              ) : <Pill bg="#374151" color="#9ca3af">No deals have reached Qualified yet</Pill>}
+              ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Qualified yet</Pill>}
             </TipBody>
           )}
         />
@@ -1631,9 +1631,9 @@ function MetricCards({
               {quoteSamples.length > 0 ? (
                 <>
                   <Pill bg="#4c1d95" color="#ddd6fe">New Request → Quote Sent</Pill>
-                  <Pill bg="#374151" color="#9ca3af">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
+                  <Pill bg="#374151" color="#f3f4f6">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
                 </>
-              ) : <Pill bg="#374151" color="#9ca3af">No deals have reached Quote Sent yet</Pill>}
+              ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Quote Sent yet</Pill>}
             </TipBody>
           )}
         />
@@ -1646,9 +1646,9 @@ function MetricCards({
               {quotesSentCount > 0 ? (
                 <>
                   <Pill bg="#14532d" color="#bbf7d0">{contractsSentCount} moved to Contract Sent</Pill>
-                  <Pill bg="#374151" color="#9ca3af">{quotesSentCount} quote{quotesSentCount !== 1 ? 's' : ''} sent total</Pill>
+                  <Pill bg="#374151" color="#f3f4f6">{quotesSentCount} quote{quotesSentCount !== 1 ? 's' : ''} sent total</Pill>
                 </>
-              ) : <Pill bg="#374151" color="#9ca3af">No quotes sent yet</Pill>}
+              ) : <Pill bg="#374151" color="#f3f4f6">No quotes sent yet</Pill>}
             </TipBody>
           )}
         />

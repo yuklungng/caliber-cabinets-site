@@ -1475,6 +1475,163 @@ function SiteStatsView() {
   );
 }
 
+// ─── Metric cards with hover tooltip bubbles ─────────────────────────────────
+
+function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
+  return (
+    <span style={{
+      display: 'inline-block', padding: '3px 9px', borderRadius: '999px',
+      fontSize: '11px', fontWeight: '600', background: bg, color, whiteSpace: 'nowrap',
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', pills }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: '14px 18px', cursor: 'default' }}
+    >
+      <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {title}
+      </p>
+      <p style={{ margin: 0, fontSize: '26px', fontWeight: '700', color: valueColor, lineHeight: 1.2 }}>
+        {value}
+      </p>
+      {/* Hover tooltip bubble */}
+      {hovered && pills && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
+          background: '#1f2937', borderRadius: '8px', padding: '8px 12px',
+          display: 'flex', gap: '6px', flexWrap: 'wrap', zIndex: 50,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+          whiteSpace: 'nowrap',
+          // Arrow
+          '::after': undefined,
+        }}>
+          {pills}
+          {/* Caret */}
+          <span style={{
+            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+            borderTop: '6px solid #1f2937',
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCards({
+  isLoading,
+  winRate, wonCount, lostCount, closedTotal,
+  activeCount, homeownerLeads, tradeLeads,
+  leadToQuoteRate, quotedCount, totalLeads,
+  thisMonthCount, now,
+  avgResponseDays, responseSamples,
+  avgTimeToQuoteDays, quoteSamples,
+  quoteAcceptRate, contractsSentCount, quotesSentCount,
+  staleCount, STALE_DAYS,
+}) {
+  const dash = isLoading ? '–' : '—';
+
+  return (
+    <>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+        <KpiCard
+          title="Win Rate"
+          value={isLoading ? dash : winRate !== null ? `${winRate}%` : '—'}
+          valueColor={isLoading || winRate === null ? '#9ca3af' : winRate >= 50 ? '#16a34a' : '#dc2626'}
+          pills={!isLoading && (closedTotal > 0 ? (
+            <>
+              <Pill bg="#dcfce7" color="#166534">{wonCount} won</Pill>
+              <Pill bg="#fee2e2" color="#991b1b">{lostCount} lost</Pill>
+            </>
+          ) : <Pill bg="#374151" color="#d1d5db">No closed deals</Pill>)}
+        />
+        <KpiCard
+          title="Active Pipeline"
+          value={isLoading ? dash : activeCount}
+          pills={!isLoading && (
+            <>
+              <Pill bg="#78350f" color="#fed7aa">{homeownerLeads} homeowner</Pill>
+              <Pill bg="#14532d" color="#bbf7d0">{tradeLeads} trade</Pill>
+            </>
+          )}
+        />
+        <KpiCard
+          title="Lead → Quote"
+          value={isLoading ? dash : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
+          pills={!isLoading && <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} of {totalLeads} leads quoted</Pill>}
+        />
+        <KpiCard
+          title="New This Month"
+          value={isLoading ? dash : thisMonthCount}
+          pills={!isLoading && <Pill bg="#374151" color="#d1d5db">{now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Pill>}
+        />
+      </div>
+
+      {/* Ops metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Operations</span>
+          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        </div>
+        <KpiCard
+          title="Avg Response Time"
+          value={isLoading ? dash : formatDays(avgResponseDays)}
+          valueColor={isLoading || avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626'}
+          pills={!isLoading && (responseSamples.length > 0 ? (
+            <>
+              <Pill bg="#14532d" color="#bbf7d0">New → Qualified</Pill>
+              <Pill bg="#374151" color="#d1d5db">{responseSamples.length} deals</Pill>
+            </>
+          ) : <Pill bg="#374151" color="#d1d5db">No data yet</Pill>)}
+        />
+        <KpiCard
+          title="Avg Time to Quote"
+          value={isLoading ? dash : formatDays(avgTimeToQuoteDays)}
+          valueColor={isLoading || avgTimeToQuoteDays === null ? '#9ca3af' : '#111827'}
+          pills={!isLoading && (quoteSamples.length > 0 ? (
+            <>
+              <Pill bg="#4c1d95" color="#ddd6fe">New → Quote Sent</Pill>
+              <Pill bg="#374151" color="#d1d5db">{quoteSamples.length} deals</Pill>
+            </>
+          ) : <Pill bg="#374151" color="#d1d5db">No data yet</Pill>)}
+        />
+        <KpiCard
+          title="Quote Acceptance"
+          value={isLoading ? dash : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
+          valueColor={isLoading || quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706'}
+          pills={!isLoading && (quotesSentCount > 0 ? (
+            <>
+              <Pill bg="#14532d" color="#bbf7d0">{contractsSentCount} → contract</Pill>
+              <Pill bg="#374151" color="#d1d5db">{quotesSentCount} quoted</Pill>
+            </>
+          ) : <Pill bg="#374151" color="#d1d5db">No quotes yet</Pill>)}
+        />
+        <KpiCard
+          title="Stale Leads"
+          value={isLoading ? dash : staleCount}
+          valueColor={isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a'}
+          bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
+          border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
+          pills={!isLoading && (staleCount > 0
+            ? <Pill bg="#92400e" color="#fde68a">{STALE_DAYS}+ days no stage move</Pill>
+            : <Pill bg="#14532d" color="#bbf7d0">All moving within {STALE_DAYS}d</Pill>
+          )}
+        />
+      </div>
+    </>
+  );
+}
+
 // ─── Leads view ───────────────────────────────────────────────────────────────
 
 function LeadsView() {
@@ -1665,140 +1822,18 @@ function LeadsView() {
 
   return (
     <div>
-      {/* ── KPI helper ── */}
-      {(() => {
-        // Pill bubble component — inline so it can close over nothing
-        function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
-          return (
-            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', background: bg, color, whiteSpace: 'nowrap' }}>
-              {children}
-            </span>
-          );
-        }
-
-        return (
-          <>
-            {/* KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
-              {/* Win Rate */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Win Rate</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : winRate === null ? '#9ca3af' : winRate >= 50 ? '#16a34a' : '#dc2626' }}>
-                  {isLoading ? '–' : winRate !== null ? `${winRate}%` : '—'}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && closedTotal > 0 ? (
-                    <>
-                      <Pill bg="#dcfce7" color="#166534">{wonCount} won</Pill>
-                      <Pill bg="#fee2e2" color="#991b1b">{lostCount} lost</Pill>
-                    </>
-                  ) : !isLoading ? (
-                    <Pill>No closed deals</Pill>
-                  ) : null}
-                </div>
-              </div>
-              {/* Active Pipeline */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active Pipeline</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : activeCount}</p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && (
-                    <>
-                      <Pill bg="#fff7ed" color="#c2410c">{homeownerLeads} homeowner</Pill>
-                      <Pill bg="#f0fdf4" color="#166534">{tradeLeads} trade</Pill>
-                    </>
-                  )}
-                </div>
-              </div>
-              {/* Lead → Quote */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lead → Quote</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>
-                  {isLoading ? '–' : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && <Pill bg="#ede9fe" color="#5b21b6">{quotedCount} of {totalLeads} leads</Pill>}
-                </div>
-              </div>
-              {/* New This Month */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>New This Month</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : thisMonthCount}</p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && <Pill>{now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Pill>}
-                </div>
-              </div>
-            </div>
-
-            {/* Operational Metrics */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
-              {/* Section label */}
-              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Operations</span>
-                <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              </div>
-              {/* Avg Response Time */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Response Time</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626' }}>
-                  {isLoading ? '–' : formatDays(avgResponseDays)}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && responseSamples.length > 0 ? (
-                    <>
-                      <Pill bg="#f0fdf4" color="#166534">New → Qualified</Pill>
-                      <Pill>{responseSamples.length} deals</Pill>
-                    </>
-                  ) : !isLoading ? <Pill>No data yet</Pill> : null}
-                </div>
-              </div>
-              {/* Avg Time to Quote */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Time to Quote</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : avgTimeToQuoteDays === null ? '#9ca3af' : '#111827' }}>
-                  {isLoading ? '–' : formatDays(avgTimeToQuoteDays)}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && quoteSamples.length > 0 ? (
-                    <>
-                      <Pill bg="#ede9fe" color="#5b21b6">New → Quote Sent</Pill>
-                      <Pill>{quoteSamples.length} deals</Pill>
-                    </>
-                  ) : !isLoading ? <Pill>No data yet</Pill> : null}
-                </div>
-              </div>
-              {/* Quote Acceptance Rate */}
-              <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quote Acceptance</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706' }}>
-                  {isLoading ? '–' : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && quotesSentCount > 0 ? (
-                    <>
-                      <Pill bg="#dcfce7" color="#166534">{contractsSentCount} → contract</Pill>
-                      <Pill>{quotesSentCount} quoted</Pill>
-                    </>
-                  ) : !isLoading ? <Pill>No quotes yet</Pill> : null}
-                </div>
-              </div>
-              {/* Stale Leads */}
-              <div style={{ background: staleCount > 0 ? '#fffbeb' : '#ffffff', border: `1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`, borderRadius: '8px', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stale Leads</p>
-                <p style={{ margin: '0 0 8px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a' }}>
-                  {isLoading ? '–' : staleCount}
-                </p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {!isLoading && (staleCount > 0
-                    ? <Pill bg="#fef3c7" color="#92400e">{STALE_DAYS}+ days no move</Pill>
-                    : <Pill bg="#dcfce7" color="#166534">All active</Pill>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
+      {/* KPIs + Ops metrics — cards show title + number; hover reveals detail bubble */}
+      <MetricCards
+        isLoading={isLoading}
+        winRate={winRate} wonCount={wonCount} lostCount={lostCount} closedTotal={closedTotal}
+        activeCount={activeCount} homeownerLeads={homeownerLeads} tradeLeads={tradeLeads}
+        leadToQuoteRate={leadToQuoteRate} quotedCount={quotedCount} totalLeads={totalLeads}
+        thisMonthCount={thisMonthCount} now={now}
+        avgResponseDays={avgResponseDays} responseSamples={responseSamples}
+        avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
+        quoteAcceptRate={quoteAcceptRate} contractsSentCount={contractsSentCount} quotesSentCount={quotesSentCount}
+        staleCount={staleCount} STALE_DAYS={STALE_DAYS}
+      />
 
       {/* Stage counts */}
       {/* Pipeline stage view */}

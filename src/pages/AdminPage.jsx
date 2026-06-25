@@ -1488,7 +1488,7 @@ function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
   );
 }
 
-function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', pills }) {
+function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', tooltip }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -1503,26 +1503,33 @@ function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5
         {value}
       </p>
       {/* Hover tooltip bubble */}
-      {hovered && pills && (
+      {hovered && tooltip && (
         <div style={{
-          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
-          background: '#1f2937', borderRadius: '8px', padding: '8px 12px',
-          display: 'flex', gap: '6px', flexWrap: 'wrap', zIndex: 50,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
-          whiteSpace: 'nowrap',
-          // Arrow
-          '::after': undefined,
+          position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+          background: '#1f2937', borderRadius: '10px', padding: '10px 14px',
+          zIndex: 50, boxShadow: '0 6px 20px rgba(0,0,0,0.22)',
+          minWidth: '180px', maxWidth: '280px',
         }}>
-          {pills}
+          {tooltip}
           {/* Caret */}
           <span style={{
             position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
             width: 0, height: 0,
-            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
-            borderTop: '6px solid #1f2937',
+            borderLeft: '7px solid transparent', borderRight: '7px solid transparent',
+            borderTop: '7px solid #1f2937',
           }} />
         </div>
       )}
+    </div>
+  );
+}
+
+// Tooltip layout: description line + row of pills
+function TipBody({ desc, children }) {
+  return (
+    <div>
+      <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>{desc}</p>
+      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>{children}</div>
     </div>
   );
 }
@@ -1539,6 +1546,7 @@ function MetricCards({
   staleCount, STALE_DAYS,
 }) {
   const dash = isLoading ? '–' : '—';
+  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
     <>
@@ -1548,32 +1556,48 @@ function MetricCards({
           title="Win Rate"
           value={isLoading ? dash : winRate !== null ? `${winRate}%` : '—'}
           valueColor={isLoading || winRate === null ? '#9ca3af' : winRate >= 50 ? '#16a34a' : '#dc2626'}
-          pills={!isLoading && (closedTotal > 0 ? (
-            <>
-              <Pill bg="#dcfce7" color="#166534">{wonCount} won</Pill>
-              <Pill bg="#fee2e2" color="#991b1b">{lostCount} lost</Pill>
-            </>
-          ) : <Pill bg="#374151" color="#d1d5db">No closed deals</Pill>)}
+          tooltip={!isLoading && (
+            <TipBody desc="Closed Won ÷ total closed deals. Only counts deals marked Won or Lost in HubSpot.">
+              {closedTotal > 0 ? (
+                <>
+                  <Pill bg="#166534" color="#bbf7d0">{wonCount} won</Pill>
+                  <Pill bg="#991b1b" color="#fecaca">{lostCount} lost</Pill>
+                  <Pill bg="#374151" color="#9ca3af">{closedTotal} total closed</Pill>
+                </>
+              ) : <Pill bg="#374151" color="#9ca3af">No closed deals yet</Pill>}
+            </TipBody>
+          )}
         />
         <KpiCard
           title="Active Pipeline"
           value={isLoading ? dash : activeCount}
-          pills={!isLoading && (
-            <>
+          tooltip={!isLoading && (
+            <TipBody desc="Deals currently in progress — any stage except Closed Won or Closed Lost.">
               <Pill bg="#78350f" color="#fed7aa">{homeownerLeads} homeowner</Pill>
               <Pill bg="#14532d" color="#bbf7d0">{tradeLeads} trade</Pill>
-            </>
+              <Pill bg="#374151" color="#9ca3af">{activeCount} total active</Pill>
+            </TipBody>
           )}
         />
         <KpiCard
           title="Lead → Quote"
           value={isLoading ? dash : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
-          pills={!isLoading && <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} of {totalLeads} leads quoted</Pill>}
+          tooltip={!isLoading && (
+            <TipBody desc="Percentage of all leads that reached Quote Sent or a later stage. Measures how many inquiries become real proposals.">
+              <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} reached Quote Sent</Pill>
+              <Pill bg="#374151" color="#9ca3af">{totalLeads} total leads</Pill>
+            </TipBody>
+          )}
         />
         <KpiCard
           title="New This Month"
           value={isLoading ? dash : thisMonthCount}
-          pills={!isLoading && <Pill bg="#374151" color="#d1d5db">{now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Pill>}
+          tooltip={!isLoading && (
+            <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>
+              <Pill bg="#374151" color="#9ca3af">{monthLabel}</Pill>
+              <Pill bg="#374151" color="#9ca3af">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
+            </TipBody>
+          )}
         />
       </div>
 
@@ -1587,34 +1611,46 @@ function MetricCards({
           title="Avg Response Time"
           value={isLoading ? dash : formatDays(avgResponseDays)}
           valueColor={isLoading || avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626'}
-          pills={!isLoading && (responseSamples.length > 0 ? (
-            <>
-              <Pill bg="#14532d" color="#bbf7d0">New → Qualified</Pill>
-              <Pill bg="#374151" color="#d1d5db">{responseSamples.length} deals</Pill>
-            </>
-          ) : <Pill bg="#374151" color="#d1d5db">No data yet</Pill>)}
+          tooltip={!isLoading && (
+            <TipBody desc="Average time from a lead entering New Request to being moved to Qualified. Measures how quickly the team follows up.">
+              {responseSamples.length > 0 ? (
+                <>
+                  <Pill bg="#14532d" color="#bbf7d0">New Request → Qualified</Pill>
+                  <Pill bg="#374151" color="#9ca3af">avg of {responseSamples.length} deal{responseSamples.length !== 1 ? 's' : ''}</Pill>
+                </>
+              ) : <Pill bg="#374151" color="#9ca3af">No deals have reached Qualified yet</Pill>}
+            </TipBody>
+          )}
         />
         <KpiCard
           title="Avg Time to Quote"
           value={isLoading ? dash : formatDays(avgTimeToQuoteDays)}
           valueColor={isLoading || avgTimeToQuoteDays === null ? '#9ca3af' : '#111827'}
-          pills={!isLoading && (quoteSamples.length > 0 ? (
-            <>
-              <Pill bg="#4c1d95" color="#ddd6fe">New → Quote Sent</Pill>
-              <Pill bg="#374151" color="#d1d5db">{quoteSamples.length} deals</Pill>
-            </>
-          ) : <Pill bg="#374151" color="#d1d5db">No data yet</Pill>)}
+          tooltip={!isLoading && (
+            <TipBody desc="Average time from first contact to Quote Sent. Measures how efficiently the team turns an inquiry into a formal proposal.">
+              {quoteSamples.length > 0 ? (
+                <>
+                  <Pill bg="#4c1d95" color="#ddd6fe">New Request → Quote Sent</Pill>
+                  <Pill bg="#374151" color="#9ca3af">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
+                </>
+              ) : <Pill bg="#374151" color="#9ca3af">No deals have reached Quote Sent yet</Pill>}
+            </TipBody>
+          )}
         />
         <KpiCard
           title="Quote Acceptance"
           value={isLoading ? dash : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
           valueColor={isLoading || quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706'}
-          pills={!isLoading && (quotesSentCount > 0 ? (
-            <>
-              <Pill bg="#14532d" color="#bbf7d0">{contractsSentCount} → contract</Pill>
-              <Pill bg="#374151" color="#d1d5db">{quotesSentCount} quoted</Pill>
-            </>
-          ) : <Pill bg="#374151" color="#d1d5db">No quotes yet</Pill>)}
+          tooltip={!isLoading && (
+            <TipBody desc="Of all quotes sent, how many advanced to Contract Sent. A low rate may indicate pricing, scope, or follow-up issues.">
+              {quotesSentCount > 0 ? (
+                <>
+                  <Pill bg="#14532d" color="#bbf7d0">{contractsSentCount} moved to Contract Sent</Pill>
+                  <Pill bg="#374151" color="#9ca3af">{quotesSentCount} quote{quotesSentCount !== 1 ? 's' : ''} sent total</Pill>
+                </>
+              ) : <Pill bg="#374151" color="#9ca3af">No quotes sent yet</Pill>}
+            </TipBody>
+          )}
         />
         <KpiCard
           title="Stale Leads"
@@ -1622,9 +1658,13 @@ function MetricCards({
           valueColor={isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a'}
           bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
           border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
-          pills={!isLoading && (staleCount > 0
-            ? <Pill bg="#92400e" color="#fde68a">{STALE_DAYS}+ days no stage move</Pill>
-            : <Pill bg="#14532d" color="#bbf7d0">All moving within {STALE_DAYS}d</Pill>
+          tooltip={!isLoading && (
+            <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more days. These likely need a follow-up or a decision.`}>
+              {staleCount > 0
+                ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ days</Pill>
+                : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS}d ✓</Pill>
+              }
+            </TipBody>
           )}
         />
       </div>

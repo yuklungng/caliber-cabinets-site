@@ -96,15 +96,10 @@ export async function createDeal(properties, contactId) {
 export async function batchGetDealStages(dealIds) {
   if (!dealIds || dealIds.length === 0) return {};
 
-  // Fetch deal objects — include stage-entry dates for operational metrics
+  // Fetch deal objects + full dealstage history (custom pipelines don't have hs_date_entered_* props)
   const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-    properties: [
-      'dealstage', 'dealname', 'hs_lastmodifieddate',
-      'hs_date_entered_3869825744',      // New Request (Caliber custom)
-      'hs_date_entered_qualifiedtobuy',  // Qualified
-      'hs_date_entered_3869825755',      // Quote Sent (Caliber custom)
-      'hs_date_entered_contractsent',    // Contract Sent
-    ],
+    properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
+    propertiesWithHistory: ['dealstage'],
     inputs: dealIds.map((id) => ({ id })),
   });
   if (!res.ok) {
@@ -128,37 +123,35 @@ export async function batchGetDealStages(dealIds) {
     // Use fallback labels
   }
 
-  // DEBUG: discover actual hs_date_entered_* property names from HubSpot
-  try {
-    const propsRes = await hs('/crm/v3/properties/deals?limit=500', 'GET');
-    if (propsRes.ok) {
-      const propsData = await propsRes.json();
-      const dateEnteredProps = (propsData.results ?? [])
-        .map((p) => p.name)
-        .filter((n) => n.startsWith('hs_date_entered') || n.startsWith('hs_date_exited'));
-      console.log('[hubspot] date_entered/exited deal properties:', dateEnteredProps);
-    }
-  } catch (e) {
-    console.error('[hubspot] property discovery error:', e.message);
-  }
 
   const portalId = process.env.HUBSPOT_PORTAL_ID;
   const out = {};
   for (const deal of results ?? []) {
     const stageId = deal.properties?.dealstage ?? '';
     const p = deal.properties ?? {};
+
+    // propertiesWithHistory returns history newest-first.
+    // Reverse so we iterate oldest → newest and record the FIRST time each stage was entered.
+    const stageHistory = [...(deal.propertiesWithHistory?.dealstage ?? [])].reverse();
+    const firstEnteredStage = {};
+    for (const entry of stageHistory) {
+      if (entry.value && !firstEnteredStage[entry.value]) {
+        firstEnteredStage[entry.value] = entry.timestamp;
+      }
+    }
+
     out[deal.id] = {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,
-      stageDate: p.hs_lastmodifieddate ?? null,
+      stageDate:  p.hs_lastmodifieddate ?? null,
       dealUrl: portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,
-      // Stage-entry timestamps for operational metrics (days between stages)
-      dateEnteredNewRequest:    p['hs_date_entered_3869825744']     ?? null,
-      dateEnteredQualified:     p['hs_date_entered_qualifiedtobuy'] ?? null,
-      dateEnteredQuoteSent:     p['hs_date_entered_3869825755']     ?? null,
-      dateEnteredContractSent:  p['hs_date_entered_contractsent']   ?? null,
+      // Stage-entry timestamps derived from history (custom pipelines have no hs_date_entered_* props)
+      dateEnteredNewRequest:   firstEnteredStage['3869825744']     ?? null,
+      dateEnteredQualified:    firstEnteredStage['qualifiedtobuy'] ?? null,
+      dateEnteredQuoteSent:    firstEnteredStage['3869825755']     ?? null,
+      dateEnteredContractSent: firstEnteredStage['contractsent']   ?? null,
     };
   }
   return out;
@@ -186,19 +179,13 @@ export async function getAllPipelineDeals() {
     }
   } catch { /* use fallback labels */ }
 
-  // Paginate through all deals in the pipeline
+  // Step 1: Paginate through all deals in the pipeline (search doesn't support propertiesWithHistory)
   const allDeals = [];
   let after;
   do {
     const res = await hs('/crm/v3/objects/deals/search', 'POST', {
       filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
-      properties: [
-        'dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate',
-        'hs_date_entered_3869825744',
-        'hs_date_entered_qualifiedtobuy',
-        'hs_date_entered_3869825755',
-        'hs_date_entered_contractsent',
-      ],
+      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate'],
       limit: 100,
       ...(after ? { after } : {}),
     });
@@ -210,8 +197,32 @@ export async function getAllPipelineDeals() {
 
   if (allDeals.length === 0) return [];
 
-  // Batch-fetch contact associations, then resolve contact properties
+  // Step 2: Batch-read with stage history (search API doesn't support propertiesWithHistory)
   const dealIds = allDeals.map((d) => d.id);
+  const dealHistoryMap = {};
+  try {
+    const batchRes = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
+      properties: ['dealstage'],
+      propertiesWithHistory: ['dealstage'],
+      inputs: dealIds.map((id) => ({ id })),
+    });
+    if (batchRes.ok) {
+      for (const deal of (await batchRes.json()).results ?? []) {
+        const history = [...(deal.propertiesWithHistory?.dealstage ?? [])].reverse();
+        const firstEntered = {};
+        for (const entry of history) {
+          if (entry.value && !firstEntered[entry.value]) {
+            firstEntered[entry.value] = entry.timestamp;
+          }
+        }
+        dealHistoryMap[deal.id] = firstEntered;
+      }
+    }
+  } catch (e) {
+    console.error('[hubspot] getAllPipelineDeals history fetch error:', e.message);
+  }
+
+  // Batch-fetch contact associations, then resolve contact properties
   const contactByDealId = {};
   try {
     const assocRes = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
@@ -245,6 +256,7 @@ export async function getAllPipelineDeals() {
     const contact = contactByDealId[deal.id] ?? {};
     const stageId = deal.properties?.dealstage ?? '';
     const p = deal.properties ?? {};
+    const firstEntered = dealHistoryMap[deal.id] ?? {};
     return {
       id: `hs-${deal.id}`,
       source: 'hubspot',
@@ -264,10 +276,10 @@ export async function getAllPipelineDeals() {
       hs_deal_url:    portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,
-      hs_date_entered_new_request:   p['hs_date_entered_3869825744']     ?? null,
-      hs_date_entered_qualified:     p['hs_date_entered_qualifiedtobuy'] ?? null,
-      hs_date_entered_quote_sent:    p['hs_date_entered_3869825755']     ?? null,
-      hs_date_entered_contract_sent: p['hs_date_entered_contractsent']   ?? null,
+      hs_date_entered_new_request:   firstEntered['3869825744']     ?? null,
+      hs_date_entered_qualified:     firstEntered['qualifiedtobuy'] ?? null,
+      hs_date_entered_quote_sent:    firstEntered['3869825755']     ?? null,
+      hs_date_entered_contract_sent: firstEntered['contractsent']   ?? null,
     };
   });
 }

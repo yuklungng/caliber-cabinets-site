@@ -128,18 +128,25 @@ export async function batchGetDealStages(dealIds) {
     // Use fallback labels
   }
 
+  // DEBUG: discover actual hs_date_entered_* property names from HubSpot
+  try {
+    const propsRes = await hs('/crm/v3/properties/deals?limit=500', 'GET');
+    if (propsRes.ok) {
+      const propsData = await propsRes.json();
+      const dateEnteredProps = (propsData.results ?? [])
+        .map((p) => p.name)
+        .filter((n) => n.startsWith('hs_date_entered') || n.startsWith('hs_date_exited'));
+      console.log('[hubspot] date_entered/exited deal properties:', dateEnteredProps);
+    }
+  } catch (e) {
+    console.error('[hubspot] property discovery error:', e.message);
+  }
+
   const portalId = process.env.HUBSPOT_PORTAL_ID;
   const out = {};
   for (const deal of results ?? []) {
     const stageId = deal.properties?.dealstage ?? '';
     const p = deal.properties ?? {};
-    // DEBUG: log stage-entry dates to confirm HubSpot is returning them
-    console.log(`[hubspot] deal ${deal.id} stage-entry dates:`, {
-      newRequest:   p['hs_date_entered_3869825744'],
-      qualified:    p['hs_date_entered_qualifiedtobuy'],
-      quoteSent:    p['hs_date_entered_3869825755'],
-      contractSent: p['hs_date_entered_contractsent'],
-    });
     out[deal.id] = {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,

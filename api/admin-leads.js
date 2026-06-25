@@ -42,9 +42,14 @@ export default async function handler(req, res) {
       return {
         ...lead,
         hs_stage_label: hs?.stageLabel ?? null,
-        hs_stage_id: hs?.stageId ?? null,
-        hs_stage_date: hs?.stageDate ?? null,
-        hs_deal_url: hs?.dealUrl ?? null,
+        hs_stage_id:    hs?.stageId   ?? null,
+        hs_stage_date:  hs?.stageDate ?? null,
+        hs_deal_url:    hs?.dealUrl   ?? null,
+        // Stage-entry timestamps for operational metrics
+        hs_date_entered_new_request:   hs?.dateEnteredNewRequest   ?? null,
+        hs_date_entered_qualified:     hs?.dateEnteredQualified    ?? null,
+        hs_date_entered_quote_sent:    hs?.dateEnteredQuoteSent    ?? null,
+        hs_date_entered_contract_sent: hs?.dateEnteredContractSent ?? null,
       };
     });
 

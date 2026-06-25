@@ -48,6 +48,17 @@ const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function daysBetween(start, end) {
+  if (!start) return null;
+  const ms = new Date(end ?? Date.now()) - new Date(start);
+  return ms > 0 ? ms / (1000 * 60 * 60 * 24) : null;
+}
+function formatDays(days) {
+  if (days === null || days === undefined) return '—';
+  if (days < 1) return `${Math.round(days * 24)}h`;
+  if (days < 2) return '1d';
+  return `${Math.round(days)}d`;
+}
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -406,19 +417,24 @@ function LeadDetail({ lead }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   // HubSpot-only deals may have no contact name — fall back to the deal name
   const name = contactName || f.dealName || '(no name)';
   const isHubSpotOnly = lead.source === 'hubspot';
   return (
-    <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+    <div style={{ background: '#ffffff', border: `1px solid ${isStale ? '#fde68a' : '#e5e7eb'}`, borderRadius: '8px', overflow: 'hidden' }}>
       <div style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gap: '12px' }} onClick={onToggle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} source={lead.source} />
           <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />
+          {isStale && (
+            <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
+              ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
+            </span>
+          )}
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
             {formatDate(lead.created_at)} · {formatTime(lead.created_at)}
           </span>
@@ -1582,6 +1598,45 @@ function LeadsView() {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
 
+  // ── Operational metrics ───────────────────────────────────────────────────
+  // Use hs_date_entered_new_request if set; fall back to created_at (form submission time)
+  function startDate(l) { return l.hs_date_entered_new_request ?? l.created_at; }
+
+  // Avg response time: New Request → Qualified
+  const responseSamples = leads
+    .filter((l) => l.hs_date_entered_qualified)
+    .map((l) => daysBetween(startDate(l), l.hs_date_entered_qualified))
+    .filter((d) => d !== null && d >= 0);
+  const avgResponseDays = responseSamples.length > 0
+    ? responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length : null;
+
+  // Avg time to quote: New Request → Quote Sent
+  const quoteSamples = leads
+    .filter((l) => l.hs_date_entered_quote_sent)
+    .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+    .filter((d) => d !== null && d >= 0);
+  const avgTimeToQuoteDays = quoteSamples.length > 0
+    ? quoteSamples.reduce((a, b) => a + b, 0) / quoteSamples.length : null;
+
+  // Quote acceptance rate: of deals that reached Quote Sent, how many reached Contract Sent
+  const quotesSentCount    = leads.filter((l) => l.hs_date_entered_quote_sent).length;
+  const contractsSentCount = leads.filter((l) => l.hs_date_entered_contract_sent).length;
+  const quoteAcceptRate = quotesSentCount > 0
+    ? Math.round((contractsSentCount / quotesSentCount) * 100) : null;
+
+  // Stale leads: active stage, no stage change in ≥7 days
+  const STALE_DAYS = 7;
+  const staleLeadIds = new Set(
+    leads
+      .filter((l) => {
+        if (!l.hs_stage_id || l.hs_stage_id === 'closedwon' || l.hs_stage_id === 'closedlost') return false;
+        const d = daysBetween(l.hs_stage_date, null); // days since last stage move
+        return d !== null && d >= STALE_DAYS;
+      })
+      .map((l) => l.id),
+  );
+  const staleCount = staleLeadIds.size;
+
   // Search suggestions — up to 6 leads matching current query
   const suggestions = searchQuery.trim().length > 0
     ? leads.filter((l) => {
@@ -1646,6 +1701,55 @@ function LeadsView() {
           <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: '#111827' }}>{isLoading ? '–' : thisMonthCount}</p>
           <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
             {now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </p>
+        </div>
+      </div>
+
+      {/* Operational Metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+        {/* Section label */}
+        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Operations</span>
+          <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+        </div>
+        {/* Avg Response Time */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Response Time</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626' }}>
+            {isLoading ? '–' : formatDays(avgResponseDays)}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : responseSamples.length > 0 ? `New Request → Qualified · ${responseSamples.length} deals` : 'No data yet'}
+          </p>
+        </div>
+        {/* Avg Time to Quote */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Time to Quote</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : avgTimeToQuoteDays === null ? '#9ca3af' : '#111827' }}>
+            {isLoading ? '–' : formatDays(avgTimeToQuoteDays)}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : quoteSamples.length > 0 ? `New Request → Quote Sent · ${quoteSamples.length} deals` : 'No data yet'}
+          </p>
+        </div>
+        {/* Quote Acceptance Rate */}
+        <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quote Acceptance</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706' }}>
+            {isLoading ? '–' : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : quotesSentCount > 0 ? `${contractsSentCount} of ${quotesSentCount} quotes → contract` : 'No quotes sent yet'}
+          </p>
+        </div>
+        {/* Stale Leads */}
+        <div style={{ background: staleCount > 0 ? '#fffbeb' : '#ffffff', border: `1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`, borderRadius: '8px', padding: '14px 18px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stale Leads</p>
+          <p style={{ margin: '0 0 4px', fontSize: '26px', fontWeight: '700', color: isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a' }}>
+            {isLoading ? '–' : staleCount}
+          </p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+            {isLoading ? '' : staleCount > 0 ? `No stage change in ${STALE_DAYS}+ days` : `All active leads moved within ${STALE_DAYS}d`}
           </p>
         </div>
       </div>
@@ -1783,7 +1887,7 @@ function LeadsView() {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} />
             </div>
           ))}
         </div>

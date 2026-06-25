@@ -96,9 +96,15 @@ export async function createDeal(properties, contactId) {
 export async function batchGetDealStages(dealIds) {
   if (!dealIds || dealIds.length === 0) return {};
 
-  // Fetch deal objects
+  // Fetch deal objects — include stage-entry dates for operational metrics
   const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-    properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
+    properties: [
+      'dealstage', 'dealname', 'hs_lastmodifieddate',
+      'hs_date_entered_3869825744',      // New Request (Caliber custom)
+      'hs_date_entered_qualifiedtobuy',  // Qualified
+      'hs_date_entered_3869825755',      // Quote Sent (Caliber custom)
+      'hs_date_entered_contractsent',    // Contract Sent
+    ],
     inputs: dealIds.map((id) => ({ id })),
   });
   if (!res.ok) {
@@ -126,13 +132,19 @@ export async function batchGetDealStages(dealIds) {
   const out = {};
   for (const deal of results ?? []) {
     const stageId = deal.properties?.dealstage ?? '';
+    const p = deal.properties ?? {};
     out[deal.id] = {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,
-      stageDate: deal.properties?.hs_lastmodifieddate ?? null,
+      stageDate: p.hs_lastmodifieddate ?? null,
       dealUrl: portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,
+      // Stage-entry timestamps for operational metrics (days between stages)
+      dateEnteredNewRequest:    p['hs_date_entered_3869825744']     ?? null,
+      dateEnteredQualified:     p['hs_date_entered_qualifiedtobuy'] ?? null,
+      dateEnteredQuoteSent:     p['hs_date_entered_3869825755']     ?? null,
+      dateEnteredContractSent:  p['hs_date_entered_contractsent']   ?? null,
     };
   }
   return out;
@@ -166,7 +178,13 @@ export async function getAllPipelineDeals() {
   do {
     const res = await hs('/crm/v3/objects/deals/search', 'POST', {
       filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
-      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate'],
+      properties: [
+        'dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate',
+        'hs_date_entered_3869825744',
+        'hs_date_entered_qualifiedtobuy',
+        'hs_date_entered_3869825755',
+        'hs_date_entered_contractsent',
+      ],
       limit: 100,
       ...(after ? { after } : {}),
     });
@@ -212,25 +230,30 @@ export async function getAllPipelineDeals() {
   return allDeals.map((deal) => {
     const contact = contactByDealId[deal.id] ?? {};
     const stageId = deal.properties?.dealstage ?? '';
+    const p = deal.properties ?? {};
     return {
       id: `hs-${deal.id}`,
       source: 'hubspot',
       form_type: null,
-      created_at: deal.properties?.createdate ?? new Date().toISOString(),
+      created_at: p.createdate ?? new Date().toISOString(),
       hubspot_deal_id: deal.id,
       fields: {
         firstName: contact.firstname ?? '',
         lastName:  contact.lastname  ?? '',
         email:     contact.email     ?? '',
         phone:     contact.phone     ?? '',
-        dealName:  deal.properties?.dealname ?? '',
+        dealName:  p.dealname ?? '',
       },
       hs_stage_id:    stageId,
       hs_stage_label: stageLabels[stageId] ?? stageId,
-      hs_stage_date:  deal.properties?.hs_lastmodifieddate ?? null,
+      hs_stage_date:  p.hs_lastmodifieddate ?? null,
       hs_deal_url:    portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,
+      hs_date_entered_new_request:   p['hs_date_entered_3869825744']     ?? null,
+      hs_date_entered_qualified:     p['hs_date_entered_qualifiedtobuy'] ?? null,
+      hs_date_entered_quote_sent:    p['hs_date_entered_3869825755']     ?? null,
+      hs_date_entered_contract_sent: p['hs_date_entered_contractsent']   ?? null,
     };
   });
 }

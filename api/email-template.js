@@ -70,6 +70,21 @@ function buildFieldRows(fields) {
     .join('');
 }
 
+function buildMapRow(fields) {
+  if (!fields.zipCode) return '';
+  const parts = [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean);
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(', '))}`;
+  return `
+    <tr>
+      <td colspan="2" style="padding:4px 0 14px;">
+        <a href="${url}" target="_blank"
+           style="display:inline-block;padding:5px 14px;background:#fef9f0;color:#78350f;font-size:12px;font-weight:700;text-decoration:none;border-radius:4px;border:1px solid #e5c99a;">
+          &#128205; View on Google Maps
+        </a>
+      </td>
+    </tr>`;
+}
+
 function buildAttachmentRows(attachedFiles, failedFiles) {
   if (attachedFiles.length === 0 && failedFiles.length === 0) return '';
 
@@ -96,6 +111,7 @@ export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFi
   const firstName = fields.firstName || '';
   const lastName = fields.lastName || '';
   const fieldRows = buildFieldRows(fields);
+  const mapRow = buildMapRow(fields);
   const attachmentRows = buildAttachmentRows(attachedFiles, failedFiles);
 
   return `<!DOCTYPE html>
@@ -131,6 +147,7 @@ export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFi
           <td style="padding:20px 36px 32px;">
             <table width="100%" cellpadding="0" cellspacing="0">
               ${fieldRows}
+              ${mapRow}
               ${attachmentRows}
             </table>
           </td>

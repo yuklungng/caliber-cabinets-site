@@ -276,6 +276,12 @@ function LeadDetail({ lead }) {
     f.state && f.zipCode ? `${f.state} ${f.zipCode}` : (f.state || f.zipCode),
   ].filter(Boolean).join(', ');
 
+  const mapUrl = f.zipCode
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        [f.streetAddress, f.city, f.state, f.zipCode].filter(Boolean).join(', ')
+      )}`
+    : null;
+
   const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 32px' };
 
   return (
@@ -339,7 +345,21 @@ function LeadDetail({ lead }) {
             <div style={grid2}>
               <FieldCell label="Type">{f.projectType}</FieldCell>
               <FieldCell label="Timeline">{f.timeline}</FieldCell>
-              {addr && <FieldCell label="Address" wide>{addr}</FieldCell>}
+              {addr && (
+                <FieldCell label="Address" wide>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span>{addr}</span>
+                    {mapUrl && (
+                      <a href={mapUrl} target="_blank" rel="noopener noreferrer"
+                         style={{ fontSize: '11px', color: '#78350f', fontWeight: '700', textDecoration: 'none',
+                                  border: '1px solid #e5c99a', borderRadius: '4px', padding: '2px 8px',
+                                  whiteSpace: 'nowrap', background: '#fef9f0' }}>
+                        📍 Map
+                      </a>
+                    )}
+                  </span>
+                </FieldCell>
+              )}
             </div>
           </section>
         )}
@@ -349,7 +369,21 @@ function LeadDetail({ lead }) {
           <section>
             <SectionHeading>Project</SectionHeading>
             <div style={grid2}>
-              {addr && <FieldCell label="Address" wide>{addr}</FieldCell>}
+              {addr && (
+                <FieldCell label="Address" wide>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span>{addr}</span>
+                    {mapUrl && (
+                      <a href={mapUrl} target="_blank" rel="noopener noreferrer"
+                         style={{ fontSize: '11px', color: '#78350f', fontWeight: '700', textDecoration: 'none',
+                                  border: '1px solid #e5c99a', borderRadius: '4px', padding: '2px 8px',
+                                  whiteSpace: 'nowrap', background: '#fef9f0' }}>
+                        📍 Map
+                      </a>
+                    )}
+                  </span>
+                </FieldCell>
+              )}
               <FieldCell label="Areas">
                 {Array.isArray(f.areasRequiringCabinetry) ? f.areasRequiringCabinetry.join(', ') : f.areasRequiringCabinetry}
               </FieldCell>

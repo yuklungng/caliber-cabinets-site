@@ -3118,7 +3118,12 @@ function ProjectsPanel() {
     setProjects((p) => p.filter((x) => x.id !== project.id));
   }
 
+  const FEATURED_LIMIT = 3;
+
   async function handleToggleFeatured(project) {
+    const featuredCount = projects.filter((p) => p.featured).length;
+    // Block if trying to add a 4th featured project
+    if (!project.featured && featuredCount >= FEATURED_LIMIT) return;
     const r = await fetch('/api/admin-projects', {
       method: 'POST',
       headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
@@ -3178,10 +3183,32 @@ function ProjectsPanel() {
               <input style={inputSt} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Pleasanton, CA" />
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-            <input type="checkbox" id="proj-featured" checked={featured} onChange={(e) => setFeatured(e.target.checked)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-            <label htmlFor="proj-featured" style={{ fontSize: '14px', color: '#374151', cursor: 'pointer' }}>Show on homepage (Featured)</label>
-          </div>
+          {(() => {
+            const featuredCount = projects.filter((p) => p.featured).length;
+            const atLimit = featuredCount >= 3;
+            return (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="proj-featured"
+                    checked={featured}
+                    disabled={atLimit && !featured}
+                    onChange={(e) => setFeatured(e.target.checked)}
+                    style={{ width: '16px', height: '16px', cursor: atLimit && !featured ? 'not-allowed' : 'pointer' }}
+                  />
+                  <label htmlFor="proj-featured" style={{ fontSize: '14px', color: atLimit && !featured ? '#9ca3af' : '#374151', cursor: atLimit && !featured ? 'not-allowed' : 'pointer' }}>
+                    Show on homepage (Featured)
+                  </label>
+                </div>
+                {atLimit && (
+                  <p style={{ margin: '6px 0 0 24px', fontSize: '12px', color: '#b45309' }}>
+                    Homepage is full — 3 of 3 featured slots used. Unfeature one project below to enable this.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
           {uploadError && <p style={{ color: '#b91c1c', fontSize: '13px', margin: '0 0 12px' }}>{uploadError}</p>}
           <button type="submit" disabled={submitting} style={{ background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', padding: '10px 22px', fontWeight: '700', fontSize: '14px', cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
             {submitting ? 'Uploading…' : 'Add Project'}
@@ -3191,9 +3218,31 @@ function ProjectsPanel() {
 
       {/* Project list */}
       <div style={cardSt}>
-        <h2 style={{ margin: '0 0 20px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>
-          All Projects <span style={{ fontWeight: '400', color: '#9ca3af' }}>({projects.length})</span>
-        </h2>
+        {(() => {
+          const featuredCount = projects.filter((p) => p.featured).length;
+          const atLimit = featuredCount >= 3;
+          return (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>
+                  All Projects <span style={{ fontWeight: '400', color: '#9ca3af' }}>({projects.length})</span>
+                </h2>
+                <span style={{ fontSize: '12px', fontWeight: '700', padding: '3px 10px', borderRadius: '12px',
+                  background: atLimit ? '#fef3c7' : '#f3f4f6',
+                  color: atLimit ? '#92400e' : '#6b7280',
+                  border: `1px solid ${atLimit ? '#fbbf24' : '#e5e7eb'}`,
+                }}>
+                  {featuredCount}/3 on homepage
+                </span>
+              </div>
+              {atLimit && (
+                <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px 12px' }}>
+                  Homepage slots full. Unfeature a project below before featuring another.
+                </p>
+              )}
+            </>
+          );
+        })()}
         {loading ? (
           <p style={{ color: '#9ca3af' }}>Loading…</p>
         ) : listError ? (
@@ -3202,7 +3251,10 @@ function ProjectsPanel() {
           <p style={{ color: '#9ca3af' }}>No projects yet.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {projects.map((project) => (
+            {projects.map((project) => {
+              const featuredCount = projects.filter((p) => p.featured).length;
+              const canFeature = project.featured || featuredCount < 3;
+              return (
               <div key={project.id} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', padding: '14px', border: '1px solid #f3f4f6', borderRadius: '8px', background: '#fafafa' }}>
                 <img src={project.image_url} alt={project.title} style={{ width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0, background: '#e5e7eb' }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -3220,7 +3272,11 @@ function ProjectsPanel() {
                   <div style={{ marginTop: '6px' }}>
                     <button
                       onClick={() => handleToggleFeatured(project)}
-                      style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', border: '1px solid', cursor: 'pointer',
+                      disabled={!canFeature}
+                      title={!canFeature ? 'Homepage slots full — unfeature another project first' : undefined}
+                      style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', border: '1px solid',
+                        cursor: canFeature ? 'pointer' : 'not-allowed',
+                        opacity: canFeature ? 1 : 0.45,
                         background: project.featured ? '#fef3c7' : '#f3f4f6',
                         color: project.featured ? '#92400e' : '#6b7280',
                         borderColor: project.featured ? '#fbbf24' : '#d1d5db',
@@ -3252,7 +3308,8 @@ function ProjectsPanel() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

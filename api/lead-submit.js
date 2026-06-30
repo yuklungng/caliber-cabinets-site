@@ -153,7 +153,47 @@ export default async function handler(req, res) {
     }
   }
 
-  // Step 4: Push lead to HubSpot and store deal ID back in Supabase
+  // Step 4: Send confirmation email to customer if auto-reply is enabled
+  if (process.env.GMAIL_APP_PASSWORD && fields.email) {
+    try {
+      const { data: confirmSettings } = await supabase
+        .from('admin_settings')
+        .select('key, value')
+        .in('key', ['confirmations_enabled', 'confirmation_subject', 'confirmation_message']);
+
+      const settingsMap = {};
+      for (const row of confirmSettings ?? []) settingsMap[row.key] = row.value;
+
+      if (settingsMap.confirmations_enabled === true) {
+        const confirmSubject = settingsMap.confirmation_subject || 'Thank you for contacting Caliber Cabinets';
+        const confirmMessage = settingsMap.confirmation_message || '<p>Thank you for reaching out. We will be in touch within 1 business day.</p>';
+
+        const transporter = nodemailer.createTransport({
+          host: 'smtp.gmail.com',
+          port: 587,
+          secure: false,
+          auth: {
+            user: 'mike@calibercabinetshop.com',
+            pass: process.env.GMAIL_APP_PASSWORD,
+          },
+        });
+
+        await transporter.sendMail({
+          from: '"Caliber Cabinets" <mike@calibercabinetshop.com>',
+          to: fields.email,
+          subject: confirmSubject,
+          html: confirmMessage,
+          text: confirmMessage.replace(/<[^>]+>/g, ''),
+        });
+
+        console.log('[lead-submit] Confirmation email sent to:', fields.email);
+      }
+    } catch (confirmError) {
+      console.error('[lead-submit] Confirmation email error:', confirmError.message);
+    }
+  }
+
+  // Step 5: Push lead to HubSpot and store deal ID back in Supabase
   if (process.env.HUBSPOT_ACCESS_TOKEN) {
     try {
       // Generate 1-year signed URLs for any uploaded files so Mike can open

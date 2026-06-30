@@ -770,7 +770,7 @@ function ConfirmationsPanel() {
         <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? 'auto' : 'none' }}>
           <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Message body</label>
           <RichTextEditor value={message} onChange={setMessage} />
-          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>HTML email sent from leads@calibercabinetshop.com.</p>
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>HTML email sent from mike@calibercabinetshop.com.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -164,7 +164,8 @@ export default async function handler(req, res) {
       const settingsMap = {};
       for (const row of confirmSettings ?? []) settingsMap[row.key] = row.value;
 
-      if (settingsMap.confirmations_enabled === true) {
+      console.log('[lead-submit] confirmations_enabled value:', settingsMap.confirmations_enabled);
+      if (settingsMap.confirmations_enabled === true || settingsMap.confirmations_enabled === 'true') {
         const confirmSubject = settingsMap.confirmation_subject || 'Thank you for contacting Caliber Cabinets';
         const confirmMessage = settingsMap.confirmation_message || '<p>Thank you for reaching out. We will be in touch within 1 business day.</p>';
 

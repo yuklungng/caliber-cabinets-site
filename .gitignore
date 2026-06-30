@@ -12,3 +12,6 @@ pnpm-debug.log*
 coverage
 .DS_Store
 Thumbs.db
+
+# Raw source images (WebP versions are tracked instead)
+public/images/caliber-project-clayton-kitchen-*.png

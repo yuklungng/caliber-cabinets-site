@@ -3031,7 +3031,10 @@ function ProjectsPanel() {
   const [listError, setListError] = useState('');
 
   // Add form
-  const [imageFile, setImageFile] = useState(null);
+  const [imageFile, setImageFile] = useState(null);       // always the WebP-converted File
+  const [imagePreview, setImagePreview] = useState(null); // data URL for thumbnail
+  const [conversionInfo, setConversionInfo] = useState(null); // { originalKB, convertedKB }
+  const [converting, setConverting] = useState(false);
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
   const [featured, setFeatured] = useState(false);
@@ -3059,6 +3062,62 @@ function ProjectsPanel() {
       setListError('Failed to load projects');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Convert any image to WebP via Canvas API — runs in the browser, no server needed
+  async function convertToWebP(file, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { reject(new Error('Conversion failed')); return; }
+            resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.webp'), { type: 'image/webp' }));
+          },
+          'image/webp',
+          quality,
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Could not read image')); };
+      img.src = objectUrl;
+    });
+  }
+
+  async function handleFileSelect(files) {
+    const raw = files[0];
+    if (!raw) return;
+    setFileError('');
+    setConversionInfo(null);
+    setImagePreview(null);
+    setImageFile(null);
+    setConverting(true);
+    try {
+      const webp = await convertToWebP(raw);
+      const preview = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = (e) => res(e.target.result);
+        reader.readAsDataURL(webp);
+      });
+      setImageFile(webp);
+      setImagePreview(preview);
+      setConversionInfo({
+        originalKB: Math.round(raw.size / 1024),
+        convertedKB: Math.round(webp.size / 1024),
+        savings: Math.round((1 - webp.size / raw.size) * 100),
+      });
+    } catch {
+      // Fallback: use original if conversion fails
+      setImageFile(raw);
+      setFileError('');
+    } finally {
+      setConverting(false);
     }
   }
 
@@ -3097,6 +3156,8 @@ function ProjectsPanel() {
       if (createErr) throw new Error(createErr);
 
       setImageFile(null);
+      setImagePreview(null);
+      setConversionInfo(null);
       setTitle('');
       setLocation('');
       setFeatured(false);
@@ -3167,11 +3228,27 @@ function ProjectsPanel() {
             <FileDropZone
               accept="image/*"
               multiple={false}
-              hint="JPG, PNG, or WebP — recommended at least 1200px wide"
-              selectedFiles={imageFile ? [imageFile] : []}
-              onChange={(files) => { setImageFile(files[0] || null); setFileError(''); }}
+              hint="Any format — automatically converted to WebP for optimal performance"
+              selectedFiles={converting ? [{ name: 'Converting to WebP…', size: 0 }] : imageFile ? [imageFile] : []}
+              onChange={handleFileSelect}
               error={fileError}
             />
+            {/* Preview + conversion savings */}
+            {imagePreview && conversionInfo && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
+                <img src={imagePreview} alt="Preview" style={{ width: '56px', height: '42px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
+                <div>
+                  <p style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#166534' }}>Converted to WebP ✓</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#15803d' }}>
+                    {conversionInfo.originalKB} KB → {conversionInfo.convertedKB} KB
+                    <span style={{ marginLeft: '6px', fontWeight: '700' }}>({conversionInfo.savings}% smaller)</span>
+                  </p>
+                </div>
+              </div>
+            )}
+            {converting && (
+              <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#6b7280' }}>Converting to WebP…</p>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
             <div>

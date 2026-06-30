@@ -130,12 +130,18 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
 function StagePicker({ lead, pipelineStages, onStageChange }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const ref = useRef(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef(null);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
-    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function handle(e) {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          !document.getElementById('stage-picker-dropdown')?.contains(e.target)) {
+        setOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, [open]);
@@ -155,10 +161,21 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
     setSaving(false);
   }
 
+  function handleOpen(e) {
+    e.stopPropagation();
+    if (saving) return;
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOpen((o) => !o);
+  }
+
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+    <>
       <span
-        onClick={(e) => { e.stopPropagation(); if (!saving) setOpen((o) => !o); }}
+        ref={triggerRef}
+        onClick={handleOpen}
         title="Click to change stage"
         style={{ cursor: saving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
       >
@@ -166,17 +183,20 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
         <span style={{ fontSize: '10px', color: '#9ca3af', lineHeight: 1 }}>▾</span>
       </span>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: '200px', overflow: 'hidden' }}>
+        <div
+          id="stage-picker-dropdown"
+          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '200px', overflow: 'hidden' }}
+        >
           {pipelineStages.map((stage) => {
             const isActive = stage.id === lead.hs_stage_id;
-            const style = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
+            const stageStyle = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
             return (
               <button
                 key={stage.id}
                 onMouseDown={(e) => { e.preventDefault(); selectStage(stage); }}
                 style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', border: 0, borderBottom: '1px solid #f3f4f6', background: isActive ? '#f9fafb' : '#fff', cursor: 'pointer', textAlign: 'left' }}
               >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: style.bg, border: `2px solid ${style.color}`, flexShrink: 0 }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageStyle.bg, border: `2px solid ${stageStyle.color}`, flexShrink: 0 }} />
                 <span style={{ fontSize: '13px', fontWeight: isActive ? '700' : '500', color: '#111827' }}>{stage.label}</span>
                 {isActive && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#9ca3af' }}>current</span>}
               </button>
@@ -184,7 +204,7 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
           })}
         </div>
       )}
-    </div>
+    </>
   );
 }
 

@@ -32,7 +32,7 @@ const HS_STAGE_COLORS = {
   decisionmakerboughtin: { bg: '#dcfce7', color: '#166534' },
   contractsent:          { bg: '#bbf7d0', color: '#14532d' },
   closedwon:             { bg: '#14532d', color: '#ffffff' },
-  closedlost:            { bg: '#f3f4f6', color: '#6b7280' },
+  closedlost:            { bg: '#fee2e2', color: '#991b1b' },
 };
 
 // Ordered pipeline stages — defines the linear lifecycle view
@@ -1801,7 +1801,7 @@ function MetricCards({
   thisMonthCount, now,
   avgResponseDays, responseSamples,
   avgTimeToQuoteDays, quoteSamples,
-  quoteAcceptRate, contractsSentCount, quotesSentCount,
+  quoteAcceptRate, contractsSentCount, quotesSentCount, contractOrWonCount, quoteOrLaterCount,
   staleCount, STALE_DAYS,
   avgFullCycleDays, fullCycleSamples,
 }) {
@@ -1901,11 +1901,11 @@ function MetricCards({
           value={isLoading ? dash : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
           valueColor={isLoading || quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706'}
           tooltip={!isLoading && (
-            <TipBody desc="Of all quotes sent, how many advanced to Contract Sent. A low rate may indicate pricing, scope, or follow-up issues.">
-              {quotesSentCount > 0 ? (
+            <TipBody desc="Of all leads that reached Quote Sent or later, how many advanced to Contract Sent or Closed Won. A low rate may indicate pricing, scope, or follow-up issues.">
+              {quoteOrLaterCount > 0 ? (
                 <>
-                  <Pill bg="#14532d" color="#bbf7d0">{contractsSentCount} moved to Contract Sent</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">{quotesSentCount} quote{quotesSentCount !== 1 ? 's' : ''} sent total</Pill>
+                  <Pill bg="#14532d" color="#bbf7d0">{contractOrWonCount} reached Contract Sent or Won</Pill>
+                  <Pill bg="#374151" color="#f3f4f6">{quoteOrLaterCount} at Quote Sent or later</Pill>
                 </>
               ) : <Pill bg="#374151" color="#f3f4f6">No quotes sent yet</Pill>}
             </TipBody>
@@ -1953,6 +1953,7 @@ function LeadsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
+  const [filterStage, setFilterStage] = useState(null); // null = all stages
   const [sortOrder, setSortOrder] = useState('desc'); // 'desc' = newest first, 'asc' = oldest first
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -2043,6 +2044,11 @@ function LeadsView() {
   const filtered = leads
     .filter((l) => filterType === 'all' || l.form_type === filterType)
     .filter((l) => {
+      if (!filterStage) return true;
+      const ids = Array.isArray(filterStage) ? filterStage : [filterStage];
+      return ids.includes(l.hs_stage_id);
+    })
+    .filter((l) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const f = l.fields ?? {};
@@ -2114,11 +2120,28 @@ function LeadsView() {
   const avgTimeToQuoteDays = quoteSamples.length > 0
     ? quoteSamples.reduce((a, b) => a + b, 0) / quoteSamples.length : null;
 
-  // Quote acceptance rate: of deals that reached Quote Sent, how many reached Contract Sent
+  // Quote acceptance: (Contract Sent + Closed Won) / (Quote Sent + all later stages)
   const quotesSentCount    = leads.filter((l) => l.hs_date_entered_quote_sent).length;
   const contractsSentCount = leads.filter((l) => l.hs_date_entered_contract_sent).length;
-  const quoteAcceptRate = quotesSentCount > 0
-    ? Math.round((contractsSentCount / quotesSentCount) * 100) : null;
+
+  const contractOrWonCount = leads.filter(
+    (l) => l.hs_date_entered_contract_sent || l.hs_date_entered_closed_won,
+  ).length;
+
+  const QUOTE_OR_LATER_IDS = new Set([
+    '3869825755', 'appointmentscheduled', 'presentationscheduled',
+    'decisionmakerboughtin', 'contractsent', 'closedwon', 'closedlost',
+  ]);
+  const quoteOrLaterCount = leads.filter(
+    (l) => l.hs_date_entered_quote_sent ||
+           l.hs_date_entered_contract_sent ||
+           l.hs_date_entered_closed_won ||
+           l.hs_date_entered_closed_lost ||
+           QUOTE_OR_LATER_IDS.has(l.hs_stage_id),
+  ).length;
+
+  const quoteAcceptRate = quoteOrLaterCount > 0
+    ? Math.round((contractOrWonCount / quoteOrLaterCount) * 100) : null;
 
   // Stale leads: active stage, no stage change in ≥7 days
   const STALE_DAYS = 7;
@@ -2179,6 +2202,7 @@ function LeadsView() {
         avgResponseDays={avgResponseDays} responseSamples={responseSamples}
         avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
         quoteAcceptRate={quoteAcceptRate} contractsSentCount={contractsSentCount} quotesSentCount={quotesSentCount}
+        contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}
         staleCount={staleCount} STALE_DAYS={STALE_DAYS}
         avgFullCycleDays={avgFullCycleDays} fullCycleSamples={fullCycleSamples}
       />
@@ -2192,13 +2216,24 @@ function LeadsView() {
             const count = ids.reduce((sum, id) => sum + (stageCountById[id] ?? 0), 0);
             const primaryId = ids[0];
             const s = HS_STAGE_COLORS[primaryId] ?? { bg: '#f3f4f6', color: '#6b7280' };
+            const isActive = filterStage !== null && (
+              Array.isArray(filterStage)
+                ? filterStage.join('-') === ids.join('-')
+                : ids.includes(filterStage)
+            );
+            const handleStageBoxClick = () => setFilterStage(isActive ? null : stage.id);
             return (
               <div key={Array.isArray(stage.id) ? stage.id.join('-') : stage.id} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
-                <div style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
-                  background: s.bg, border: `1.5px solid ${s.color}22`,
-                }}>
+                <div
+                  onClick={handleStageBoxClick}
+                  title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
+                  style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
+                    background: s.bg, border: isActive ? `2px solid ${s.color}` : `1.5px solid ${s.color}22`,
+                    cursor: 'pointer', outline: isActive ? `2px solid ${s.color}66` : 'none', outlineOffset: '1px',
+                  }}
+                >
                   <span style={{ fontSize: '22px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
                 </div>
@@ -2211,14 +2246,20 @@ function LeadsView() {
           {/* Closed Lost */}
           {(() => {
             const count = stageCountById[HS_CLOSED_LOST.id] ?? 0;
+            const isActive = filterStage === HS_CLOSED_LOST.id;
             return (
               <div style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
                 <div style={{ width: '1px', background: '#e5e7eb', flexShrink: 0 }} />
-                <div style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
-                  background: '#fee2e2', border: '1.5px solid #fca5a522',
-                }}>
+                <div
+                  onClick={() => setFilterStage(isActive ? null : HS_CLOSED_LOST.id)}
+                  title={isActive ? 'Click to clear filter' : 'Click to filter by Closed Lost'}
+                  style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
+                    background: '#fee2e2', border: isActive ? '2px solid #991b1b' : '1.5px solid #fca5a522',
+                    cursor: 'pointer', outline: isActive ? '2px solid #991b1b66' : 'none', outlineOffset: '1px',
+                  }}
+                >
                   <span style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', lineHeight: 1 }}>{count}</span>
                   <span style={{ fontSize: '10px', fontWeight: '700', color: '#991b1b', textAlign: 'center', lineHeight: 1.3 }}>Closed Lost</span>
                 </div>
@@ -2284,8 +2325,8 @@ function LeadsView() {
           {sortOrder === 'desc' ? '↓' : '↑'} {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
         </button>
 
-        <button onClick={loadLeads} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
-          Refresh
+        <button onClick={() => { loadLeads(); setFilterStage(null); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
+          Refresh / Clear Filter
         </button>
       </div>
 
@@ -2300,7 +2341,7 @@ function LeadsView() {
       )}
 
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
-        {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery) ? ' (filtered)' : ''}
+        {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery || filterStage) ? ' (filtered)' : ''}
       </p>
 
       {isLoading && <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading submissions…</p>}

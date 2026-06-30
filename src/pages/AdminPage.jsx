@@ -36,14 +36,14 @@ const HS_STAGE_COLORS = {
 };
 
 // Ordered pipeline stages — defines the linear lifecycle view
-// Appt/Presentation is a combined step (both IDs count toward it)
+// Appt/PPT/DM is a combined step (appointmentscheduled, presentationscheduled, decisionmakerboughtin all count)
 const HS_PIPELINE = [
-  { id: '3869825744',                                          label: 'New Request' },
-  { id: 'qualifiedtobuy',                                      label: 'Qualified' },
-  { id: '3869825755',                                          label: 'Quote Sent' },
-  { id: ['appointmentscheduled', 'presentationscheduled'],     label: 'Appt / Presentation' },
-  { id: 'contractsent',                                        label: 'Contract Sent' },
-  { id: 'closedwon',                                          label: 'Closed Won' },
+  { id: '3869825744',                                                                label: 'New Request' },
+  { id: 'qualifiedtobuy',                                                            label: 'Qualified' },
+  { id: '3869825755',                                                                label: 'Quote Sent' },
+  { id: ['appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin'],  label: 'Appt/PPT/DM' },
+  { id: 'contractsent',                                                              label: 'Contract Sent' },
+  { id: 'closedwon',                                                                 label: 'Closed Won' },
 ];
 const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
 
@@ -2074,7 +2074,7 @@ function LeadsView() {
   ).length;
 
   // Lead-to-Quote = reached Quote Sent or any later stage
-  const quoteOrBeyond = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'contractsent', 'closedwon']);
+  const quoteOrBeyond = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin', 'contractsent', 'closedwon']);
   const quotedCount = leads.filter((l) => quoteOrBeyond.has(l.hs_stage_id)).length;
   const leadToQuoteRate = totalLeads > 0 ? Math.round((quotedCount / totalLeads) * 100) : null;
 
@@ -2330,7 +2330,7 @@ const PERF_STAGE_REACH_ORDER = [
   { key: 'hs_date_entered_new_request',   label: 'New Request',   id: '3869825744' },
 ];
 
-const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'contractsent', 'closedwon']);
+const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin', 'contractsent', 'closedwon']);
 
 // Monthly stacked bar chart (Homeowner vs Trade volume)
 function MonthlyVolumeBars({ data }) {
@@ -2646,140 +2646,6 @@ function PerformanceView() {
         </p>
       </div>
 
-      {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
-      <section>
-        {sectionLabel('Trends · Last 12 Months')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-
-          {chartCard(
-            'New Leads per Month',
-            <><span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Homeowner &nbsp;<span style={{ color: '#166534', fontWeight: '700' }}>■</span> Trade</>,
-            <MonthlyVolumeBars data={monthlyStats} />,
-          )}
-
-          {chartCard(
-            'Conversion Rates',
-            'Win Rate % and Lead → Quote % by month  ·  min. 2 data points to plot',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[
-                { key: 'winRate',     label: 'Win Rate',     color: '#16a34a' },
-                { key: 'leadToQuote', label: 'Lead → Quote', color: '#7c3aed' },
-              ]}
-              formatTip={(v) => `${v}%`}
-            />,
-          )}
-
-          {chartCard(
-            'Avg Time to Quote',
-            'Days from New Request → Quote Sent, grouped by month the quote was sent',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
-              formatTip={(v) => `${Math.round(v)}d`}
-            />,
-          )}
-
-          {chartCard(
-            'Avg Full Cycle',
-            'Days from New Request → Closed Won, grouped by month the deal was won',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}
-              formatTip={(v) => `${Math.round(v)}d`}
-            />,
-          )}
-        </div>
-      </section>
-
-      {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
-      <section>
-        {sectionLabel('Pipeline Health')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
-              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
-            </div>
-            {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
-              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {stageVelocity.map((stage) => {
-                  const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
-                  const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
-                  const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
-                  return (
-                    <div key={stage.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          {stage.avg !== null
-                            ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
-                            : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
-                          {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
-                          {stage.activeInStage > 0 && (
-                            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
-                              {stage.activeInStage} active
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                        <div style={{ width: `${barPct}%`, height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
-              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
-            </div>
-            {lostLeads.length === 0 ? (
-              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
-                  const count = lostByStage[stageDef.id] ?? 0;
-                  const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
-                  const barPct = Math.max(count > 0 ? 4 : 0, pct);
-                  return (
-                    <div key={stageDef.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
-                          {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
-                        </div>
-                      </div>
-                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                        <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                {lostLeads.length > 0 && (
-                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
-                    {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
-                     lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
-                     lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
-                     'Losses at early stages — lead quality or response time may be the issue.'}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
       {/* ── Conversion by Lead Type ───────────────────────────────────────────── */}
       <section>
         {sectionLabel('Conversion by Lead Type')}
@@ -3020,6 +2886,140 @@ function PerformanceView() {
           </div>
         </div>
       </section>
+      {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
+      <section>
+        {sectionLabel('Trends · Last 12 Months')}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+          {chartCard(
+            'New Leads per Month',
+            <><span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Homeowner &nbsp;<span style={{ color: '#166534', fontWeight: '700' }}>■</span> Trade</>,
+            <MonthlyVolumeBars data={monthlyStats} />,
+          )}
+
+          {chartCard(
+            'Conversion Rates',
+            'Win Rate % and Lead → Quote % by month  ·  min. 2 data points to plot',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[
+                { key: 'winRate',     label: 'Win Rate',     color: '#16a34a' },
+                { key: 'leadToQuote', label: 'Lead → Quote', color: '#7c3aed' },
+              ]}
+              formatTip={(v) => `${v}%`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Time to Quote',
+            'Days from New Request → Quote Sent, grouped by month the quote was sent',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Full Cycle',
+            'Days from New Request → Closed Won, grouped by month the deal was won',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+        </div>
+      </section>
+
+      {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
+      <section>
+        {sectionLabel('Pipeline Health')}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
+            </div>
+            {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {stageVelocity.map((stage) => {
+                  const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
+                  const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
+                  const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+                  return (
+                    <div key={stage.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {stage.avg !== null
+                            ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
+                            : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
+                          {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
+                          {stage.activeInStage > 0 && (
+                            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
+                              {stage.activeInStage} active
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
+            </div>
+            {lostLeads.length === 0 ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
+                  const count = lostByStage[stageDef.id] ?? 0;
+                  const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
+                  const barPct = Math.max(count > 0 ? 4 : 0, pct);
+                  return (
+                    <div key={stageDef.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
+                          {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {lostLeads.length > 0 && (
+                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                    {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
+                     lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
+                     lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
+                     'Losses at early stages — lead quality or response time may be the issue.'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
     </div>
   );
 }
@@ -3528,111 +3528,4 @@ function Sidebar({ activeView, onNavigate, currentUser }) {
             </p>
           ) : null;
         }
-        const isActive = activeView === entry.key;
-        return (
-          <button
-            key={entry.key}
-            onClick={() => onNavigate(entry.key)}
-            style={{
-              display: 'block', width: '100%', textAlign: 'left',
-              padding: '8px 16px', border: 0, borderRadius: '6px',
-              background: isActive ? '#78350f' : 'transparent',
-              color: isActive ? '#ffffff' : '#374151',
-              fontSize: '14px', fontWeight: isActive ? '700' : '500',
-              cursor: 'pointer', marginBottom: '2px',
-            }}
-          >
-            {entry.label}
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-export function AdminPage() {
-  const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
-  const [currentUser, setCurrentUser] = useState(null);
-  const [activeView, setActiveView] = useState('leads');
-
-  useEffect(() => {
-    const token = sessionStorage.getItem('admin_token');
-    const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
-
-    if (token && user) {
-      setCurrentUser(user);
-      setAuthState('authed');
-      return;
-    }
-
-    // Check if first-time setup is needed
-    fetch('/api/admin-auth')
-      .then((r) => r.json())
-      .then((d) => setAuthState(d.needsSetup ? 'setup' : 'login'))
-      .catch(() => setAuthState('login'));
-  }, []);
-
-  function handleLogin(token, user) {
-    sessionStorage.setItem('admin_token', token);
-    sessionStorage.setItem('admin_user', JSON.stringify(user));
-    setCurrentUser(user);
-    setAuthState('authed');
-  }
-
-  async function handleLogout() {
-    await fetch('/api/admin-auth', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'logout' }),
-    });
-    sessionStorage.removeItem('admin_token');
-    sessionStorage.removeItem('admin_user');
-    setCurrentUser(null);
-    setAuthState('login');
-  }
-
-  if (authState === 'loading') return null;
-  if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
-  if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
-
-  function renderView() {
-    switch (activeView) {
-      case 'performance': return <PerformanceView />;
-      case 'notifications': return <NotificationsPanel />;
-      case 'confirmations': return <ConfirmationsPanel />;
-      case 'users': return <UsersPanel currentUser={currentUser} />;
-      case 'site-stats': return <SiteStatsView />;
-      case 'projects': return <ProjectsPanel />;
-      default: return <LeadsView />;
-    }
-  }
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
-      {/* Header */}
-      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
-        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
-          Caliber Cabinets
-          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
-        </p>
-        {currentUser?.name && (
-          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
-        )}
-        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
-          Sign Out
-        </button>
-      </header>
-
-      {/* Body */}
-      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
-        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
-        <main style={{ flex: 1, minWidth: 0 }}>
-          {renderView()}
-        </main>
-      </div>
-    </div>
-  );
-}
+        const isActive = active

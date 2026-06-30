@@ -1734,6 +1734,35 @@ function SiteStatsView() {
   );
 }
 
+// ─── Lightweight hover tooltip for non-KpiCard elements ─────────────────────
+function WithTip({ tip, children, style }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      style={{ position: 'relative', ...style }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {children}
+      {hovered && tip && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 10px)', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 200, background: '#1f2937',
+          borderRadius: '8px', padding: '10px 14px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)', width: '230px', pointerEvents: 'none',
+        }}>
+          <span style={{
+            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0, borderLeft: '7px solid transparent',
+            borderRight: '7px solid transparent', borderTop: '7px solid #1f2937',
+          }} />
+          <p style={{ margin: 0, fontSize: '12px', color: '#f3f4f6', lineHeight: 1.5 }}>{tip}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Metric cards with hover tooltip bubbles ─────────────────────────────────
 
 function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
@@ -2712,15 +2741,17 @@ function PerformanceView() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 {[
-                  { label: 'Win Rate', value: stats.winRate !== null ? `${stats.winRate}%` : '—', sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals', color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af' },
-                  { label: 'Lead → Quote', value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—', sub: `${stats.quoted} of ${stats.total} leads`, color: '#111827' },
-                  { label: 'Active Now', value: stats.active, sub: `${stats.total - stats.active - stats.closed} untracked`, color: accent },
+                  { label: 'Win Rate', value: stats.winRate !== null ? `${stats.winRate}%` : '—', sub: stats.closed > 0 ? `${stats.won}W · ${stats.lost}L` : 'No closed deals', color: stats.winRate !== null ? (stats.winRate >= 50 ? '#16a34a' : '#dc2626') : '#9ca3af', tip: 'Won deals ÷ total closed (Won + Lost). Only fully closed deals count — active leads in the pipeline aren\'t included yet.' },
+                  { label: 'Lead → Quote', value: stats.quoteRate !== null ? `${stats.quoteRate}%` : '—', sub: `${stats.quoted} of ${stats.total} leads`, color: '#111827', tip: 'Of all leads in this category, the % that reached Quote Sent or later. Shows how many inquiries are converting to real proposals.' },
+                  { label: 'Active Now', value: stats.active, sub: `${stats.total - stats.active - stats.closed} untracked`, color: accent, tip: 'Leads currently in the HubSpot pipeline — they have an active stage and haven\'t been marked Won or Lost yet.' },
                 ].map((cell) => (
-                  <div key={cell.label} style={{ textAlign: 'center', padding: '10px 6px', background: bg, borderRadius: '6px' }}>
-                    <p style={{ margin: '0 0 2px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cell.label}</p>
-                    <p style={{ margin: '0 0 2px', fontSize: '20px', fontWeight: '700', color: cell.color, lineHeight: 1.1 }}>{cell.value}</p>
-                    <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af' }}>{cell.sub}</p>
-                  </div>
+                  <WithTip key={cell.label} tip={cell.tip}>
+                    <div style={{ textAlign: 'center', padding: '10px 6px', background: bg, borderRadius: '6px' }}>
+                      <p style={{ margin: '0 0 2px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cell.label}</p>
+                      <p style={{ margin: '0 0 2px', fontSize: '20px', fontWeight: '700', color: cell.color, lineHeight: 1.1 }}>{cell.value}</p>
+                      <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af' }}>{cell.sub}</p>
+                    </div>
+                  </WithTip>
                 ))}
               </div>
             </div>
@@ -2731,19 +2762,21 @@ function PerformanceView() {
       {/* ── Avg Full Cycle (all-time) ─────────────────────────────────────────── */}
       <section>
         {sectionLabel('Avg Full Cycle')}
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', display: 'flex', alignItems: 'baseline', gap: '16px' }}>
-          <span style={{ fontSize: '40px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
-            {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
-          </span>
-          <div>
-            <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>New Request → Closed Won</p>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-              {fullCycleSamples.length > 0
-                ? `Average of ${fullCycleSamples.length} closed-won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full stage history`
-                : 'No won deals with full stage history yet'}
-            </p>
+        <WithTip tip="Average number of days from first contact to Closed Won, across all won deals that have complete stage history in HubSpot. Lower = faster sales cycle. Only deals with a recorded New Request date are included.">
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', display: 'flex', alignItems: 'baseline', gap: '16px' }}>
+            <span style={{ fontSize: '40px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
+              {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
+            </span>
+            <div>
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>New Request → Closed Won</p>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
+                {fullCycleSamples.length > 0
+                  ? `Average of ${fullCycleSamples.length} closed-won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full stage history`
+                  : 'No won deals with full stage history yet'}
+              </p>
+            </div>
           </div>
-        </div>
+        </WithTip>
       </section>
 
       {/* ── Marketing Effectiveness ───────────────────────────────────────────── */}
@@ -2766,6 +2799,7 @@ function PerformanceView() {
                   bg: '#eff6ff',
                   configured: gsc?.configured,
                   noData: !gsc?.configured,
+                  tip: 'How many times your website appeared in Google search results over the last 28 days. More impressions means better search visibility — people are finding you when they search for cabinets.',
                 },
                 {
                   label: 'Clicks',
@@ -2776,6 +2810,7 @@ function PerformanceView() {
                   configured: gsc?.configured,
                   noData: !gsc?.configured,
                   rate: organicCTR != null ? `${organicCTR}% CTR` : null,
+                  tip: 'How many people actually clicked through to your site from Google search results. CTR (click-through rate) = Clicks ÷ Impressions. A higher CTR means your page titles and descriptions are compelling.',
                 },
                 {
                   label: 'Form Leads',
@@ -2790,6 +2825,7 @@ function PerformanceView() {
                   configured: true,
                   noData: false,
                   rate: clickToLeadRate != null ? `${clickToLeadRate}% click→lead` : null,
+                  tip: 'Design consultation and trade estimate form submissions in the last 28 days. This is where site traffic converts to actual sales opportunities.',
                 },
               ].map((step, i, arr) => (
                 <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
@@ -2802,19 +2838,21 @@ function PerformanceView() {
                       )}
                     </div>
                   )}
-                  <div style={{
-                    flex: 1, textAlign: 'center', padding: '14px 10px', borderRadius: '8px',
-                    background: step.noData ? '#f9fafb' : step.bg,
-                    border: `1px solid ${step.noData ? '#e5e7eb' : step.color}22`,
-                  }}>
-                    <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{step.label}</p>
-                    <p style={{ margin: '0 0 4px', fontSize: '28px', fontWeight: '700', color: step.noData ? '#d1d5db' : step.color, lineHeight: 1 }}>
-                      {step.noData ? '—' : step.value}
-                    </p>
-                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
-                      {step.noData ? 'Not connected' : step.sub}
-                    </p>
-                  </div>
+                  <WithTip tip={step.noData ? null : step.tip} style={{ flex: 1 }}>
+                    <div style={{
+                      textAlign: 'center', padding: '14px 10px', borderRadius: '8px',
+                      background: step.noData ? '#f9fafb' : step.bg,
+                      border: `1px solid ${step.noData ? '#e5e7eb' : step.color}22`,
+                    }}>
+                      <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{step.label}</p>
+                      <p style={{ margin: '0 0 4px', fontSize: '28px', fontWeight: '700', color: step.noData ? '#d1d5db' : step.color, lineHeight: 1 }}>
+                        {step.noData ? '—' : step.value}
+                      </p>
+                      <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
+                        {step.noData ? 'Not connected' : step.sub}
+                      </p>
+                    </div>
+                  </WithTip>
                 </div>
               ))}
             </div>

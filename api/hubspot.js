@@ -393,4 +393,36 @@ export function buildHubSpotObjects(formType, fields, attachmentUrls = {}) {
     line('Areas Requiring Cabinetry', fields.areasRequiringCabinetry);
     line('Installation Timeline', fields.installationTimeline);
 
-   
+    lines.push('');
+    line('Construction Method', fields.constructionMethod);
+    line('Crown Molding', fields.crownMolding);
+    line('Door Style', fields.doorStyle);
+    line('Wood Species / Material', fields.woodSpecies);
+
+    lines.push('');
+    line('Accessories & Upgrades', fields.accessories);
+
+    if (fields.comments) {
+      lines.push('');
+      lines.push(`Comments:\n${fields.comments}`);
+    }
+  }
+
+  // Attachments (both forms) — include signed URLs if available
+  if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
+    lines.push('');
+    lines.push('Uploaded Files:');
+    for (const path of fields.attachments) {
+      const filename = path.split('/').pop().replace(/^\d+-/, '');
+      const url = attachmentUrls[path];
+      lines.push(url ? `  ${filename}: ${url}` : `  ${filename}`);
+    }
+  }
+
+  const dealProperties = {
+    dealname: dealName,
+    description: lines.join('\n'),
+  };
+
+  return { contactProperties, dealProperties };
+}

@@ -166,6 +166,31 @@ export async function batchGetDealStages(dealIds) {
  *
  * source: 'hubspot' distinguishes these from web-form submissions.
  */
+/**
+ * Fetch all stages for the configured deals pipeline.
+ * Returns an array of { id, label, displayOrder } sorted by displayOrder.
+ */
+export async function getPipelineStages() {
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
+  const res = await hs(`/crm/v3/pipelines/deals/${pipelineId}/stages`, 'GET');
+  if (!res.ok) throw new Error(`HubSpot pipeline stages ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return (data.results ?? [])
+    .map((s) => ({ id: s.id, label: s.label, displayOrder: s.displayOrder ?? 0 }))
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+/**
+ * Update the dealstage property of a HubSpot deal.
+ */
+export async function updateDealStage(dealId, stageId) {
+  const res = await hs(`/crm/v3/objects/deals/${dealId}`, 'PATCH', {
+    properties: { dealstage: stageId },
+  });
+  if (!res.ok) throw new Error(`HubSpot update deal stage ${res.status}: ${await res.text()}`);
+  return await res.json();
+}
+
 export async function getAllPipelineDeals() {
   const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
   const portalId   = process.env.HUBSPOT_PORTAL_ID;
@@ -368,36 +393,4 @@ export function buildHubSpotObjects(formType, fields, attachmentUrls = {}) {
     line('Areas Requiring Cabinetry', fields.areasRequiringCabinetry);
     line('Installation Timeline', fields.installationTimeline);
 
-    lines.push('');
-    line('Construction Method', fields.constructionMethod);
-    line('Crown Molding', fields.crownMolding);
-    line('Door Style', fields.doorStyle);
-    line('Wood Species / Material', fields.woodSpecies);
-
-    lines.push('');
-    line('Accessories & Upgrades', fields.accessories);
-
-    if (fields.comments) {
-      lines.push('');
-      lines.push(`Comments:\n${fields.comments}`);
-    }
-  }
-
-  // Attachments (both forms) — include signed URLs if available
-  if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
-    lines.push('');
-    lines.push('Uploaded Files:');
-    for (const path of fields.attachments) {
-      const filename = path.split('/').pop().replace(/^\d+-/, '');
-      const url = attachmentUrls[path];
-      lines.push(url ? `  ${filename}: ${url}` : `  ${filename}`);
-    }
-  }
-
-  const dealProperties = {
-    dealname: dealName,
-    description: lines.join('\n'),
-  };
-
-  return { contactProperties, dealProperties };
-}
+   

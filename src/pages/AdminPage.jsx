@@ -127,6 +127,67 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
   );
 }
 
+function StagePicker({ lead, pipelineStages, onStageChange }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = React.useRef(null);
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!open) return;
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  if (!lead.hubspot_deal_id) {
+    return <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />;
+  }
+
+  async function selectStage(stage) {
+    if (stage.id === lead.hs_stage_id) { setOpen(false); return; }
+    setSaving(true);
+    setOpen(false);
+    try {
+      await apiCall('/api/admin-leads', { method: 'PATCH', body: { dealId: lead.hubspot_deal_id, stageId: stage.id } });
+      onStageChange(lead.id ?? lead.hubspot_deal_id, stage);
+    } catch { /* non-fatal */ }
+    setSaving(false);
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <span
+        onClick={(e) => { e.stopPropagation(); if (!saving) setOpen((o) => !o); }}
+        title="Click to change stage"
+        style={{ cursor: saving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+      >
+        <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />
+        <span style={{ fontSize: '10px', color: '#9ca3af', lineHeight: 1 }}>▾</span>
+      </span>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: '200px', overflow: 'hidden' }}>
+          {pipelineStages.map((stage) => {
+            const isActive = stage.id === lead.hs_stage_id;
+            const style = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
+            return (
+              <button
+                key={stage.id}
+                onMouseDown={(e) => { e.preventDefault(); selectStage(stage); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', border: 0, borderBottom: '1px solid #f3f4f6', background: isActive ? '#f9fafb' : '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: style.bg, border: `2px solid ${style.color}`, flexShrink: 0 }} />
+                <span style={{ fontSize: '13px', fontWeight: isActive ? '700' : '500', color: '#111827' }}>{stage.label}</span>
+                {isActive && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#9ca3af' }}>current</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TypeBadge({ formType, source }) {
   if (source === 'hubspot') {
     return (
@@ -452,7 +513,7 @@ function LeadDetail({ lead }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, onStageChange }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   // HubSpot-only deals may have no contact name — fall back to the deal name
@@ -464,7 +525,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} source={lead.source} />
-          <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />
+          <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} onStageChange={onStageChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
               ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
@@ -1870,6 +1931,25 @@ function LeadsView() {
   const searchRef = useRef(null);
 
   const [newCount, setNewCount] = useState(0);
+  const [pipelineStages, setPipelineStages] = useState([]);
+
+  // Fetch pipeline stages once on mount so LeadCard can render the picker
+  useEffect(() => {
+    apiCall('/api/admin-leads?action=pipeline-stages')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d.stages)) setPipelineStages(d.stages); })
+      .catch(() => { /* non-fatal — picker just won't show options */ });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleStageChange(leadKey, stage) {
+    setLeads((prev) =>
+      prev.map((l) =>
+        (l.id === leadKey || l.hubspot_deal_id === leadKey)
+          ? { ...l, hs_stage_id: stage.id, hs_stage_label: stage.label }
+          : l,
+      ),
+    );
+  }
 
   async function loadLeads(silent = false) {
     if (!silent) setIsLoading(true);
@@ -2205,7 +2285,7 @@ function LeadsView() {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} onStageChange={handleStageChange} />
             </div>
           ))}
         </div>
@@ -3450,89 +3530,4 @@ function Sidebar({ activeView, onNavigate, currentUser }) {
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-export function AdminPage() {
-  const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
-  const [currentUser, setCurrentUser] = useState(null);
-  const [activeView, setActiveView] = useState('leads');
-
-  useEffect(() => {
-    const token = sessionStorage.getItem('admin_token');
-    const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
-
-    if (token && user) {
-      setCurrentUser(user);
-      setAuthState('authed');
-      return;
-    }
-
-    // Check if first-time setup is needed
-    fetch('/api/admin-auth')
-      .then((r) => r.json())
-      .then((d) => setAuthState(d.needsSetup ? 'setup' : 'login'))
-      .catch(() => setAuthState('login'));
-  }, []);
-
-  function handleLogin(token, user) {
-    sessionStorage.setItem('admin_token', token);
-    sessionStorage.setItem('admin_user', JSON.stringify(user));
-    setCurrentUser(user);
-    setAuthState('authed');
-  }
-
-  async function handleLogout() {
-    await fetch('/api/admin-auth', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'logout' }),
-    });
-    sessionStorage.removeItem('admin_token');
-    sessionStorage.removeItem('admin_user');
-    setCurrentUser(null);
-    setAuthState('login');
-  }
-
-  if (authState === 'loading') return null;
-  if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
-  if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
-
-  function renderView() {
-    switch (activeView) {
-      case 'performance': return <PerformanceView />;
-      case 'notifications': return <NotificationsPanel />;
-      case 'confirmations': return <ConfirmationsPanel />;
-      case 'users': return <UsersPanel currentUser={currentUser} />;
-      case 'site-stats': return <SiteStatsView />;
-      case 'projects': return <ProjectsPanel />;
-      default: return <LeadsView />;
-    }
-  }
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
-      {/* Header */}
-      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
-        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
-          Caliber Cabinets
-          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
-        </p>
-        {currentUser?.name && (
-          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
-        )}
-        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
-          Sign Out
-        </button>
-      </header>
-
-      {/* Body */}
-      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
-        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
-        <main style={{ flex: 1, minWidth: 0 }}>
-          {renderView()}
-        </main>
-      </div>
-    </div>
-  );
-}
+// ─── Main ──�

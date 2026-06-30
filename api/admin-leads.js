@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages, getAllPipelineDeals } from './hubspot.js';
+import { batchGetDealStages, getAllPipelineDeals, getPipelineStages, updateDealStage } from './hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 export default async function handler(req, res) {
@@ -11,6 +11,29 @@ export default async function handler(req, res) {
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
+
+  // GET ?action=pipeline-stages — return all pipeline stages for the stage picker
+  if (req.method === 'GET' && req.query?.action === 'pipeline-stages') {
+    try {
+      const stages = await getPipelineStages();
+      return res.status(200).json({ stages });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // PATCH — update deal stage in HubSpot
+  if (req.method === 'PATCH') {
+    const { dealId, stageId } = req.body ?? {};
+    if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
+    try {
+      await updateDealStage(dealId, stageId);
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error('[admin-leads] HubSpot update stage error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   // GET — list all leads, newest first, enriched with HubSpot deal stage
   if (req.method === 'GET') {

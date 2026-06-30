@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { FileDropZone } from '../components/FileDropZone.jsx';
 
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -3022,12 +3023,250 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+// ─── Projects Panel ───────────────────────────────────────────────────────────
+
+function ProjectsPanel() {
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState('');
+
+  // Add form
+  const [imageFile, setImageFile] = useState(null);
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [featured, setFeatured] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [fileError, setFileError] = useState('');
+
+  // Edit state
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  useEffect(() => { loadProjects(); }, []);
+
+  async function loadProjects() {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/admin-projects', {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const d = await r.json();
+      setProjects(d.projects || []);
+    } catch {
+      setListError('Failed to load projects');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setUploadError('');
+    setFileError('');
+    if (!imageFile) { setFileError('Please select an image'); return; }
+    if (!title.trim() || !location.trim()) { setUploadError('Title and location are required'); return; }
+    setSubmitting(true);
+    try {
+      // 1. Get signed upload URL
+      const urlRes = await fetch('/api/admin-projects', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get-upload-url', filename: imageFile.name }),
+      });
+      const { signedUrl, publicUrl, error: urlErr } = await urlRes.json();
+      if (urlErr) throw new Error(urlErr);
+
+      // 2. PUT file directly to Supabase storage
+      const uploadRes = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': imageFile.type || 'application/octet-stream' },
+        body: imageFile,
+      });
+      if (!uploadRes.ok) throw new Error('Image upload failed');
+
+      // 3. Save project record
+      const createRes = await fetch('/api/admin-projects', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', title: title.trim(), location: location.trim(), image_url: publicUrl, featured }),
+      });
+      const { error: createErr } = await createRes.json();
+      if (createErr) throw new Error(createErr);
+
+      setImageFile(null);
+      setTitle('');
+      setLocation('');
+      setFeatured(false);
+      await loadProjects();
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(project) {
+    if (!window.confirm(`Delete "${project.title}"? This cannot be undone.`)) return;
+    await fetch('/api/admin-projects', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: project.id, image_url: project.image_url }),
+    });
+    setProjects((p) => p.filter((x) => x.id !== project.id));
+  }
+
+  async function handleToggleFeatured(project) {
+    const r = await fetch('/api/admin-projects', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', id: project.id, featured: !project.featured }),
+    });
+    const { project: updated } = await r.json();
+    if (updated) setProjects((p) => p.map((x) => (x.id === project.id ? updated : x)));
+  }
+
+  function startEdit(project) {
+    setEditingId(project.id);
+    setEditTitle(project.title);
+    setEditLocation(project.location);
+  }
+
+  async function saveEdit(project) {
+    setEditSaving(true);
+    const r = await fetch('/api/admin-projects', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', id: project.id, title: editTitle.trim(), location: editLocation.trim() }),
+    });
+    const { project: updated } = await r.json();
+    if (updated) setProjects((p) => p.map((x) => (x.id === project.id ? updated : x)));
+    setEditingId(null);
+    setEditSaving(false);
+  }
+
+  const inputSt = { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' };
+  const labelSt = { display: 'block', fontSize: '12px', fontWeight: '700', color: '#6b7280', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' };
+  const cardSt = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '28px', marginBottom: '24px' };
+
+  return (
+    <div>
+      {/* Add project */}
+      <div style={cardSt}>
+        <h2 style={{ margin: '0 0 22px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>Add New Project</h2>
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelSt}>Project Photo</label>
+            <FileDropZone
+              accept="image/*"
+              multiple={false}
+              hint="JPG, PNG, or WebP — recommended at least 1200px wide"
+              selectedFiles={imageFile ? [imageFile] : []}
+              onChange={(files) => { setImageFile(files[0] || null); setFileError(''); }}
+              error={fileError}
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelSt}>Title</label>
+              <input style={inputSt} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Modern White Kitchen" />
+            </div>
+            <div>
+              <label style={labelSt}>Location</label>
+              <input style={inputSt} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Pleasanton, CA" />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+            <input type="checkbox" id="proj-featured" checked={featured} onChange={(e) => setFeatured(e.target.checked)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+            <label htmlFor="proj-featured" style={{ fontSize: '14px', color: '#374151', cursor: 'pointer' }}>Show on homepage (Featured)</label>
+          </div>
+          {uploadError && <p style={{ color: '#b91c1c', fontSize: '13px', margin: '0 0 12px' }}>{uploadError}</p>}
+          <button type="submit" disabled={submitting} style={{ background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', padding: '10px 22px', fontWeight: '700', fontSize: '14px', cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? 'Uploading…' : 'Add Project'}
+          </button>
+        </form>
+      </div>
+
+      {/* Project list */}
+      <div style={cardSt}>
+        <h2 style={{ margin: '0 0 20px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>
+          All Projects <span style={{ fontWeight: '400', color: '#9ca3af' }}>({projects.length})</span>
+        </h2>
+        {loading ? (
+          <p style={{ color: '#9ca3af' }}>Loading…</p>
+        ) : listError ? (
+          <p style={{ color: '#b91c1c' }}>{listError}</p>
+        ) : projects.length === 0 ? (
+          <p style={{ color: '#9ca3af' }}>No projects yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {projects.map((project) => (
+              <div key={project.id} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', padding: '14px', border: '1px solid #f3f4f6', borderRadius: '8px', background: '#fafafa' }}>
+                <img src={project.image_url} alt={project.title} style={{ width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0, background: '#e5e7eb' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {editingId === project.id ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <input style={{ ...inputSt, padding: '6px 10px' }} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Title" />
+                      <input style={{ ...inputSt, padding: '6px 10px' }} value={editLocation} onChange={(e) => setEditLocation(e.target.value)} placeholder="City, State" />
+                    </div>
+                  ) : (
+                    <>
+                      <p style={{ margin: '0 0 2px', fontWeight: '700', fontSize: '14px', color: '#111827' }}>{project.title}</p>
+                      <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>{project.location}</p>
+                    </>
+                  )}
+                  <div style={{ marginTop: '6px' }}>
+                    <button
+                      onClick={() => handleToggleFeatured(project)}
+                      style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', border: '1px solid', cursor: 'pointer',
+                        background: project.featured ? '#fef3c7' : '#f3f4f6',
+                        color: project.featured ? '#92400e' : '#6b7280',
+                        borderColor: project.featured ? '#fbbf24' : '#d1d5db',
+                      }}
+                    >
+                      {project.featured ? '★ Featured' : '☆ Not featured'}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  {editingId === project.id ? (
+                    <>
+                      <button onClick={() => saveEdit(project)} disabled={editSaving} style={{ fontSize: '12px', fontWeight: '700', padding: '5px 12px', borderRadius: '5px', border: 0, background: '#78350f', color: '#fff', cursor: 'pointer' }}>
+                        {editSaving ? '…' : 'Save'}
+                      </button>
+                      <button onClick={() => setEditingId(null)} style={{ fontSize: '12px', padding: '5px 12px', borderRadius: '5px', border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => startEdit(project)} style={{ fontSize: '12px', padding: '5px 12px', borderRadius: '5px', border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+                        Edit
+                      </button>
+                      <button onClick={() => handleDelete(project)} style={{ fontSize: '12px', padding: '5px 12px', borderRadius: '5px', border: '1px solid #fca5a5', background: '#fff', color: '#b91c1c', cursor: 'pointer' }}>
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
   { key: 'leads', label: 'Leads', section: null },
   { key: 'performance', label: 'Performance', section: null },
   { key: 'site-stats', label: 'Site Stats', section: null },
+  { key: 'projects', label: 'Projects', section: 'Content' },
   { key: 'notifications', label: 'Notifications', section: 'Settings' },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings' },
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: false },
@@ -3131,6 +3370,7 @@ export function AdminPage() {
       case 'confirmations': return <ConfirmationsPanel />;
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
+      case 'projects': return <ProjectsPanel />;
       default: return <LeadsView />;
     }
   }

@@ -1,5 +1,10 @@
 const projects = [
   {
+    title: 'Contemporary Kitchen Remodel',
+    location: 'Clayton, CA',
+    image: '/images/caliber-project-clayton-kitchen.webp',
+  },
+  {
     title: 'Modern White Kitchen',
     location: 'Livermore, CA',
     image: '/images/caliber-project-modern-white-kitchen.jpg',
@@ -8,11 +13,6 @@ const projects = [
     title: 'Two-Tone Kitchen Design',
     location: 'Pleasanton, CA',
     image: '/images/caliber-project-pleasanton-kitchen.webp',
-  },
-  {
-    title: 'Traditional Wood Cabinetry',
-    location: 'Castro Valley, CA',
-    image: '/images/caliber-project-traditional-wood-kitchen.jpg',
   },
 ];
 

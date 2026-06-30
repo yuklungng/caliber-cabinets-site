@@ -1,38 +1,50 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { SiteFooter } from '../components/SiteFooter.jsx';
 import { SiteHeader } from '../components/SiteHeader.jsx';
 
-const projects = [
+// Static fallback — shown until DB is seeded or if API is unavailable
+const STATIC_PROJECTS = [
   {
-    title: 'Modern White Kitchen',
-    location: 'Livermore, CA',
-    description: 'Crisp white shaker cabinetry with quartz countertops and custom hardware throughout.',
-    image: '/images/caliber-project-modern-white-kitchen.jpg',
-  },
-  {
-    title: 'Two-Tone Kitchen Design',
-    location: 'Pleasanton, CA',
-    description: 'Navy lower cabinets paired with white uppers — bold contrast with timeless proportions.',
-    image: '/images/caliber-project-pleasanton-kitchen.webp',
-  },
-  {
-    title: 'Traditional Wood Cabinetry',
-    location: 'Castro Valley, CA',
-    description: 'Warm stained wood with raised panel doors and crown molding throughout.',
-    image: '/images/caliber-project-traditional-wood-kitchen.jpg',
-  },
-  {
+    id: 'static-1',
     title: 'Contemporary Kitchen Remodel',
     location: 'Clayton, CA',
-    description: 'Soft gray shaker cabinetry with a walnut island, Calacatta marble countertops, and integrated appliances.',
-    image: '/images/caliber-project-clayton-kitchen.webp',
+    image_url: '/images/caliber-project-clayton-kitchen.webp',
+  },
+  {
+    id: 'static-2',
+    title: 'Modern White Kitchen',
+    location: 'Livermore, CA',
+    image_url: '/images/caliber-project-modern-white-kitchen.jpg',
+  },
+  {
+    id: 'static-3',
+    title: 'Two-Tone Kitchen Design',
+    location: 'Pleasanton, CA',
+    image_url: '/images/caliber-project-pleasanton-kitchen.webp',
+  },
+  {
+    id: 'static-4',
+    title: 'Traditional Wood Cabinetry',
+    location: 'Castro Valley, CA',
+    image_url: '/images/caliber-project-traditional-wood-kitchen.jpg',
   },
 ];
 
 export function GalleryPage() {
+  const [projects, setProjects] = useState(STATIC_PROJECTS);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     document.title = 'Our Work | Caliber Cabinets';
     window.scrollTo(0, 0);
+
+    fetch('/api/admin-projects')
+      .then((r) => r.json())
+      .then(({ projects: data }) => {
+        if (Array.isArray(data) && data.length > 0) setProjects(data);
+      })
+      .catch(() => { /* keep static fallback */ })
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -51,24 +63,30 @@ export function GalleryPage() {
 
         <section className="gallery-grid-section">
           <div className="container">
-            <div className="gallery-project-grid">
-              {projects.map((project) => (
-                <article className="gallery-project-card" key={project.title}>
-                  <div className="gallery-project-image">
-                    <img
-                      src={project.image}
-                      alt={`${project.title} by Caliber Cabinets — ${project.location}`}
-                      loading="lazy"
-                    />
-                  </div>
-                  <div className="gallery-project-body">
-                    <p className="gallery-project-location">{project.location}</p>
-                    <h2 className="gallery-project-title">{project.title}</h2>
-                    <p className="gallery-project-desc">{project.description}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af' }}>Loading projects…</div>
+            ) : (
+              <div className="gallery-project-grid">
+                {projects.map((project) => (
+                  <article className="gallery-project-card" key={project.id}>
+                    <div className="gallery-project-image">
+                      <img
+                        src={project.image_url}
+                        alt={`${project.title} by Caliber Cabinets — ${project.location}`}
+                        loading="lazy"
+                      />
+                    </div>
+                    <div className="gallery-project-body">
+                      <p className="gallery-project-location">{project.location}</p>
+                      <h2 className="gallery-project-title">{project.title}</h2>
+                      {project.description && (
+                        <p className="gallery-project-desc">{project.description}</p>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

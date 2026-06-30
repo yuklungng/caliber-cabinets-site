@@ -130,10 +130,10 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
 function StagePicker({ lead, pipelineStages, onStageChange }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const ref = React.useRef(null);
+  const ref = useRef(null);
 
   // Close on outside click
-  React.useEffect(() => {
+  useEffect(() => {
     if (!open) return;
     function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener('mousedown', handle);
@@ -3530,4 +3530,89 @@ function Sidebar({ activeView, onNavigate, currentUser }) {
   );
 }
 
-// ─── Main ──�
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export function AdminPage() {
+  const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeView, setActiveView] = useState('leads');
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('admin_token');
+    const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
+
+    if (token && user) {
+      setCurrentUser(user);
+      setAuthState('authed');
+      return;
+    }
+
+    // Check if first-time setup is needed
+    fetch('/api/admin-auth')
+      .then((r) => r.json())
+      .then((d) => setAuthState(d.needsSetup ? 'setup' : 'login'))
+      .catch(() => setAuthState('login'));
+  }, []);
+
+  function handleLogin(token, user) {
+    sessionStorage.setItem('admin_token', token);
+    sessionStorage.setItem('admin_user', JSON.stringify(user));
+    setCurrentUser(user);
+    setAuthState('authed');
+  }
+
+  async function handleLogout() {
+    await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'logout' }),
+    });
+    sessionStorage.removeItem('admin_token');
+    sessionStorage.removeItem('admin_user');
+    setCurrentUser(null);
+    setAuthState('login');
+  }
+
+  if (authState === 'loading') return null;
+  if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
+  if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
+
+  function renderView() {
+    switch (activeView) {
+      case 'performance': return <PerformanceView />;
+      case 'notifications': return <NotificationsPanel />;
+      case 'confirmations': return <ConfirmationsPanel />;
+      case 'users': return <UsersPanel currentUser={currentUser} />;
+      case 'site-stats': return <SiteStatsView />;
+      case 'projects': return <ProjectsPanel />;
+      default: return <LeadsView />;
+    }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      {/* Header */}
+      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
+          Caliber Cabinets
+          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
+        </p>
+        {currentUser?.name && (
+          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
+        )}
+        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
+          Sign Out
+        </button>
+      </header>
+
+      {/* Body */}
+      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
+        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          {renderView()}
+        </main>
+      </div>
+    </div>
+  );
+}

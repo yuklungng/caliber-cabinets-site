@@ -1,5 +1,6 @@
 /* global process */
 
+import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { buildHtmlEmail } from './email-template.js';
 import { upsertContact, createDeal, buildHubSpotObjects } from './hubspot.js';
@@ -71,8 +72,8 @@ export default async function handler(req, res) {
     }
   } catch { /* use default */ }
 
-  // Step 3: Send notification email via Resend (direct HTTP — no SDK)
-  if (process.env.RESEND_API_KEY) {
+  // Step 3: Send notification email via Gmail SMTP (nodemailer)
+  if (process.env.GMAIL_APP_PASSWORD) {
     try {
       const formLabel =
         formType === 'homeowner-consultation'
@@ -96,7 +97,7 @@ export default async function handler(req, res) {
               .download(path);
             if (dlError || !blob) throw new Error(dlError?.message ?? 'Download failed');
             const arrayBuffer = await blob.arrayBuffer();
-            const content = Buffer.from(arrayBuffer).toString('base64');
+            const content = Buffer.from(arrayBuffer);
             // Strip the leading timestamp from the filename (e.g. 1748123456789-photo.jpg → photo.jpg)
             const filename = path.split('/').pop().replace(/^\d+-/, '');
             emailAttachments.push({ filename, content });
@@ -126,32 +127,29 @@ export default async function handler(req, res) {
         failedFiles: failedFileNames,
       });
 
-      const emailRes = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: {
+          user: 'mike@calibercabinetshop.com',
+          pass: process.env.GMAIL_APP_PASSWORD,
         },
-        body: JSON.stringify({
-          from: 'Caliber Cabinets <leads@calibercabinetshop.com>',
-          to: notificationEmails,
-          ...(process.env.HUBSPOT_BCC_EMAIL && { bcc: [process.env.HUBSPOT_BCC_EMAIL] }),
-          subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
-          text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in Supabase dashboard.`,
-          html: htmlBody,
-          attachments: emailAttachments,
-        }),
       });
 
-      if (emailRes.ok) {
-        console.log('[lead-submit] Notification email sent via Resend');
-      } else {
-        const emailErr = await emailRes.text();
-        console.error('[lead-submit] Resend API error:', emailErr);
-      }
+      await transporter.sendMail({
+        from: '"Caliber Cabinets" <mike@calibercabinetshop.com>',
+        to: notificationEmails.join(', '),
+        subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
+        text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in admin panel.`,
+        html: htmlBody,
+        attachments: emailAttachments,
+      });
+
+      console.log('[lead-submit] Notification email sent via Gmail SMTP');
     } catch (emailError) {
       // Email failure is non-fatal — lead is already saved to Supabase
-      console.error('[lead-submit] Resend fetch error:', emailError.message);
+      console.error('[lead-submit] Gmail SMTP error:', emailError.message);
     }
   }
 

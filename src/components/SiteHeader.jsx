@@ -4,7 +4,7 @@ const consultationAnchorUrl = '/#consultation';
 
 const navItems = [
   { label: 'About', href: '/#about' },
-  { label: 'Our Work', href: '/#work' },
+  { label: 'Our Work', href: '/our-work' },
   { label: 'Process', href: '/#process' },
 ];
 

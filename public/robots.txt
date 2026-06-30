@@ -1,8 +1,0 @@
-User-agent: *
-Allow: /
-
-# Block admin panel from indexing
-Disallow: /admin
-Disallow: /admin/
-
-Sitemap: https://calibercabinetshop.com/sitemap.xml

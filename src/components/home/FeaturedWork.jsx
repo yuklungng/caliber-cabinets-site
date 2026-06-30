@@ -40,7 +40,7 @@ export function FeaturedWork() {
         ))}
       </div>
       <div className="container portfolio-link">
-        <a href="#work">View full portfolio</a>
+        <a href="/our-work">View all projects →</a>
       </div>
     </section>
   );

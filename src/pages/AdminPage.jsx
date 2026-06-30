@@ -3085,7 +3085,7 @@ function AuthShell({ children }) {
             <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '44px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
             <div>
               <p style={{ margin: 0, color: '#ffffff', fontSize: '18px', fontWeight: '700' }}>Caliber Cabinets</p>
-              <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Lead Management</p>
+              <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Admin</p>
             </div>
           </div>
           <div style={{ padding: '28px 32px' }}>{children}</div>
@@ -3666,7 +3666,7 @@ export function AdminPage() {
         <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
         <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
           Caliber Cabinets
-          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
+          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Admin</span>
         </p>
         {currentUser?.name && (
           <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>

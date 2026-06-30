@@ -38,12 +38,12 @@ const HS_STAGE_COLORS = {
 // Ordered pipeline stages — defines the linear lifecycle view
 // Appt/PPT/DM is a combined step (appointmentscheduled, presentationscheduled, decisionmakerboughtin all count)
 const HS_PIPELINE = [
-  { id: '3869825744',                                                                label: 'New Request' },
-  { id: 'qualifiedtobuy',                                                            label: 'Qualified' },
-  { id: '3869825755',                                                                label: 'Quote Sent' },
+  { id: '3869825744',                                          label: 'New Request' },
+  { id: 'qualifiedtobuy',                                      label: 'Qualified' },
+  { id: '3869825755',                                          label: 'Quote Sent' },
   { id: ['appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin'],  label: 'Appt/PPT/DM' },
-  { id: 'contractsent',                                                              label: 'Contract Sent' },
-  { id: 'closedwon',                                                                 label: 'Closed Won' },
+  { id: 'contractsent',                                        label: 'Contract Sent' },
+  { id: 'closedwon',                                          label: 'Closed Won' },
 ];
 const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
 
@@ -130,18 +130,12 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
 function StagePicker({ lead, pipelineStages, onStageChange }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
-  const triggerRef = useRef(null);
+  const ref = useRef(null);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
-    function handle(e) {
-      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
-          !document.getElementById('stage-picker-dropdown')?.contains(e.target)) {
-        setOpen(false);
-      }
-    }
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, [open]);
@@ -161,21 +155,10 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
     setSaving(false);
   }
 
-  function handleOpen(e) {
-    e.stopPropagation();
-    if (saving) return;
-    if (!open && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
-    }
-    setOpen((o) => !o);
-  }
-
   return (
-    <>
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <span
-        ref={triggerRef}
-        onClick={handleOpen}
+        onClick={(e) => { e.stopPropagation(); if (!saving) setOpen((o) => !o); }}
         title="Click to change stage"
         style={{ cursor: saving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
       >
@@ -183,20 +166,17 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
         <span style={{ fontSize: '10px', color: '#9ca3af', lineHeight: 1 }}>▾</span>
       </span>
       {open && (
-        <div
-          id="stage-picker-dropdown"
-          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '200px', overflow: 'hidden' }}
-        >
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: '200px', overflow: 'hidden' }}>
           {pipelineStages.map((stage) => {
             const isActive = stage.id === lead.hs_stage_id;
-            const stageStyle = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
+            const style = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
             return (
               <button
                 key={stage.id}
                 onMouseDown={(e) => { e.preventDefault(); selectStage(stage); }}
                 style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', border: 0, borderBottom: '1px solid #f3f4f6', background: isActive ? '#f9fafb' : '#fff', cursor: 'pointer', textAlign: 'left' }}
               >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageStyle.bg, border: `2px solid ${stageStyle.color}`, flexShrink: 0 }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: style.bg, border: `2px solid ${style.color}`, flexShrink: 0 }} />
                 <span style={{ fontSize: '13px', fontWeight: isActive ? '700' : '500', color: '#111827' }}>{stage.label}</span>
                 {isActive && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#9ca3af' }}>current</span>}
               </button>
@@ -204,7 +184,7 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
           })}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -3528,4 +3508,111 @@ function Sidebar({ activeView, onNavigate, currentUser }) {
             </p>
           ) : null;
         }
-        const isActive = active
+        const isActive = activeView === entry.key;
+        return (
+          <button
+            key={entry.key}
+            onClick={() => onNavigate(entry.key)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '8px 16px', border: 0, borderRadius: '6px',
+              background: isActive ? '#78350f' : 'transparent',
+              color: isActive ? '#ffffff' : '#374151',
+              fontSize: '14px', fontWeight: isActive ? '700' : '500',
+              cursor: 'pointer', marginBottom: '2px',
+            }}
+          >
+            {entry.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export function AdminPage() {
+  const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeView, setActiveView] = useState('leads');
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('admin_token');
+    const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
+
+    if (token && user) {
+      setCurrentUser(user);
+      setAuthState('authed');
+      return;
+    }
+
+    // Check if first-time setup is needed
+    fetch('/api/admin-auth')
+      .then((r) => r.json())
+      .then((d) => setAuthState(d.needsSetup ? 'setup' : 'login'))
+      .catch(() => setAuthState('login'));
+  }, []);
+
+  function handleLogin(token, user) {
+    sessionStorage.setItem('admin_token', token);
+    sessionStorage.setItem('admin_user', JSON.stringify(user));
+    setCurrentUser(user);
+    setAuthState('authed');
+  }
+
+  async function handleLogout() {
+    await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'logout' }),
+    });
+    sessionStorage.removeItem('admin_token');
+    sessionStorage.removeItem('admin_user');
+    setCurrentUser(null);
+    setAuthState('login');
+  }
+
+  if (authState === 'loading') return null;
+  if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
+  if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
+
+  function renderView() {
+    switch (activeView) {
+      case 'performance': return <PerformanceView />;
+      case 'notifications': return <NotificationsPanel />;
+      case 'confirmations': return <ConfirmationsPanel />;
+      case 'users': return <UsersPanel currentUser={currentUser} />;
+      case 'site-stats': return <SiteStatsView />;
+      case 'projects': return <ProjectsPanel />;
+      default: return <LeadsView />;
+    }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      {/* Header */}
+      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
+          Caliber Cabinets
+          <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Lead Management</span>
+        </p>
+        {currentUser?.name && (
+          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
+        )}
+        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
+          Sign Out
+        </button>
+      </header>
+
+      {/* Body */}
+      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
+        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          {renderView()}
+        </main>
+      </div>
+    </div>
+  );
+}

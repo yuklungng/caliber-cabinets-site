@@ -22,12 +22,13 @@ function haversineDistanceMiles(lat1, lon1, lat2, lon2) {
 }
 
 async function geocodeAddress(addressStr) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressStr)}&format=json&limit=1`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'CaliberCabinets/1.0 (info@calibercabinetshop.com)' },
-  });
+  // US Census Geocoder — free, no API key, works from cloud environments
+  const url = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(addressStr)}&benchmark=Public_AR_Current&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
   const data = await res.json();
-  return data[0] ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
+  const match = data?.result?.addressMatches?.[0];
+  return match ? { lat: match.coordinates.y, lon: match.coordinates.x } : null;
 }
 // ──────────────────────────────────────────────────────────────────────────────
 

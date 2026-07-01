@@ -138,7 +138,7 @@ export default async function handler(req, res) {
       });
 
       await transporter.sendMail({
-        from: '"Caliber Cabinets" <mike@calibercabinetshop.com>',
+        from: '"Caliber Cabinets" <info@calibercabinetshop.com>',
         to: notificationEmails.join(', '),
         subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
         text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in admin panel.`,
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
         });
 
         await transporter.sendMail({
-          from: '"Caliber Cabinets" <mike@calibercabinetshop.com>',
+          from: '"Caliber Cabinets" <info@calibercabinetshop.com>',
           to: fields.email,
           subject: confirmSubject,
           html: confirmMessage,

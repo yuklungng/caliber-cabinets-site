@@ -27,9 +27,6 @@ export default async function handler(req, res) {
   if (!secret) return res.status(500).json({ error: 'SNAPSHOT_SECRET env var not set' });
   if (req.query.key !== secret) return res.status(401).json({ error: 'Unauthorized' });
 
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  if (!adminPassword) return res.status(500).json({ error: 'ADMIN_PASSWORD env var not set' });
-
   // Resolve base URL — prefer explicit SITE_URL, fall back to Vercel automatic vars
   const siteUrl = process.env.SITE_URL
     ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
@@ -39,8 +36,9 @@ export default async function handler(req, res) {
   const triggeredAt = new Date().toISOString();
 
   try {
+    // Use SNAPSHOT_SECRET as the internal auth token — no separate ADMIN_PASSWORD needed
     const r = await fetch(`${siteUrl}/api/admin-analytics`, {
-      headers: { Authorization: `Bearer ${adminPassword}` },
+      headers: { Authorization: `Bearer ${secret}` },
     });
 
     if (!r.ok) {

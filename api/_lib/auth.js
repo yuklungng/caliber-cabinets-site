@@ -14,12 +14,21 @@ export async function checkAuth(req) {
   const token = auth.replace(/^Bearer\s+/i, '').trim();
   if (!token) return { ok: false };
 
-  // Emergency backdoor — env var always works
+  // Emergency backdoor — ADMIN_PASSWORD always works (legacy)
   if (process.env.ADMIN_PASSWORD && token === process.env.ADMIN_PASSWORD) {
     return {
       ok: true,
       isSuperAdmin: true,
       user: { name: 'Admin', email: 'admin', is_super_admin: true },
+    };
+  }
+
+  // Internal snapshot token — SNAPSHOT_SECRET used by analytics-snapshot.js
+  if (process.env.SNAPSHOT_SECRET && token === process.env.SNAPSHOT_SECRET) {
+    return {
+      ok: true,
+      isSuperAdmin: false,
+      user: { name: 'Snapshot', email: 'snapshot', is_super_admin: false },
     };
   }
 

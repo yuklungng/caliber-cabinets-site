@@ -361,15 +361,16 @@ function LeadDetail({ lead }) {
 
   const isHomeowner = lead.form_type === 'homeowner-consultation';
 
-  const addr = [
+  // Homeowner: single projectAddress field. Trade: separate address components (project site).
+  const addr = f.projectAddress || [
     f.streetAddress,
     f.city,
     f.state && f.zipCode ? `${f.state} ${f.zipCode}` : (f.state || f.zipCode),
   ].filter(Boolean).join(', ');
 
-  const mapUrl = f.zipCode
+  const mapUrl = (f.projectAddress || f.zipCode)
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-        [f.streetAddress, f.city, f.state, f.zipCode].filter(Boolean).join(', ')
+        f.projectAddress || [f.streetAddress, f.city, f.state, f.zipCode].filter(Boolean).join(', ')
       )}`
     : null;
 
@@ -448,6 +449,13 @@ function LeadDetail({ lead }) {
                         📍 Map
                       </a>
                     )}
+                    {f.distance_miles != null && (
+                      <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: '700',
+                                     border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px',
+                                     whiteSpace: 'nowrap', background: '#eff6ff' }}>
+                        📏 {f.distance_miles} mi
+                      </span>
+                    )}
                   </span>
                 </FieldCell>
               )}
@@ -471,6 +479,13 @@ function LeadDetail({ lead }) {
                                   whiteSpace: 'nowrap', background: '#fef9f0' }}>
                         📍 Map
                       </a>
+                    )}
+                    {f.distance_miles != null && (
+                      <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: '700',
+                                     border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px',
+                                     whiteSpace: 'nowrap', background: '#eff6ff' }}>
+                        📏 {f.distance_miles} mi
+                      </span>
                     )}
                   </span>
                 </FieldCell>

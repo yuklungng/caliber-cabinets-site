@@ -53,7 +53,7 @@ function isEmpty(value) {
 
 function buildFieldRows(fields) {
   return Object.entries(fields)
-    .filter(([k, v]) => k !== 'attachments' && !isEmpty(v))
+    .filter(([k, v]) => k !== 'attachments' && k !== 'distance_miles' && !isEmpty(v))
     .map(([k, v]) => {
       const label = FIELD_LABELS[k] ?? k;
       const value = formatValue(v);
@@ -70,17 +70,25 @@ function buildFieldRows(fields) {
     .join('');
 }
 
-function buildMapRow(fields) {
-  if (!fields.zipCode) return '';
-  const parts = [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean);
-  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(', '))}`;
+function buildMapRow(fields, distanceMiles) {
+  // Homeowner: single projectAddress field. Trade: separate address components.
+  const hasAddress = fields.zipCode || fields.projectAddress;
+  if (!hasAddress) return '';
+  const parts = fields.projectAddress
+    ? [fields.projectAddress]
+    : [fields.streetAddress, fields.city, fields.state, fields.zipCode];
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.filter(Boolean).join(', '))}`;
+  const distanceBadge =
+    distanceMiles != null
+      ? `<span style="display:inline-block;margin-left:8px;padding:5px 10px;background:#eff6ff;color:#1e40af;font-size:12px;font-weight:700;border-radius:4px;border:1px solid #bfdbfe;vertical-align:middle;">&#128207; ${distanceMiles} mi away</span>`
+      : '';
   return `
     <tr>
       <td colspan="2" style="padding:4px 0 14px;">
         <a href="${url}" target="_blank"
-           style="display:inline-block;padding:5px 14px;background:#fef9f0;color:#78350f;font-size:12px;font-weight:700;text-decoration:none;border-radius:4px;border:1px solid #e5c99a;">
+           style="display:inline-block;padding:5px 14px;background:#fef9f0;color:#78350f;font-size:12px;font-weight:700;text-decoration:none;border-radius:4px;border:1px solid #e5c99a;vertical-align:middle;">
           &#128205; View on Google Maps
-        </a>
+        </a>${distanceBadge}
       </td>
     </tr>`;
 }
@@ -107,11 +115,11 @@ function buildAttachmentRows(attachedFiles, failedFiles) {
     </tr>`;
 }
 
-export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFiles = [] }) {
+export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFiles = [], distanceMiles = null }) {
   const firstName = fields.firstName || '';
   const lastName = fields.lastName || '';
   const fieldRows = buildFieldRows(fields);
-  const mapRow = buildMapRow(fields);
+  const mapRow = buildMapRow(fields, distanceMiles);
   const attachmentRows = buildAttachmentRows(attachedFiles, failedFiles);
 
   return `<!DOCTYPE html>

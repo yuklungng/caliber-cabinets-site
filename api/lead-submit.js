@@ -5,6 +5,32 @@ import { createClient } from '@supabase/supabase-js';
 import { buildHtmlEmail } from './email-template.js';
 import { upsertContact, createDeal, buildHubSpotObjects } from './hubspot.js';
 
+// ─── Distance helpers ──────────────────────────────────────────────────────────
+// Caliber Cabinets: 5640 La Ribera St., Unit A, Livermore, CA 94550
+const CALIBER_LAT = 37.6977;
+const CALIBER_LON = -121.7308;
+
+function haversineDistanceMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function geocodeAddress(addressStr) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressStr)}&format=json&limit=1`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'CaliberCabinets/1.0 (info@calibercabinetshop.com)' },
+  });
+  const data = await res.json();
+  return data[0] ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -37,7 +63,27 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
   }
 
-  // Step 2: Save to Supabase
+  // Step 2: Geocode lead address and compute straight-line distance from Caliber
+  let distanceMiles = null;
+  try {
+    const leadAddrStr =
+      formType === 'homeowner-consultation'
+        ? (fields.projectAddress || '')
+        : [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean).join(', ');
+    if (leadAddrStr) {
+      const coords = await geocodeAddress(leadAddrStr);
+      if (coords) {
+        distanceMiles =
+          Math.round(haversineDistanceMiles(CALIBER_LAT, CALIBER_LON, coords.lat, coords.lon) * 10) / 10;
+      }
+    }
+  } catch (geoErr) {
+    console.warn('[lead-submit] Geocoding failed (non-fatal):', geoErr.message);
+  }
+
+  const enrichedFields = distanceMiles !== null ? { ...fields, distance_miles: distanceMiles } : fields;
+
+  // Step 3: Save to Supabase
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -45,7 +91,7 @@ export default async function handler(req, res) {
 
   const { data: insertData, error: dbError } = await supabase
     .from('leads')
-    .insert({ form_type: formType, fields, status: 'new' })
+    .insert({ form_type: formType, fields: enrichedFields, status: 'new' })
     .select('id')
     .single();
 
@@ -122,9 +168,10 @@ export default async function handler(req, res) {
 
       const htmlBody = buildHtmlEmail({
         formLabel,
-        fields,
+        fields: enrichedFields,
         attachedFiles: attachedFileNames,
         failedFiles: failedFileNames,
+        distanceMiles,
       });
 
       const transporter = nodemailer.createTransport({

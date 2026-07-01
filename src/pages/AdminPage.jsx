@@ -2794,49 +2794,44 @@ function PerformanceView() {
                 {
                   label: 'Impressions',
                   value: gscTotal.impressions != null ? gscTotal.impressions.toLocaleString() : '—',
-                  sub: 'shown in search results',
+                  sub: 'times shown in Google search',
                   color: '#4285f4',
                   bg: '#eff6ff',
-                  configured: gsc?.configured,
                   noData: !gsc?.configured,
+                  badge: null,
                   tip: 'How many times your website appeared in Google search results over the last 28 days. More impressions means better search visibility — people are finding you when they search for cabinets.',
                 },
                 {
                   label: 'Clicks',
                   value: gscTotal.clicks != null ? gscTotal.clicks.toLocaleString() : '—',
-                  sub: organicCTR != null ? `${organicCTR}% click-through rate` : 'visited from search',
+                  sub: 'clicked through from search',
                   color: '#059669',
                   bg: '#f0fdf4',
-                  configured: gsc?.configured,
                   noData: !gsc?.configured,
-                  rate: organicCTR != null ? `${organicCTR}% CTR` : null,
-                  tip: 'How many people actually clicked through to your site from Google search results. CTR (click-through rate) = Clicks ÷ Impressions. A higher CTR means your page titles and descriptions are compelling.',
+                  badge: organicCTR != null ? `${organicCTR}% CTR` : null,
+                  badgeBg: '#d1fae5', badgeColor: '#065f46',
+                  tip: 'How many people clicked your site from Google search results. CTR (click-through rate) = Clicks ÷ Impressions. A higher CTR means your titles and descriptions are compelling enough to click.',
                 },
                 {
                   label: 'Form Leads',
                   value: leads28.toLocaleString(),
-                  sub: clickToLeadRate != null
-                    ? `${clickToLeadRate}% of organic clicks`
-                    : sessionToLeadRate != null
-                      ? `${sessionToLeadRate}% of site sessions`
-                      : 'last 28 days',
+                  sub: 'form submissions · last 28 days',
                   color: '#78350f',
                   bg: '#fff7ed',
-                  configured: true,
                   noData: false,
-                  rate: clickToLeadRate != null ? `${clickToLeadRate}% click→lead` : null,
+                  badge: clickToLeadRate != null
+                    ? `${clickToLeadRate}% click → lead`
+                    : sessionToLeadRate != null
+                      ? `${sessionToLeadRate}% session → lead`
+                      : null,
+                  badgeBg: '#fed7aa', badgeColor: '#92400e',
                   tip: 'Design consultation and trade estimate form submissions in the last 28 days. This is where site traffic converts to actual sales opportunities.',
                 },
-              ].map((step, i, arr) => (
+              ].map((step, i) => (
                 <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                   {/* Arrow between steps */}
                   {i > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', flexShrink: 0 }}>
-                      <span style={{ fontSize: '18px', color: '#d1d5db', lineHeight: 1 }}>›</span>
-                      {step.rate && (
-                        <span style={{ fontSize: '10px', color: '#9ca3af', whiteSpace: 'nowrap', marginTop: '2px' }}>{step.rate}</span>
-                      )}
-                    </div>
+                    <span style={{ fontSize: '18px', color: '#d1d5db', padding: '0 6px', flexShrink: 0, lineHeight: 1 }}>›</span>
                   )}
                   <WithTip tip={step.noData ? null : step.tip} style={{ flex: 1 }}>
                     <div style={{
@@ -2844,10 +2839,22 @@ function PerformanceView() {
                       background: step.noData ? '#f9fafb' : step.bg,
                       border: `1px solid ${step.noData ? '#e5e7eb' : step.color}22`,
                     }}>
-                      <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{step.label}</p>
-                      <p style={{ margin: '0 0 4px', fontSize: '28px', fontWeight: '700', color: step.noData ? '#d1d5db' : step.color, lineHeight: 1 }}>
+                      <p style={{ margin: '0 0 6px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{step.label}</p>
+                      <p style={{ margin: '0 0 8px', fontSize: '28px', fontWeight: '700', color: step.noData ? '#d1d5db' : step.color, lineHeight: 1 }}>
                         {step.noData ? '—' : step.value}
                       </p>
+                      {!step.noData && step.badge && (
+                        <p style={{ margin: '0 0 6px' }}>
+                          <span style={{
+                            display: 'inline-block', padding: '4px 12px', borderRadius: '999px',
+                            fontSize: '13px', fontWeight: '700',
+                            background: step.badgeBg, color: step.badgeColor,
+                            border: `1px solid ${step.badgeColor}44`,
+                          }}>
+                            {step.badge}
+                          </span>
+                        </p>
+                      )}
                       <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>
                         {step.noData ? 'Not connected' : step.sub}
                       </p>

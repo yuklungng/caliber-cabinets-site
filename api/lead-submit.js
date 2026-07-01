@@ -67,10 +67,10 @@ export default async function handler(req, res) {
   // Step 2: Geocode lead address and compute straight-line distance from Caliber
   let distanceMiles = null;
   try {
+    // Both form types use streetAddress/city/state/zipCode; projectAddress is a legacy fallback
     const leadAddrStr =
-      formType === 'homeowner-consultation'
-        ? (fields.projectAddress || '')
-        : [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean).join(', ');
+      fields.projectAddress ||
+      [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean).join(', ');
     if (leadAddrStr) {
       const coords = await geocodeAddress(leadAddrStr);
       if (coords) {

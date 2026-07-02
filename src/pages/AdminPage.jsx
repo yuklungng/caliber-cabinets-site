@@ -819,8 +819,15 @@ function ConfirmationsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState('editor');
+  const [tab, setTab] = useState('html');
+  const [visualKey, setVisualKey] = useState(0);
   const previewIframeRef = useRef(null);
+
+  function switchTab(id) {
+    // Force RichTextEditor to remount with latest HTML when switching to Visual
+    if (id === 'visual') setVisualKey((k) => k + 1);
+    setTab(id);
+  }
 
   useEffect(() => {
     if (tab === 'preview' && previewIframeRef.current) {
@@ -884,11 +891,11 @@ function ConfirmationsPanel() {
         <div style={{ display: 'grid', gap: '0', opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? 'auto' : 'none' }}>
           {/* Tab bar */}
           <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '8px' }}>
-            {[['editor', 'Message body'], ['preview', 'Preview']].map(([id, label]) => (
+            {[['html', 'HTML Edit'], ['visual', 'Visual'], ['preview', 'Preview']].map(([id, label]) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => switchTab(id)}
                 style={{
                   padding: '8px 16px',
                   fontSize: '13px',
@@ -906,13 +913,13 @@ function ConfirmationsPanel() {
             ))}
           </div>
 
-          {/* Editor — raw HTML textarea so paste/save round-trips without entity escaping */}
+          {/* HTML Edit — raw textarea, preserves HTML exactly as typed/pasted */}
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             spellCheck={false}
             style={{
-              display: tab === 'editor' ? 'block' : 'none',
+              display: tab === 'html' ? 'block' : 'none',
               width: '100%',
               minHeight: '260px',
               padding: '12px',
@@ -927,6 +934,11 @@ function ConfirmationsPanel() {
               color: '#111827',
             }}
           />
+
+          {/* Visual — rich text editor; key forces remount with latest HTML on each switch */}
+          <div style={{ display: tab === 'visual' ? 'block' : 'none' }}>
+            <RichTextEditor key={visualKey} value={message} onChange={setMessage} />
+          </div>
 
           {/* Preview — live iframe render of the current HTML */}
           <iframe

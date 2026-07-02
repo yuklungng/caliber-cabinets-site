@@ -819,6 +819,7 @@ function ConfirmationsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState('editor');
 
   useEffect(() => {
     apiCall('/api/admin-settings')
@@ -872,10 +873,46 @@ function ConfirmationsPanel() {
           />
         </div>
 
-        <div style={{ display: 'grid', gap: '6px', opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? 'auto' : 'none' }}>
-          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Message body</label>
-          <RichTextEditor value={message} onChange={setMessage} />
-          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>HTML email sent from info@calibercabinetshop.com.</p>
+        <div style={{ display: 'grid', gap: '0', opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? 'auto' : 'none' }}>
+          {/* Tab bar */}
+          <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '8px' }}>
+            {[['editor', 'Message body'], ['preview', 'Preview']].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: tab === id ? '#78350f' : '#6b7280',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: tab === id ? '2px solid #78350f' : '2px solid transparent',
+                  cursor: 'pointer',
+                  marginBottom: '-1px',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Editor — kept mounted so undo history and cursor position are preserved */}
+          <div style={{ display: tab === 'editor' ? 'block' : 'none' }}>
+            <RichTextEditor value={message} onChange={setMessage} />
+          </div>
+
+          {/* Preview — live iframe render of the current HTML */}
+          {tab === 'preview' && (
+            <iframe
+              srcDoc={message}
+              title="Email preview"
+              style={{ width: '100%', minHeight: '480px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}
+            />
+          )}
+
+          <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#9ca3af' }}>HTML email sent from info@calibercabinetshop.com.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

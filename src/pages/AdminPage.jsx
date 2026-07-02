@@ -3651,16 +3651,19 @@ const NAV_ITEMS = [
   { key: 'performance', label: 'Performance', section: null },
   { key: 'site-stats', label: 'Site Stats', section: null },
   { key: 'projects', label: 'Projects', section: 'Content' },
-  { key: 'notifications', label: 'Notifications', section: 'Settings' },
-  { key: 'confirmations', label: 'Confirmations', section: 'Settings' },
-  { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: false },
+  { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true },
+  { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true },
+  { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true },
 ];
 
 function Sidebar({ activeView, onNavigate, currentUser }) {
+  const isSuperAdmin = currentUser?.is_super_admin;
+  const visibleItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
+
   const sections = [];
   let lastSection = null;
 
-  for (const item of NAV_ITEMS) {
+  for (const item of visibleItems) {
     if (item.section !== lastSection) {
       sections.push({ type: 'heading', label: item.section });
       lastSection = item.section;
@@ -3747,7 +3750,11 @@ export function AdminPage() {
   if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
   if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
 
+  const isSuperAdmin = currentUser?.is_super_admin;
+
   function renderView() {
+    const settingsViews = ['notifications', 'confirmations', 'users'];
+    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView />;
     switch (activeView) {
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;

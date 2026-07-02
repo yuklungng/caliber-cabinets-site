@@ -906,10 +906,27 @@ function ConfirmationsPanel() {
             ))}
           </div>
 
-          {/* Editor — kept mounted so undo history and cursor position are preserved */}
-          <div style={{ display: tab === 'editor' ? 'block' : 'none' }}>
-            <RichTextEditor value={message} onChange={setMessage} />
-          </div>
+          {/* Editor — raw HTML textarea so paste/save round-trips without entity escaping */}
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            spellCheck={false}
+            style={{
+              display: tab === 'editor' ? 'block' : 'none',
+              width: '100%',
+              minHeight: '260px',
+              padding: '12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontFamily: 'monospace',
+              lineHeight: '1.6',
+              resize: 'vertical',
+              outline: 'none',
+              boxSizing: 'border-box',
+              color: '#111827',
+            }}
+          />
 
           {/* Preview — live iframe render of the current HTML */}
           <iframe

@@ -820,6 +820,14 @@ function ConfirmationsPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState('editor');
+  const previewIframeRef = useRef(null);
+
+  useEffect(() => {
+    if (tab === 'preview' && previewIframeRef.current) {
+      const doc = previewIframeRef.current.contentDocument;
+      doc.open(); doc.write(message); doc.close();
+    }
+  }, [tab, message]);
 
   useEffect(() => {
     apiCall('/api/admin-settings')
@@ -904,13 +912,17 @@ function ConfirmationsPanel() {
           </div>
 
           {/* Preview — live iframe render of the current HTML */}
-          {tab === 'preview' && (
-            <iframe
-              srcDoc={message}
-              title="Email preview"
-              style={{ width: '100%', minHeight: '480px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}
-            />
-          )}
+          <iframe
+            ref={previewIframeRef}
+            title="Email preview"
+            style={{ display: tab === 'preview' ? 'block' : 'none', width: '100%', minHeight: '480px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}
+            onLoad={() => {
+              if (tab === 'preview' && previewIframeRef.current) {
+                const doc = previewIframeRef.current.contentDocument;
+                doc.open(); doc.write(message); doc.close();
+              }
+            }}
+          />
 
           <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#9ca3af' }}>HTML email sent from info@calibercabinetshop.com.</p>
         </div>

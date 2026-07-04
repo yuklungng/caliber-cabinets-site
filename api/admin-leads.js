@@ -22,6 +22,18 @@ export default async function handler(req, res) {
     }
   }
 
+  // PATCH ?action=activities — update activity checklist for a Supabase-backed lead
+  if (req.method === 'PATCH' && req.query?.action === 'activities') {
+    const { id, activities } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+    const { error } = await supabase.from('leads').update({ activities }).eq('id', id);
+    if (error) {
+      console.error('[admin-leads] activities update error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(200).json({ success: true });
+  }
+
   // PATCH — update deal stage in HubSpot
   if (req.method === 'PATCH') {
     const { dealId, stageId } = req.body ?? {};

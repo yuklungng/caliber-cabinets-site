@@ -60,6 +60,13 @@ const HS_EXIT_STAGES = [
   { id: 'closedlost',    label: 'Lost to Competitor' }, // Customer chose another provider
 ];
 
+// Activity checklist — tracked per lead, stored in leads.activities JSONB
+const LEAD_ACTIVITIES = [
+  { key: 'appt_scheduled', label: 'Appointment Scheduled' },
+  { key: 'appt_completed', label: 'Appointment Completed' },
+  { key: 'ppt_sent',       label: 'Presentation Sent' },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function daysBetween(start, end) {
@@ -364,7 +371,72 @@ function AttachmentChip({ path }) {
   );
 }
 
-function LeadDetail({ lead }) {
+function ActivityChecklist({ lead, onActivityChange }) {
+  const [saving, setSaving] = useState(false);
+  // Only available for Supabase-backed leads (HubSpot-only leads have no local id)
+  if (!lead.id) return null;
+  const activities = lead.activities ?? {};
+
+  async function toggle(key) {
+    const current = activities[key];
+    const updated = {
+      ...activities,
+      [key]: current?.done
+        ? { done: false, at: null }
+        : { done: true, at: new Date().toISOString() },
+    };
+    onActivityChange(lead.id, updated); // optimistic update
+    setSaving(true);
+    try {
+      await apiCall('/api/admin-leads?action=activities', {
+        method: 'PATCH',
+        body: { id: lead.id, activities: updated },
+      });
+    } catch { /* non-fatal — optimistic state is already set */ }
+    setSaving(false);
+  }
+
+  return (
+    <section>
+      <SectionHeading>Activities</SectionHeading>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {LEAD_ACTIVITIES.map(({ key, label }) => {
+          const act = activities[key] ?? { done: false, at: null };
+          return (
+            <label
+              key={key}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: saving ? 'wait' : 'pointer', userSelect: 'none' }}
+            >
+              <input
+                type="checkbox"
+                checked={act.done}
+                onChange={() => toggle(key)}
+                disabled={saving}
+                style={{ width: '16px', height: '16px', accentColor: '#78350f', cursor: saving ? 'wait' : 'pointer', flexShrink: 0 }}
+              />
+              <span style={{
+                fontSize: '14px',
+                fontWeight: act.done ? '600' : '400',
+                color: act.done ? '#111827' : '#374151',
+                textDecoration: act.done ? 'line-through' : 'none',
+                opacity: act.done ? 0.7 : 1,
+              }}>
+                {label}
+              </span>
+              {act.done && act.at && (
+                <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                  {new Date(act.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LeadDetail({ lead, onActivityChange }) {
   const f = lead.fields ?? {};
 
   // HubSpot-only deals have no web form data — show a minimal summary instead
@@ -412,6 +484,9 @@ function LeadDetail({ lead }) {
   return (
     <div style={{ padding: '28px 32px', background: '#fff', borderTop: '2px solid #f3e8d0' }}>
       <dl style={{ margin: 0, display: 'grid', gap: '32px' }}>
+
+        {/* Activity checklist */}
+        <ActivityChecklist lead={lead} onActivityChange={onActivityChange} />
 
         {/* Contact */}
         <section>
@@ -590,7 +665,7 @@ function LeadDetail({ lead }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   // HubSpot-only deals may have no contact name — fall back to the deal name
@@ -635,7 +710,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           </div>
         </div>
       </div>
-      {isExpanded && <LeadDetail lead={lead} />}
+      {isExpanded && <LeadDetail lead={lead} onActivityChange={onActivityChange} />}
     </div>
   );
 }
@@ -2136,6 +2211,12 @@ function LeadsView({ currentUser }) {
     );
   }
 
+  function handleActivityChange(leadId, activities) {
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, activities } : l)),
+    );
+  }
+
   async function loadLeads(silent = false) {
     if (!silent) setIsLoading(true);
     setLoadError('');
@@ -2507,7 +2588,7 @@ function LeadsView({ currentUser }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

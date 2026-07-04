@@ -140,11 +140,12 @@ function HsBadge({ stageId, stageLabel, stageDate }) {
   );
 }
 
-function StagePicker({ lead, pipelineStages, onStageChange }) {
+function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0, maxH: 300, flipUp: false });
   const triggerRef = useRef(null);
+  const allStages = [...(pipelineStages ?? []), ...(exitStages ?? [])];
 
   // Close on outside click
   useEffect(() => {
@@ -181,7 +182,7 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
       const rect  = triggerRef.current.getBoundingClientRect();
       const below = window.innerHeight - rect.bottom - 8;
       const above = rect.top - 8;
-      const ESTIMATE = Math.min(pipelineStages.length * 41 + 4, 320);
+      const ESTIMATE = Math.min(allStages.length * 41 + 32, 360);
       const flipUp  = below < ESTIMATE && above > below;
       setPos({
         top:    flipUp ? rect.top - Math.min(above, ESTIMATE) - 4 : rect.bottom + 4,
@@ -209,7 +210,26 @@ function StagePicker({ lead, pipelineStages, onStageChange }) {
           id="stage-picker-dropdown"
           style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '200px', maxHeight: `${pos.maxH}px`, overflowY: 'auto' }}
         >
-          {pipelineStages.map((stage) => {
+          {/* ── Pipeline stages ── */}
+          <div style={{ padding: '6px 12px 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Pipeline</div>
+          {(pipelineStages ?? []).map((stage) => {
+            const isActive = stage.id === lead.hs_stage_id;
+            const stageStyle = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
+            return (
+              <button
+                key={stage.id}
+                onMouseDown={(e) => { e.preventDefault(); selectStage(stage); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', border: 0, borderBottom: '1px solid #f3f4f6', background: isActive ? '#f9fafb' : '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageStyle.bg, border: `2px solid ${stageStyle.color}`, flexShrink: 0 }} />
+                <span style={{ fontSize: '13px', fontWeight: isActive ? '700' : '500', color: '#111827' }}>{stage.label}</span>
+                {isActive && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#9ca3af' }}>current</span>}
+              </button>
+            );
+          })}
+          {/* ── Exit stages ── */}
+          <div style={{ padding: '8px 12px 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em', borderTop: '1px solid #e5e7eb', marginTop: '2px' }}>Close / Exit</div>
+          {(exitStages ?? []).map((stage) => {
             const isActive = stage.id === lead.hs_stage_id;
             const stageStyle = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#374151' };
             return (
@@ -570,7 +590,7 @@ function LeadDetail({ lead }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, onStageChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   // HubSpot-only deals may have no contact name — fall back to the deal name
@@ -582,7 +602,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} source={lead.source} />
-          <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} onStageChange={onStageChange} />
+          <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
               ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
@@ -2097,18 +2117,14 @@ function LeadsView({ currentUser }) {
 
   const isSuperAdmin = currentUser?.is_super_admin ?? false;
   const [newCount, setNewCount] = useState(0);
-  const [pipelineStages, setPipelineStages] = useState([]);
+
+  // Use local constants — no API call needed; we control which stages are selectable.
+  // Legacy Appt/PPT/DM stages are intentionally excluded (activity, not pipeline stage).
+  const pipelineStages = HS_PIPELINE;
+  const exitStages     = HS_EXIT_STAGES;
 
   // All stage IDs that represent a closed/exited deal (not actively moving)
   const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
-
-  // Fetch pipeline stages once on mount so LeadCard can render the picker
-  useEffect(() => {
-    apiCall('/api/admin-leads?action=pipeline-stages')
-      .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d.stages)) setPipelineStages(d.stages); })
-      .catch(() => { /* non-fatal — picker just won't show options */ });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStageChange(leadKey, stage) {
     setLeads((prev) =>
@@ -2491,7 +2507,7 @@ function LeadsView({ currentUser }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} onStageChange={handleStageChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

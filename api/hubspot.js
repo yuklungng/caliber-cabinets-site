@@ -68,7 +68,7 @@ export async function createDeal(properties, contactId) {
   const res = await hs('/crm/v3/objects/deals', 'POST', {
     properties: {
       pipeline: process.env.HUBSPOT_PIPELINE_ID ?? 'default',
-      dealstage: process.env.HUBSPOT_DEAL_STAGE_ID ?? 'appointmentscheduled',
+      dealstage: process.env.HUBSPOT_DEAL_STAGE_ID ?? '3869825744', // New Request
       closedate: closeDate.toISOString().split('T')[0],
       ...properties,
     },
@@ -178,6 +178,27 @@ export async function getPipelineStages() {
   return (data.results ?? [])
     .map((s) => ({ id: s.id, label: s.label, displayOrder: s.displayOrder ?? 0 }))
     .sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+/**
+ * Create a note on a HubSpot deal.
+ * The note appears in the deal's activity feed without changing deal stage.
+ */
+export async function createDealNote(dealId, noteBody) {
+  const res = await hs('/crm/v3/objects/notes', 'POST', {
+    properties: {
+      hs_note_body: noteBody,
+      hs_timestamp: String(Date.now()),
+    },
+    associations: [
+      {
+        to: { id: dealId },
+        types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }],
+      },
+    ],
+  });
+  if (!res.ok) throw new Error(`HubSpot create note ${res.status}: ${await res.text()}`);
+  return await res.json();
 }
 
 /**

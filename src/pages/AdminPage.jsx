@@ -376,19 +376,17 @@ function ActivityChecklist({ lead, onActivityChange }) {
   const activities = lead.activities ?? {};
 
   async function toggle(key) {
-    const current = activities[key];
-    const updated = {
-      ...activities,
-      [key]: current?.done
-        ? { done: false, at: null }
-        : { done: true, at: new Date().toISOString() },
-    };
+    const current  = activities[key];
+    const newDone  = !current?.done;
+    const newAt    = newDone ? new Date().toISOString() : null;
+    const updated  = { ...activities, [key]: { done: newDone, at: newAt } };
     onActivityChange(lead.id, updated); // optimistic update
     setSaving(true);
     try {
       await apiCall('/api/admin-leads?action=activities', {
         method: 'PATCH',
-        body: { id: lead.id, activities: updated },
+        // change tells the server exactly what was toggled so it can post a HubSpot note
+        body: { id: lead.id, activities: updated, change: { key, done: newDone, at: newAt } },
       });
     } catch { /* non-fatal — optimistic state is already set */ }
     setSaving(false);

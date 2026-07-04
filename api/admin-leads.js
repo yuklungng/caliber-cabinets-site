@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages, getAllPipelineDeals, getPipelineStages, updateDealStage } from './hubspot.js';
+import { batchGetDealStages, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealStage } from './hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 export default async function handler(req, res) {
@@ -24,13 +24,39 @@ export default async function handler(req, res) {
 
   // PATCH ?action=activities — update activity checklist for a Supabase-backed lead
   if (req.method === 'PATCH' && req.query?.action === 'activities') {
-    const { id, activities } = req.body ?? {};
+    const { id, activities, change } = req.body ?? {};
     if (!id) return res.status(400).json({ error: 'Missing id' });
-    const { error } = await supabase.from('leads').update({ activities }).eq('id', id);
+
+    const { data: leadRow, error } = await supabase
+      .from('leads')
+      .update({ activities })
+      .eq('id', id)
+      .select('hubspot_deal_id')
+      .single();
     if (error) {
       console.error('[admin-leads] activities update error:', error.message);
       return res.status(500).json({ error: error.message });
     }
+
+    // Post a HubSpot note when an activity is checked on (does NOT change deal stage)
+    if (change?.done && leadRow?.hubspot_deal_id && process.env.HUBSPOT_ACCESS_TOKEN) {
+      const ACTIVITY_LABELS = {
+        appt_scheduled: 'Appointment Scheduled',
+        appt_completed: 'Appointment Completed',
+        ppt_sent:       'Presentation Sent',
+      };
+      const label   = ACTIVITY_LABELS[change.key] ?? change.key;
+      const dateStr = new Date(change.at ?? Date.now()).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+      try {
+        await createDealNote(leadRow.hubspot_deal_id, `✓ ${label} — ${dateStr}`);
+      } catch (hsErr) {
+        console.error('[admin-leads] HubSpot note error:', hsErr.message);
+        // Non-fatal — Supabase already saved
+      }
+    }
+
     return res.status(200).json({ success: true });
   }
 

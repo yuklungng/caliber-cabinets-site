@@ -2175,7 +2175,7 @@ function MetricCards({
 
 // ─── Leads view ───────────────────────────────────────────────────────────────
 
-function LeadsView({ currentUser }) {
+function LeadsView({ currentUser, onWinRateUpdate }) {
   const [leads, setLeads] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -2312,9 +2312,16 @@ function LeadsView({ currentUser }) {
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const wonCount  = stageCountById['closedwon']  ?? 0;
-  const lostCount = stageCountById['closedlost'] ?? 0; // Lost to Competitor only — not Caliber-initiated exits
+  // Closed Lost = Lost to Competitor + Declined (both are genuine losses)
+  // Referred Out / Partnered Out are Caliber-initiated exits — excluded from win rate
+  const lostCount = (stageCountById['closedlost'] ?? 0) + (stageCountById['3945178857'] ?? 0);
   const closedTotal = wonCount + lostCount;
   const winRate = closedTotal > 0 ? Math.round((wonCount / closedTotal) * 100) : null;
+
+  // Bubble win rate up to the persistent nav so it shows on all tabs
+  useEffect(() => {
+    if (onWinRateUpdate) onWinRateUpdate(winRate);
+  }, [winRate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Active = has a stage but not Won or Lost
   const activeCount = leads.filter(
@@ -3777,7 +3784,7 @@ const NAV_ITEMS = [
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true },
 ];
 
-function Sidebar({ activeView, onNavigate, currentUser }) {
+function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   const isSuperAdmin = currentUser?.is_super_admin;
   const visibleItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
@@ -3792,8 +3799,27 @@ function Sidebar({ activeView, onNavigate, currentUser }) {
     sections.push({ type: 'item', ...item });
   }
 
+  const hasData = winRate !== null;
+  const winColor = !hasData ? '#9ca3af' : winRate >= 50 ? '#15803d' : winRate >= 30 ? '#b45309' : '#b91c1c';
+  const winBg    = !hasData ? '#f9fafb'  : winRate >= 50 ? '#f0fdf4'  : winRate >= 30 ? '#fffbeb'  : '#fef2f2';
+  const winBorder= !hasData ? '#e5e7eb'  : winRate >= 50 ? '#bbf7d0'  : winRate >= 30 ? '#fde68a'  : '#fecaca';
+  const winStatus= !hasData ? 'No closed deals yet' : winRate >= 50 ? 'Healthy' : winRate >= 30 ? 'Needs attention' : 'Action required';
+
   return (
     <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
+      {/* ── Win Rate — north star metric, always visible ── */}
+      <div style={{ margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px' }}>
+        <p style={{ margin: '0 0 6px', fontSize: '10px', fontWeight: '800', color: winColor, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Win Rate
+        </p>
+        <p style={{ margin: 0, fontSize: '36px', fontWeight: '900', color: winColor, lineHeight: 1 }}>
+          {hasData ? `${winRate}%` : '—'}
+        </p>
+        <p style={{ margin: '6px 0 0', fontSize: '11px', color: winColor, opacity: 0.75, fontWeight: '500' }}>
+          {winStatus}
+        </p>
+      </div>
+      {/* ── Nav items ── */}
       {sections.map((entry, i) => {
         if (entry.type === 'heading') {
           return entry.label ? (
@@ -3830,6 +3856,7 @@ export function AdminPage() {
   const [authState, setAuthState] = useState('loading'); // 'loading' | 'setup' | 'login' | 'authed'
   const [currentUser, setCurrentUser] = useState(null);
   const [activeView, setActiveView] = useState('leads');
+  const [navWinRate, setNavWinRate] = useState(null); // bubbled up from LeadsView, shown in nav on all tabs
 
   useEffect(() => {
     const token = sessionStorage.getItem('admin_token');
@@ -3875,7 +3902,7 @@ export function AdminPage() {
 
   function renderView() {
     const settingsViews = ['notifications', 'confirmations', 'users'];
-    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} />;
+    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     switch (activeView) {
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
@@ -3883,7 +3910,7 @@ export function AdminPage() {
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
-      default: return <LeadsView currentUser={currentUser} />;
+      default: return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }
 
@@ -3906,7 +3933,7 @@ export function AdminPage() {
 
       {/* Body */}
       <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
-        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} />
+        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} winRate={navWinRate} />
         <main style={{ flex: 1, minWidth: 0 }}>
           {renderView()}
         </main>

@@ -2037,24 +2037,8 @@ function MetricCards({
 
   return (
     <>
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '6px' }}>
-        <KpiCard
-          title="Win Rate"
-          value={isLoading ? dash : winRate !== null ? `${winRate}%` : '—'}
-          valueColor={isLoading || winRate === null ? '#9ca3af' : winRate >= 50 ? '#16a34a' : '#dc2626'}
-          tooltip={!isLoading && (
-            <TipBody desc="Closed Won ÷ total closed deals. Only counts deals marked Won or Lost in HubSpot.">
-              {closedTotal > 0 ? (
-                <>
-                  <Pill bg="#166534" color="#bbf7d0">{wonCount} won</Pill>
-                  <Pill bg="#991b1b" color="#fecaca">{lostCount} lost</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">{closedTotal} total closed</Pill>
-                </>
-              ) : <Pill bg="#374151" color="#f3f4f6">No closed deals yet</Pill>}
-            </TipBody>
-          )}
-        />
+      {/* KPIs — Win Rate lives in the persistent nav; 3 cards here */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '6px' }}>
         <KpiCard
           title="Active Pipeline"
           value={isLoading ? dash : activeCount}
@@ -2479,11 +2463,11 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
             );
           })}
         </div>
-        {/* Neutral exits — Caliber chose to redirect, not a lost deal */}
+        {/* Exit stages — side by side in one row, visually grouped */}
         {(() => {
           const neutralStages = HS_EXIT_STAGES.filter((s) => s.group === 'neutral');
           const lossStages    = HS_EXIT_STAGES.filter((s) => s.group === 'loss');
-          const ExitRow = ({ stages }) => (
+          const ExitGroup = ({ stages }) => (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: '6px' }}>
               {stages.map((stage) => {
                 const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
@@ -2509,12 +2493,17 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
             </div>
           );
           return (
-            <>
-              <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Referral / Partner Exit</p>
-              <ExitRow stages={neutralStages} />
-              <p style={{ margin: '12px 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Closed Lost</p>
-              <ExitRow stages={lossStages} />
-            </>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'stretch' }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Referral / Partner Exit</p>
+                <ExitGroup stages={neutralStages} />
+              </div>
+              <div style={{ width: '1px', background: '#e5e7eb', alignSelf: 'stretch', marginTop: '22px' }} />
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Closed Lost</p>
+                <ExitGroup stages={lossStages} />
+              </div>
+            </div>
           );
         })()}
       </div>
@@ -3785,6 +3774,7 @@ const NAV_ITEMS = [
 ];
 
 function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
+  const [winTipOpen, setWinTipOpen] = useState(false);
   const isSuperAdmin = currentUser?.is_super_admin;
   const visibleItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
@@ -3808,7 +3798,11 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   return (
     <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
       {/* ── Win Rate — north star metric, always visible ── */}
-      <div style={{ margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px' }}>
+      <div
+        style={{ position: 'relative', margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px', cursor: 'default' }}
+        onMouseEnter={() => setWinTipOpen(true)}
+        onMouseLeave={() => setWinTipOpen(false)}
+      >
         <p style={{ margin: '0 0 6px', fontSize: '10px', fontWeight: '800', color: winColor, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Win Rate
         </p>
@@ -3818,6 +3812,31 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
         <p style={{ margin: '6px 0 0', fontSize: '11px', color: winColor, opacity: 0.75, fontWeight: '500' }}>
           {winStatus}
         </p>
+        {/* Tooltip — appears to the right of the sidebar block */}
+        {winTipOpen && (
+          <div style={{
+            position: 'absolute', left: 'calc(100% + 12px)', top: 0,
+            zIndex: 200, background: '#1f2937', borderRadius: '10px', padding: '12px 14px',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.25)', width: '230px', pointerEvents: 'none',
+          }}>
+            {/* Caret pointing left toward the card */}
+            <span style={{
+              position: 'absolute', right: '100%', top: '20px',
+              width: 0, height: 0,
+              borderTop: '7px solid transparent',
+              borderBottom: '7px solid transparent',
+              borderRight: '7px solid #1f2937',
+            }} />
+            <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#f3f4f6', lineHeight: 1.5 }}>
+              Closed Won ÷ total closed deals. Referred Out and Partnered Out don&apos;t count against this — only Declined and Lost to Competitor do.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <span style={{ fontSize: '11px', color: '#bbf7d0', fontWeight: '600' }}>≥ 50% — Healthy</span>
+              <span style={{ fontSize: '11px', color: '#fde68a', fontWeight: '600' }}>30–49% — Needs attention</span>
+              <span style={{ fontSize: '11px', color: '#fca5a5', fontWeight: '600' }}>&lt; 30% — Action required</span>
+            </div>
+          </div>
+        )}
       </div>
       {/* ── Nav items ── */}
       {sections.map((entry, i) => {

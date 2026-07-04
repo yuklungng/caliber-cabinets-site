@@ -60,6 +60,9 @@ const HS_EXIT_STAGES = [
   { id: 'closedlost', label: 'Lost to Competitor',  group: 'loss'    }, // Customer chose another provider
 ];
 
+// Derived set for fast exit-stage membership checks — used in LeadsView and PerformanceView
+const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
+
 // Activity checklist — tracked per lead, stored in leads.activities JSONB
 const LEAD_ACTIVITIES = [
   { key: 'appt_scheduled', label: 'Appointment Scheduled' },
@@ -2152,9 +2155,6 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   // Legacy Appt/PPT/DM stages are intentionally excluded (activity, not pipeline stage).
   const pipelineStages = HS_PIPELINE;
   const exitStages     = HS_EXIT_STAGES;
-
-  // All stage IDs that represent a closed/exited deal (not actively moving)
-  const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
 
   function handleStageChange(leadKey, stage) {
     setLeads((prev) =>

@@ -1974,18 +1974,18 @@ function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
   );
 }
 
-function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', tooltip }) {
+function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', tooltip, compact = false }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: '14px 18px', cursor: 'default', textAlign: 'center' }}
+      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: compact ? '10px 8px' : '14px 18px', cursor: 'default', textAlign: 'center' }}
     >
-      <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      <p style={{ margin: '0 0 2px', fontSize: compact ? '10px' : '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         {title}
       </p>
-      <p style={{ margin: 0, fontSize: '26px', fontWeight: '700', color: valueColor, lineHeight: 1.2 }}>
+      <p style={{ margin: 0, fontSize: compact ? '22px' : '26px', fontWeight: '700', color: valueColor, lineHeight: 1.2 }}>
         {value}
       </p>
       {/* Hover tooltip bubble — renders below the card to avoid viewport clipping */}
@@ -2022,138 +2022,112 @@ function TipBody({ desc, children }) {
 
 function MetricCards({
   isLoading,
-  winRate, wonCount, lostCount, closedTotal,
   activeCount, homeownerLeads, tradeLeads,
   leadToQuoteRate, quotedCount, totalLeads,
   thisMonthCount, now,
   avgResponseDays, responseSamples,
   avgTimeToQuoteDays, quoteSamples,
-  quoteAcceptRate, contractsSentCount, quotesSentCount, contractOrWonCount, quoteOrLaterCount,
+  quoteAcceptRate, contractOrWonCount, quoteOrLaterCount,
   staleCount, STALE_DAYS,
-  avgFullCycleDays, fullCycleSamples,
 }) {
   const dash = isLoading ? '–' : '—';
   const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
-    <>
-      {/* KPIs — Win Rate lives in the persistent nav; 3 cards here */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '6px' }}>
-        <KpiCard
-          title="Active Pipeline"
-          value={isLoading ? dash : activeCount}
-          tooltip={!isLoading && (
-            <TipBody desc="Deals currently in progress — any stage except Closed Won or Closed Lost.">
-              <Pill bg="#78350f" color="#fed7aa">{homeownerLeads} homeowner</Pill>
-              <Pill bg="#14532d" color="#bbf7d0">{tradeLeads} trade</Pill>
-              <Pill bg="#374151" color="#f3f4f6">{activeCount} total active</Pill>
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="Lead → Quote"
-          value={isLoading ? dash : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
-          tooltip={!isLoading && (
-            <TipBody desc="Percentage of all leads that reached Quote Sent or a later stage. Measures how many inquiries become real proposals.">
-              <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} reached Quote Sent</Pill>
-              <Pill bg="#374151" color="#f3f4f6">{totalLeads} total leads</Pill>
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="New This Month"
-          value={isLoading ? dash : thisMonthCount}
-          tooltip={!isLoading && (
-            <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>
-              <Pill bg="#374151" color="#f3f4f6">{monthLabel}</Pill>
-              <Pill bg="#374151" color="#f3f4f6">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
-            </TipBody>
-          )}
-        />
-      </div>
-
-      {/* Ops metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '12px' }}>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <div style={{ height: '1px', background: '#f3e8d0' }} />
-        </div>
-        <KpiCard
-          title="Avg Response Time"
-          value={isLoading ? dash : formatDays(avgResponseDays)}
-          valueColor={isLoading || avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626'}
-          tooltip={!isLoading && (
-            <TipBody desc="Average time from a lead entering New Request to being moved to Qualified. Measures how quickly the team follows up.">
-              {responseSamples.length > 0 ? (
-                <>
-                  <Pill bg="#14532d" color="#bbf7d0">New Request → Qualified</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">avg of {responseSamples.length} deal{responseSamples.length !== 1 ? 's' : ''}</Pill>
-                </>
-              ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Qualified yet</Pill>}
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="Avg Time to Quote"
-          value={isLoading ? dash : formatDays(avgTimeToQuoteDays)}
-          valueColor={isLoading || avgTimeToQuoteDays === null ? '#9ca3af' : '#111827'}
-          tooltip={!isLoading && (
-            <TipBody desc="Average time from first contact to Quote Sent. Measures how efficiently the team turns an inquiry into a formal proposal.">
-              {quoteSamples.length > 0 ? (
-                <>
-                  <Pill bg="#4c1d95" color="#ddd6fe">New Request → Quote Sent</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
-                </>
-              ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Quote Sent yet</Pill>}
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="Quote Acceptance"
-          value={isLoading ? dash : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
-          valueColor={isLoading || quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706'}
-          tooltip={!isLoading && (
-            <TipBody desc="Of all leads that reached Quote Sent or later, how many advanced to Contract Sent or Closed Won. A low rate may indicate pricing, scope, or follow-up issues.">
-              {quoteOrLaterCount > 0 ? (
-                <>
-                  <Pill bg="#14532d" color="#bbf7d0">{contractOrWonCount} reached Contract Sent or Won</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">{quoteOrLaterCount} at Quote Sent or later</Pill>
-                </>
-              ) : <Pill bg="#374151" color="#f3f4f6">No quotes sent yet</Pill>}
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="Stale Leads"
-          value={isLoading ? dash : staleCount}
-          valueColor={isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a'}
-          bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
-          border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
-          tooltip={!isLoading && (
-            <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more days. These likely need a follow-up or a decision.`}>
-              {staleCount > 0
-                ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ days</Pill>
-                : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS}d ✓</Pill>
-              }
-            </TipBody>
-          )}
-        />
-        <KpiCard
-          title="Avg Full Cycle"
-          value={isLoading ? dash : formatDays(avgFullCycleDays)}
-          valueColor={isLoading || avgFullCycleDays === null ? '#9ca3af' : '#111827'}
-          tooltip={!isLoading && (
-            <TipBody desc="Average total days from first contact to Closed Won. Useful for project scheduling and cash flow planning. Only meaningful once you have several closed deals.">
-              {fullCycleSamples.length > 0 ? (
-                <>
-                  <Pill bg="#374151" color="#f3f4f6">New Request → Closed Won</Pill>
-                  <Pill bg="#374151" color="#f3f4f6">avg of {fullCycleSamples.length} won deal{fullCycleSamples.length !== 1 ? 's' : ''}</Pill>
-                </>
-              ) : <Pill bg="#374151" color="#f3f4f6">No won deals with full history yet</Pill>}
-            </TipBody>
-          )}
-        />
-      </div>
-    </>
+    // Single compact row — Win Rate in nav, Avg Full Cycle on Performance page
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px', marginBottom: '12px' }}>
+      <KpiCard compact
+        title="Active Pipeline"
+        value={isLoading ? dash : activeCount}
+        tooltip={!isLoading && (
+          <TipBody desc="Deals currently in progress — any stage except Closed Won or Closed Lost.">
+            <Pill bg="#78350f" color="#fed7aa">{homeownerLeads} homeowner</Pill>
+            <Pill bg="#14532d" color="#bbf7d0">{tradeLeads} trade</Pill>
+            <Pill bg="#374151" color="#f3f4f6">{activeCount} total active</Pill>
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Lead → Quote"
+        value={isLoading ? dash : leadToQuoteRate !== null ? `${leadToQuoteRate}%` : '—'}
+        tooltip={!isLoading && (
+          <TipBody desc="Percentage of all leads that reached Quote Sent or a later stage. Measures how many inquiries become real proposals.">
+            <Pill bg="#4c1d95" color="#ddd6fe">{quotedCount} reached Quote Sent</Pill>
+            <Pill bg="#374151" color="#f3f4f6">{totalLeads} total leads</Pill>
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="New This Month"
+        value={isLoading ? dash : thisMonthCount}
+        tooltip={!isLoading && (
+          <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>
+            <Pill bg="#374151" color="#f3f4f6">{monthLabel}</Pill>
+            <Pill bg="#374151" color="#f3f4f6">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Avg Response"
+        value={isLoading ? dash : formatDays(avgResponseDays)}
+        valueColor={isLoading || avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626'}
+        tooltip={!isLoading && (
+          <TipBody desc="Average time from a lead entering New Request to being moved to Qualified. Measures how quickly the team follows up.">
+            {responseSamples.length > 0 ? (
+              <>
+                <Pill bg="#14532d" color="#bbf7d0">New Request → Qualified</Pill>
+                <Pill bg="#374151" color="#f3f4f6">avg of {responseSamples.length} deal{responseSamples.length !== 1 ? 's' : ''}</Pill>
+              </>
+            ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Qualified yet</Pill>}
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Time to Quote"
+        value={isLoading ? dash : formatDays(avgTimeToQuoteDays)}
+        valueColor={isLoading || avgTimeToQuoteDays === null ? '#9ca3af' : '#111827'}
+        tooltip={!isLoading && (
+          <TipBody desc="Average time from first contact to Quote Sent. Measures how efficiently the team turns an inquiry into a formal proposal.">
+            {quoteSamples.length > 0 ? (
+              <>
+                <Pill bg="#4c1d95" color="#ddd6fe">New Request → Quote Sent</Pill>
+                <Pill bg="#374151" color="#f3f4f6">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
+              </>
+            ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Quote Sent yet</Pill>}
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Quote Accept"
+        value={isLoading ? dash : quoteAcceptRate !== null ? `${quoteAcceptRate}%` : '—'}
+        valueColor={isLoading || quoteAcceptRate === null ? '#9ca3af' : quoteAcceptRate >= 50 ? '#16a34a' : '#d97706'}
+        tooltip={!isLoading && (
+          <TipBody desc="Of all leads that reached Quote Sent or later, how many advanced to Contract Sent or Closed Won. A low rate may indicate pricing, scope, or follow-up issues.">
+            {quoteOrLaterCount > 0 ? (
+              <>
+                <Pill bg="#14532d" color="#bbf7d0">{contractOrWonCount} reached Contract Sent or Won</Pill>
+                <Pill bg="#374151" color="#f3f4f6">{quoteOrLaterCount} at Quote Sent or later</Pill>
+              </>
+            ) : <Pill bg="#374151" color="#f3f4f6">No quotes sent yet</Pill>}
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Stale Leads"
+        value={isLoading ? dash : staleCount}
+        valueColor={isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a'}
+        bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
+        border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
+        tooltip={!isLoading && (
+          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more days. These likely need a follow-up or a decision.`}>
+            {staleCount > 0
+              ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ days</Pill>
+              : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS}d ✓</Pill>
+            }
+          </TipBody>
+        )}
+      />
+    </div>
   );
 }
 
@@ -2419,16 +2393,13 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
       {/* KPIs + Ops metrics — cards show title + number; hover reveals detail bubble */}
       <MetricCards
         isLoading={isLoading}
-        winRate={winRate} wonCount={wonCount} lostCount={lostCount} closedTotal={closedTotal}
         activeCount={activeCount} homeownerLeads={homeownerLeads} tradeLeads={tradeLeads}
         leadToQuoteRate={leadToQuoteRate} quotedCount={quotedCount} totalLeads={totalLeads}
         thisMonthCount={thisMonthCount} now={now}
         avgResponseDays={avgResponseDays} responseSamples={responseSamples}
         avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
-        quoteAcceptRate={quoteAcceptRate} contractsSentCount={contractsSentCount} quotesSentCount={quotesSentCount}
-        contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}
+        quoteAcceptRate={quoteAcceptRate} contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}
         staleCount={staleCount} STALE_DAYS={STALE_DAYS}
-        avgFullCycleDays={avgFullCycleDays} fullCycleSamples={fullCycleSamples}
       />
 
       {/* Stage counts */}
@@ -3799,7 +3770,7 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
     <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
       {/* ── Win Rate — north star metric, always visible ── */}
       <div
-        style={{ position: 'relative', margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px', cursor: 'default' }}
+        style={{ position: 'relative', margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px', cursor: 'default', textAlign: 'center' }}
         onMouseEnter={() => setWinTipOpen(true)}
         onMouseLeave={() => setWinTipOpen(false)}
       >

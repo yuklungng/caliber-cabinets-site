@@ -30,9 +30,9 @@ const HS_STAGE_COLORS = {
   contractsent:          { bg: '#bbf7d0', color: '#14532d' },  // Contract Sent
   closedwon:             { bg: '#14532d', color: '#ffffff' },  // Closed Won
   // Exit stages — Caliber-initiated decisions
-  referred_out:          { bg: '#fef9c3', color: '#854d0e' },  // Referred Out (⚠ update ID once created in HubSpot)
-  partnered_out:         { bg: '#ccfbf1', color: '#0f766e' },  // Partnered Out (⚠ update ID once created in HubSpot)
-  declined:              { bg: '#f1f5f9', color: '#475569' },  // Declined      (⚠ update ID once created in HubSpot)
+  '3946621638':          { bg: '#fef9c3', color: '#854d0e' },  // Referred Out
+  '3945178856':          { bg: '#ccfbf1', color: '#0f766e' },  // Partnered Out
+  '3945178857':          { bg: '#f1f5f9', color: '#475569' },  // Declined
   // Exit stage — customer-initiated
   closedlost:            { bg: '#fee2e2', color: '#991b1b' },  // Lost to Competitor
   // Legacy Appt/PPT/DM stage IDs — kept for badge display on older leads
@@ -51,13 +51,11 @@ const HS_PIPELINE = [
 ];
 
 // Exit stages — shown separately from the pipeline (not linear steps)
-// ⚠ referred_out / partnered_out / declined IDs are placeholders.
-//   Create matching stages in HubSpot → Settings → Deal Stages, then update the IDs here.
 const HS_EXIT_STAGES = [
-  { id: 'referred_out',  label: 'Referred Out' },      // Caliber sent them to a better-fit provider
-  { id: 'partnered_out', label: 'Partnered Out' },     // Handled via a trade partner
-  { id: 'declined',      label: 'Declined' },           // Not the right fit — gracefully closed
-  { id: 'closedlost',    label: 'Lost to Competitor' }, // Customer chose another provider
+  { id: '3946621638', label: 'Referred Out' },      // Caliber sent them to a better-fit provider
+  { id: '3945178856', label: 'Partnered Out' },     // Handled via a trade partner
+  { id: '3945178857', label: 'Declined' },           // Not the right fit — gracefully closed
+  { id: 'closedlost', label: 'Lost to Competitor' }, // Customer chose another provider
 ];
 
 // Activity checklist — tracked per lead, stored in leads.activities JSONB

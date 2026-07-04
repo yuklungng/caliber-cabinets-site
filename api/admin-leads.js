@@ -43,7 +43,6 @@ export default async function handler(req, res) {
       const ACTIVITY_LABELS = {
         appt_scheduled: 'Appointment Scheduled',
         appt_completed: 'Appointment Completed',
-        ppt_sent:       'Presentation Sent',
       };
       const label   = ACTIVITY_LABELS[change.key] ?? change.key;
       const dateStr = new Date(change.at ?? Date.now()).toLocaleDateString('en-US', {

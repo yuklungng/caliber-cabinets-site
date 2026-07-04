@@ -51,18 +51,19 @@ const HS_PIPELINE = [
 ];
 
 // Exit stages — shown separately from the pipeline (not linear steps)
+// group: 'neutral' = Caliber chose to redirect (not a loss)
+// group: 'loss'    = deal did not convert (Closed Lost)
 const HS_EXIT_STAGES = [
-  { id: '3946621638', label: 'Referred Out' },      // Caliber sent them to a better-fit provider
-  { id: '3945178856', label: 'Partnered Out' },     // Handled via a trade partner
-  { id: '3945178857', label: 'Declined' },           // Not the right fit — gracefully closed
-  { id: 'closedlost', label: 'Lost to Competitor' }, // Customer chose another provider
+  { id: '3946621638', label: 'Referred Out',       group: 'neutral' }, // Caliber sent them to a better-fit provider
+  { id: '3945178856', label: 'Partnered Out',       group: 'neutral' }, // Handled via a trade partner
+  { id: '3945178857', label: 'Declined',            group: 'loss'    }, // Not the right fit — gracefully closed
+  { id: 'closedlost', label: 'Lost to Competitor',  group: 'loss'    }, // Customer chose another provider
 ];
 
 // Activity checklist — tracked per lead, stored in leads.activities JSONB
 const LEAD_ACTIVITIES = [
   { key: 'appt_scheduled', label: 'Appointment Scheduled' },
   { key: 'appt_completed', label: 'Appointment Completed' },
-  { key: 'ppt_sent',       label: 'Presentation Sent' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2471,31 +2472,44 @@ function LeadsView({ currentUser }) {
             );
           })}
         </div>
-        {/* Exit stages — separated from the active pipeline */}
-        <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Closed / Exited</p>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_EXIT_STAGES.length}, 1fr)`, gap: '6px' }}>
-          {HS_EXIT_STAGES.map((stage) => {
-            const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
-            const count = stageCountById[stage.id] ?? 0;
-            const isActive = filterStage === stage.id;
-            return (
-              <div
-                key={stage.id}
-                onClick={() => setFilterStage(isActive ? null : stage.id)}
-                title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: '4px', padding: '8px 6px', borderRadius: '8px', boxSizing: 'border-box',
-                  background: s.bg, border: isActive ? `2px solid ${s.color}` : `1.5px solid ${s.color}22`,
-                  cursor: 'pointer', outline: isActive ? `2px solid ${s.color}66` : 'none', outlineOffset: '1px',
-                }}
-              >
-                <span style={{ fontSize: '18px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
-                <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
-              </div>
-            );
-          })}
-        </div>
+        {/* Neutral exits — Caliber chose to redirect, not a lost deal */}
+        {(() => {
+          const neutralStages = HS_EXIT_STAGES.filter((s) => s.group === 'neutral');
+          const lossStages    = HS_EXIT_STAGES.filter((s) => s.group === 'loss');
+          const ExitRow = ({ stages }) => (
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: '6px' }}>
+              {stages.map((stage) => {
+                const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+                const count = stageCountById[stage.id] ?? 0;
+                const isActive = filterStage === stage.id;
+                return (
+                  <div
+                    key={stage.id}
+                    onClick={() => setFilterStage(isActive ? null : stage.id)}
+                    title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      gap: '4px', padding: '8px 6px', borderRadius: '8px', boxSizing: 'border-box',
+                      background: s.bg, border: isActive ? `2px solid ${s.color}` : `1.5px solid ${s.color}22`,
+                      cursor: 'pointer', outline: isActive ? `2px solid ${s.color}66` : 'none', outlineOffset: '1px',
+                    }}
+                  >
+                    <span style={{ fontSize: '18px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
+                    <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+          return (
+            <>
+              <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Referral / Partner Exit</p>
+              <ExitRow stages={neutralStages} />
+              <p style={{ margin: '12px 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Closed Lost</p>
+              <ExitRow stages={lossStages} />
+            </>
+          );
+        })()}
       </div>
 
       {/* Filters + Search */}

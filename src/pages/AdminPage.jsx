@@ -24,28 +24,41 @@ const FIELD_LABELS = {
 };
 
 const HS_STAGE_COLORS = {
-  '3869825744':          { bg: '#fef3c7', color: '#92400e' },
-  qualifiedtobuy:        { bg: '#dbeafe', color: '#1e40af' },
-  '3869825755':          { bg: '#ede9fe', color: '#5b21b6' },
+  '3869825744':          { bg: '#fef3c7', color: '#92400e' },  // New Request
+  qualifiedtobuy:        { bg: '#dbeafe', color: '#1e40af' },  // Qualified
+  '3869825755':          { bg: '#ede9fe', color: '#5b21b6' },  // Quote Sent
+  contractsent:          { bg: '#bbf7d0', color: '#14532d' },  // Contract Sent
+  closedwon:             { bg: '#14532d', color: '#ffffff' },  // Closed Won
+  // Exit stages — Caliber-initiated decisions
+  referred_out:          { bg: '#fef9c3', color: '#854d0e' },  // Referred Out (⚠ update ID once created in HubSpot)
+  partnered_out:         { bg: '#ccfbf1', color: '#0f766e' },  // Partnered Out (⚠ update ID once created in HubSpot)
+  declined:              { bg: '#f1f5f9', color: '#475569' },  // Declined      (⚠ update ID once created in HubSpot)
+  // Exit stage — customer-initiated
+  closedlost:            { bg: '#fee2e2', color: '#991b1b' },  // Lost to Competitor
+  // Legacy Appt/PPT/DM stage IDs — kept for badge display on older leads
   appointmentscheduled:  { bg: '#cffafe', color: '#155e75' },
   presentationscheduled: { bg: '#e0f2fe', color: '#0c4a6e' },
   decisionmakerboughtin: { bg: '#dcfce7', color: '#166534' },
-  contractsent:          { bg: '#bbf7d0', color: '#14532d' },
-  closedwon:             { bg: '#14532d', color: '#ffffff' },
-  closedlost:            { bg: '#fee2e2', color: '#991b1b' },
 };
 
-// Ordered pipeline stages — defines the linear lifecycle view
-// Appt/PPT/DM is a combined step (appointmentscheduled, presentationscheduled, decisionmakerboughtin all count)
+// Linear pipeline — active deal lifecycle only
 const HS_PIPELINE = [
-  { id: '3869825744',                                          label: 'New Request' },
-  { id: 'qualifiedtobuy',                                      label: 'Qualified' },
-  { id: '3869825755',                                          label: 'Quote Sent' },
-  { id: ['appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin'],  label: 'Appt/PPT/DM' },
-  { id: 'contractsent',                                        label: 'Contract Sent' },
-  { id: 'closedwon',                                          label: 'Closed Won' },
+  { id: '3869825744',   label: 'New Request' },
+  { id: 'qualifiedtobuy', label: 'Qualified' },
+  { id: '3869825755',   label: 'Quote Sent' },
+  { id: 'contractsent', label: 'Contract Sent' },
+  { id: 'closedwon',    label: 'Closed Won' },
 ];
-const HS_CLOSED_LOST = { id: 'closedlost', label: 'Closed Lost' };
+
+// Exit stages — shown separately from the pipeline (not linear steps)
+// ⚠ referred_out / partnered_out / declined IDs are placeholders.
+//   Create matching stages in HubSpot → Settings → Deal Stages, then update the IDs here.
+const HS_EXIT_STAGES = [
+  { id: 'referred_out',  label: 'Referred Out' },      // Caliber sent them to a better-fit provider
+  { id: 'partnered_out', label: 'Partnered Out' },     // Handled via a trade partner
+  { id: 'declined',      label: 'Declined' },           // Not the right fit — gracefully closed
+  { id: 'closedlost',    label: 'Lost to Competitor' }, // Customer chose another provider
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -557,7 +570,7 @@ function LeadDetail({ lead }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, onStageChange }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, onStageChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   // HubSpot-only deals may have no contact name — fall back to the deal name
@@ -593,8 +606,8 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
                 View in HubSpot ↗
               </a>
             )}
-            {/* HubSpot-only deals don't exist in Supabase — nothing to delete */}
-            {!isHubSpotOnly && (
+            {/* Delete — super admins only; HubSpot-only deals don't exist in Supabase */}
+            {isSuperAdmin && !isHubSpotOnly && (
               <button onClick={() => onDelete(lead.id, name)} style={{ background: 'transparent', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', cursor: 'pointer' }}>
                 Delete
               </button>
@@ -2070,7 +2083,7 @@ function MetricCards({
 
 // ─── Leads view ───────────────────────────────────────────────────────────────
 
-function LeadsView() {
+function LeadsView({ currentUser }) {
   const [leads, setLeads] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -2082,8 +2095,12 @@ function LeadsView() {
   const [expandedId, setExpandedId] = useState(null);
   const searchRef = useRef(null);
 
+  const isSuperAdmin = currentUser?.is_super_admin ?? false;
   const [newCount, setNewCount] = useState(0);
   const [pipelineStages, setPipelineStages] = useState([]);
+
+  // All stage IDs that represent a closed/exited deal (not actively moving)
+  const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
 
   // Fetch pipeline stages once on mount so LeadCard can render the picker
   useEffect(() => {
@@ -2201,17 +2218,17 @@ function LeadsView() {
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const wonCount  = stageCountById['closedwon']  ?? 0;
-  const lostCount = stageCountById['closedlost'] ?? 0;
+  const lostCount = stageCountById['closedlost'] ?? 0; // Lost to Competitor only — not Caliber-initiated exits
   const closedTotal = wonCount + lostCount;
   const winRate = closedTotal > 0 ? Math.round((wonCount / closedTotal) * 100) : null;
 
   // Active = has a stage but not Won or Lost
   const activeCount = leads.filter(
-    (l) => l.hs_stage_id && l.hs_stage_id !== 'closedwon' && l.hs_stage_id !== 'closedlost'
+    (l) => l.hs_stage_id && !EXIT_STAGE_IDS.has(l.hs_stage_id)
   ).length;
 
   // Lead-to-Quote = reached Quote Sent or any later stage
-  const quoteOrBeyond = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin', 'contractsent', 'closedwon']);
+  const quoteOrBeyond = new Set(['3869825755', 'contractsent', 'closedwon']);
   const quotedCount = leads.filter((l) => quoteOrBeyond.has(l.hs_stage_id)).length;
   const leadToQuoteRate = totalLeads > 0 ? Math.round((quotedCount / totalLeads) * 100) : null;
 
@@ -2251,8 +2268,8 @@ function LeadsView() {
   ).length;
 
   const QUOTE_OR_LATER_IDS = new Set([
-    '3869825755', 'appointmentscheduled', 'presentationscheduled',
-    'decisionmakerboughtin', 'contractsent', 'closedwon', 'closedlost',
+    '3869825755', 'contractsent', 'closedwon', 'closedlost',
+    'referred_out', 'partnered_out', 'declined',
   ]);
   const quoteOrLaterCount = leads.filter(
     (l) => l.hs_date_entered_quote_sent ||
@@ -2270,7 +2287,7 @@ function LeadsView() {
   const staleLeadIds = new Set(
     leads
       .filter((l) => {
-        if (!l.hs_stage_id || l.hs_stage_id === 'closedwon' || l.hs_stage_id === 'closedlost') return false;
+        if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
         const d = daysBetween(l.hs_stage_date, null);
         return d !== null && d >= STALE_DAYS;
       })
@@ -2332,22 +2349,17 @@ function LeadsView() {
       {/* Stage counts */}
       {/* Pipeline stage view */}
       <div style={{ marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_PIPELINE.length + 1}, 1fr)`, gap: '6px', alignItems: 'stretch', gridAutoRows: '1fr' }}>
+        {/* Active pipeline */}
+        <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline</p>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_PIPELINE.length}, 1fr)`, gap: '6px', alignItems: 'stretch', gridAutoRows: '1fr', marginBottom: '16px' }}>
           {HS_PIPELINE.map((stage, i) => {
-            const ids = Array.isArray(stage.id) ? stage.id : [stage.id];
-            const count = ids.reduce((sum, id) => sum + (stageCountById[id] ?? 0), 0);
-            const primaryId = ids[0];
-            const s = HS_STAGE_COLORS[primaryId] ?? { bg: '#f3f4f6', color: '#6b7280' };
-            const isActive = filterStage !== null && (
-              Array.isArray(filterStage)
-                ? filterStage.join('-') === ids.join('-')
-                : ids.includes(filterStage)
-            );
-            const handleStageBoxClick = () => setFilterStage(isActive ? null : stage.id);
+            const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+            const count = stageCountById[stage.id] ?? 0;
+            const isActive = filterStage === stage.id;
             return (
-              <div key={Array.isArray(stage.id) ? stage.id.join('-') : stage.id} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
+              <div key={stage.id} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
                 <div
-                  onClick={handleStageBoxClick}
+                  onClick={() => setFilterStage(isActive ? null : stage.id)}
                   title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
                   style={{
                     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -2360,34 +2372,36 @@ function LeadsView() {
                   <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
                 </div>
                 {i < HS_PIPELINE.length - 1 && (
-                  <span style={{ fontSize: '12px', color: '#d1d5db', flexShrink: 0 }}>›</span>
+                  <span style={{ fontSize: '12px', color: '#d1d5db', alignSelf: 'center', flexShrink: 0 }}>›</span>
                 )}
               </div>
             );
           })}
-          {/* Closed Lost */}
-          {(() => {
-            const count = stageCountById[HS_CLOSED_LOST.id] ?? 0;
-            const isActive = filterStage === HS_CLOSED_LOST.id;
+        </div>
+        {/* Exit stages — separated from the active pipeline */}
+        <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Closed / Exited</p>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_EXIT_STAGES.length}, 1fr)`, gap: '6px' }}>
+          {HS_EXIT_STAGES.map((stage) => {
+            const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+            const count = stageCountById[stage.id] ?? 0;
+            const isActive = filterStage === stage.id;
             return (
-              <div style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
-                <div style={{ width: '1px', background: '#e5e7eb', flexShrink: 0 }} />
-                <div
-                  onClick={() => setFilterStage(isActive ? null : HS_CLOSED_LOST.id)}
-                  title={isActive ? 'Click to clear filter' : 'Click to filter by Closed Lost'}
-                  style={{
-                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    gap: '5px', padding: '10px 6px', borderRadius: '8px', height: '100%', boxSizing: 'border-box',
-                    background: '#fee2e2', border: isActive ? '2px solid #991b1b' : '1.5px solid #fca5a522',
-                    cursor: 'pointer', outline: isActive ? '2px solid #991b1b66' : 'none', outlineOffset: '1px',
-                  }}
-                >
-                  <span style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', lineHeight: 1 }}>{count}</span>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#991b1b', textAlign: 'center', lineHeight: 1.3 }}>Closed Lost</span>
-                </div>
+              <div
+                key={stage.id}
+                onClick={() => setFilterStage(isActive ? null : stage.id)}
+                title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: '4px', padding: '8px 6px', borderRadius: '8px', boxSizing: 'border-box',
+                  background: s.bg, border: isActive ? `2px solid ${s.color}` : `1.5px solid ${s.color}22`,
+                  cursor: 'pointer', outline: isActive ? `2px solid ${s.color}66` : 'none', outlineOffset: '1px',
+                }}
+              >
+                <span style={{ fontSize: '18px', fontWeight: '900', color: s.color, lineHeight: 1 }}>{count}</span>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: s.color, textAlign: 'center', lineHeight: 1.3 }}>{stage.label}</span>
               </div>
             );
-          })()}
+          })}
         </div>
       </div>
 
@@ -2477,7 +2491,7 @@ function LeadsView() {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} onStageChange={handleStageChange} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} onStageChange={handleStageChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>
@@ -2502,7 +2516,7 @@ const PERF_STAGE_REACH_ORDER = [
   { key: 'hs_date_entered_new_request',   label: 'New Request',   id: '3869825744' },
 ];
 
-const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'appointmentscheduled', 'presentationscheduled', 'decisionmakerboughtin', 'contractsent', 'closedwon']);
+const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'contractsent', 'closedwon']);
 
 // Monthly stacked bar chart (Homeowner vs Trade volume)
 function MonthlyVolumeBars({ data }) {
@@ -2726,7 +2740,7 @@ function PerformanceView() {
     const closed = won + lost;
     const quoted = subset.filter((l) => PERF_QUOTE_OR_BEYOND.has(l.hs_stage_id)).length;
     const active = subset.filter(
-      (l) => l.hs_stage_id && l.hs_stage_id !== 'closedwon' && l.hs_stage_id !== 'closedlost'
+      (l) => l.hs_stage_id && !EXIT_STAGE_IDS.has(l.hs_stage_id)
     ).length;
     return {
       total: subset.length, active, won, lost, closed,
@@ -3754,7 +3768,7 @@ export function AdminPage() {
 
   function renderView() {
     const settingsViews = ['notifications', 'confirmations', 'users'];
-    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView />;
+    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} />;
     switch (activeView) {
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
@@ -3762,7 +3776,7 @@ export function AdminPage() {
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
-      default: return <LeadsView />;
+      default: return <LeadsView currentUser={currentUser} />;
     }
   }
 

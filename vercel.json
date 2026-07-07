@@ -24,7 +24,8 @@
     { "source": "/sample-page",     "destination": "/",                             "permanent": true },
     { "source": "/sample-page/",    "destination": "/",                             "permanent": true },
     { "source": "/hello-world",     "destination": "/",                             "permanent": true },
-    { "source": "/hello-world/",    "destination": "/",                             "permanent": true }
+    { "source": "/hello-world/",    "destination": "/",                             "permanent": true },
+    { "source": "/index.html",      "destination": "/",                             "permanent": true }
   ],
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }

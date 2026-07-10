@@ -114,6 +114,17 @@ function getUser() {
   try { return JSON.parse(sessionStorage.getItem('admin_user') ?? '{}'); } catch { return {}; }
 }
 
+// ─── Responsive hook ──────────────────────────────────────────────────────────
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < breakpoint);
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 async function apiCall(path, options = {}) {
   return fetch(path, {
     ...options,
@@ -1334,6 +1345,7 @@ function NotConfiguredCard({ service, envVars, hint }) {
 }
 
 function SiteStatsView() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState(null);
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1414,7 +1426,7 @@ function SiteStatsView() {
                     <span style={{ fontSize: '12px', color: '#9ca3af' }}>{m.url}</span>
                     <span style={{ marginLeft: 'auto', fontSize: '13px', fontWeight: '700', color: statusColor }}>{statusLabel}</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
                     <div>
                       <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>7-day uptime</p>
                       <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: m.uptimeRatio7 >= 99.9 ? '#16a34a' : m.uptimeRatio7 >= 99 ? '#d97706' : '#dc2626' }}>
@@ -1560,7 +1572,7 @@ function SiteStatsView() {
 
         {gsc?.configured && gsc?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
               <StatTile label="Total Clicks" value={gsc.totals.clicks?.toLocaleString()} accent="#4285f4" sub="Visits from Google search" />
               <StatTile label="Impressions" value={gsc.totals.impressions?.toLocaleString()} accent="#34a853" sub="Times shown in results" />
               <StatTile label="Click-Through Rate" value={gsc.totals.ctr != null ? `${gsc.totals.ctr}%` : '—'} accent="#fbbc04" sub="Higher is better" />
@@ -1656,14 +1668,14 @@ function SiteStatsView() {
         {ga?.configured && ga?.totals && (
           <div style={{ display: 'grid', gap: '16px' }}>
             {/* Row 1: volume */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
               <StatTile label="Sessions" value={ga.totals.sessions?.toLocaleString()} accent="#4285f4" />
               <StatTile label="Active Users" value={ga.totals.users?.toLocaleString()} accent="#34a853" />
               <StatTile label="Page Views" value={ga.totals.pageViews?.toLocaleString()} accent="#fbbc04" />
               <StatTile label="New Users" value={ga.totals.newUsers?.toLocaleString()} accent="#ea4335" />
             </div>
             {/* Row 2: quality */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
               <StatTile
                 label="Engagement Rate"
                 value={ga.totals.avgEngagement != null ? `${ga.totals.avgEngagement}%` : '—'}
@@ -2033,12 +2045,13 @@ function MetricCards({
   quoteAcceptRate, contractOrWonCount, quoteOrLaterCount,
   staleCount, STALE_DAYS,
 }) {
+  const isMobile = useIsMobile();
   const dash = isLoading ? '–' : '—';
   const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
     // Single compact row — Win Rate in nav, Avg Full Cycle on Performance page
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px', marginBottom: '12px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(4, 1fr)' : 'repeat(7, 1fr)', gap: '10px', marginBottom: '12px' }}>
       <KpiCard compact
         title="Active Pipeline"
         value={isLoading ? dash : activeCount}
@@ -2137,6 +2150,7 @@ function MetricCards({
 // ─── Leads view ───────────────────────────────────────────────────────────────
 
 function LeadsView({ currentUser, onWinRateUpdate }) {
+  const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -2404,7 +2418,8 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
       {/* Stage counts */}
       {/* Pipeline stage view */}
-      <div style={{ marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+      <div style={{ marginBottom: '28px', padding: '14px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth: isMobile ? '480px' : 'auto' }}>
         {/* Active pipeline */}
         <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline</p>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${HS_PIPELINE.length}, 1fr)`, gap: '6px', alignItems: 'stretch', gridAutoRows: '1fr', marginBottom: '16px' }}>
@@ -2477,6 +2492,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
             </div>
           );
         })()}
+        </div>{/* end minWidth scroll wrapper */}
       </div>
 
       {/* Filters + Search */}
@@ -2688,6 +2704,7 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
 }
 
 function PerformanceView() {
+  const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -2909,7 +2926,7 @@ function PerformanceView() {
       {/* ── Conversion by Lead Type ───────────────────────────────────────────── */}
       <section>
         {sectionLabel('Conversion by Lead Type')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           {[
             { label: 'Homeowner', stats: homeownerStats, bg: '#fff7ed', accent: '#c2410c' },
             { label: 'Trade Partner', stats: tradeStats, bg: '#f0fdf4', accent: '#166534' },
@@ -3048,7 +3065,7 @@ function PerformanceView() {
         </div>
 
         {/* Two charts side by side */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
 
           {/* Search visibility trend */}
           {chartCard(
@@ -3094,7 +3111,7 @@ function PerformanceView() {
         </div>
 
         {/* Traffic sources + top pages */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
 
           {/* Traffic Sources */}
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
@@ -3165,7 +3182,7 @@ function PerformanceView() {
       {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
       <section>
         {sectionLabel('Trends · Last 12 Months')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
 
           {chartCard(
             'New Leads per Month',
@@ -3745,6 +3762,7 @@ const NAV_ITEMS = [
 ];
 
 function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
+  const isMobile = useIsMobile();
   const [winTipOpen, setWinTipOpen] = useState(false);
   const isSuperAdmin = currentUser?.is_super_admin;
   const visibleItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
@@ -3766,6 +3784,48 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   const winBorder= !hasData ? '#e5e7eb'  : winRate >= 50 ? '#bbf7d0'  : winRate >= 30 ? '#fde68a'  : '#fecaca';
   const winStatus= !hasData ? 'No closed deals yet' : winRate >= 50 ? 'Healthy' : winRate >= 30 ? 'Needs attention' : 'Action required';
 
+  // ── Mobile: compact banner + horizontal tab strip ────────────────────────
+  if (isMobile) {
+    return (
+      <nav style={{ width: '100%' }}>
+        {/* Compact Win Rate banner */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+          padding: '8px 12px', marginBottom: '8px',
+          background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '8px',
+        }}>
+          <span style={{ fontSize: '10px', fontWeight: '800', color: winColor, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Win Rate</span>
+          <span style={{ fontSize: '20px', fontWeight: '900', color: winColor, lineHeight: 1 }}>
+            {hasData ? `${winRate}%` : '—'}
+          </span>
+          <span style={{ fontSize: '11px', color: winColor, opacity: 0.75, fontWeight: '500' }}>{winStatus}</span>
+        </div>
+        {/* Horizontal scrollable tab strip */}
+        <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '2px' }}>
+          {visibleItems.map((item) => {
+            const isActive = activeView === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => onNavigate(item.key)}
+                style={{
+                  flexShrink: 0, padding: '7px 14px', border: 0, borderRadius: '6px',
+                  background: isActive ? '#78350f' : '#f3f4f6',
+                  color: isActive ? '#ffffff' : '#374151',
+                  fontSize: '13px', fontWeight: isActive ? '700' : '500',
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    );
+  }
+
+  // ── Desktop: 200px left sidebar ───────────────────────────────────────────
   return (
     <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
       {/* ── Win Rate — north star metric, always visible ── */}
@@ -3884,6 +3944,8 @@ export function AdminPage() {
     setAuthState('login');
   }
 
+  const isMobile = useIsMobile();
+
   if (authState === 'loading') return null;
   if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
   if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
@@ -3907,24 +3969,24 @@ export function AdminPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
       {/* Header */}
-      <header style={{ background: '#78350f', padding: '0 24px', display: 'flex', alignItems: 'center', height: '60px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '38px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
-        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: '16px', flex: 1 }}>
+      <header style={{ background: '#78350f', padding: '0 16px', display: 'flex', alignItems: 'center', height: '52px', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '34px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+        <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: isMobile ? '14px' : '16px', flex: 1 }}>
           Caliber Cabinets
           <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Admin</span>
         </p>
-        {currentUser?.name && (
+        {!isMobile && currentUser?.name && (
           <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
         )}
-        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer' }}>
+        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: isMobile ? '5px 10px' : '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Sign Out
         </button>
       </header>
 
       {/* Body */}
-      <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '24px 16px', gap: '24px', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '12px' : '24px 16px', gap: isMobile ? '12px' : '24px', alignItems: 'flex-start' }}>
         <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} winRate={navWinRate} />
-        <main style={{ flex: 1, minWidth: 0 }}>
+        <main style={{ flex: 1, minWidth: 0, width: '100%' }}>
           {renderView()}
         </main>
       </div>

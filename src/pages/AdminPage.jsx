@@ -572,7 +572,7 @@ function LeadDetail({ lead, onActivityChange }) {
                       <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: '700',
                                      border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px',
                                      whiteSpace: 'nowrap', background: '#eff6ff' }}>
-                        📏 {f.distance_miles} mi
+                        📏 {f.distance_rough ? `roughly ${f.distance_miles}` : f.distance_miles} mi
                       </span>
                     )}
                   </span>
@@ -603,7 +603,7 @@ function LeadDetail({ lead, onActivityChange }) {
                       <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: '700',
                                      border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px',
                                      whiteSpace: 'nowrap', background: '#eff6ff' }}>
-                        📏 {f.distance_miles} mi
+                        📏 {f.distance_rough ? `roughly ${f.distance_miles}` : f.distance_miles} mi
                       </span>
                     )}
                   </span>

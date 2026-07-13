@@ -64,13 +64,39 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
   }
 
-  // Step 2: Geocode lead address and compute straight-line distance from Caliber
+  // Step 2: Geocode lead address and compute straight-line distance from Caliber.
+  // Tier 1 (exact):   full street address present                → geocode full address
+  // Tier 2 (rough):   no street, but city + state available     → geocode city/state centroid
+  // Tier 3 (rough):   no street/city, but ZIP available         → geocode ZIP centroid
+  // No address at all → skip distance entirely
   let distanceMiles = null;
+  let distanceIsRough = false;
   try {
-    // Both form types use streetAddress/city/state/zipCode; projectAddress is a legacy fallback
-    const leadAddrStr =
-      fields.projectAddress ||
-      [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean).join(', ');
+    const hasStreet = !!fields.streetAddress;
+    const hasCity   = !!fields.city;
+    const hasState  = !!fields.state;
+    const hasZip    = !!fields.zipCode;
+
+    let leadAddrStr = null;
+
+    if (fields.projectAddress) {
+      // Legacy single-field address — treat as exact
+      leadAddrStr = fields.projectAddress;
+      distanceIsRough = false;
+    } else if (hasStreet && (hasCity || hasZip)) {
+      // Full address — exact geocode
+      leadAddrStr = [fields.streetAddress, fields.city, fields.state, fields.zipCode].filter(Boolean).join(', ');
+      distanceIsRough = false;
+    } else if (hasCity && hasState) {
+      // City + state only — Census geocoder returns city centroid; good enough for a rough estimate
+      leadAddrStr = `${fields.city}, ${fields.state}`;
+      distanceIsRough = true;
+    } else if (hasZip) {
+      // ZIP only — Census geocoder returns ZIP centroid
+      leadAddrStr = fields.zipCode;
+      distanceIsRough = true;
+    }
+
     if (leadAddrStr) {
       const coords = await geocodeAddress(leadAddrStr);
       if (coords) {
@@ -82,7 +108,11 @@ export default async function handler(req, res) {
     console.warn('[lead-submit] Geocoding failed (non-fatal):', geoErr.message);
   }
 
-  const enrichedFields = distanceMiles !== null ? { ...fields, distance_miles: distanceMiles } : fields;
+  const enrichedFields = {
+    ...fields,
+    ...(distanceMiles !== null ? { distance_miles: distanceMiles } : {}),
+    ...(distanceMiles !== null && distanceIsRough ? { distance_rough: true } : {}),
+  };
 
   // Step 3: Save to Supabase
   const supabase = createClient(
@@ -173,6 +203,7 @@ export default async function handler(req, res) {
         attachedFiles: attachedFileNames,
         failedFiles: failedFileNames,
         distanceMiles,
+        distanceRough: distanceIsRough,
       });
 
       const transporter = nodemailer.createTransport({

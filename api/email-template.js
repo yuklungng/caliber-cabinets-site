@@ -53,7 +53,7 @@ function isEmpty(value) {
 
 function buildFieldRows(fields) {
   return Object.entries(fields)
-    .filter(([k, v]) => k !== 'attachments' && k !== 'distance_miles' && !isEmpty(v))
+    .filter(([k, v]) => k !== 'attachments' && k !== 'distance_miles' && k !== 'distance_rough' && !isEmpty(v))
     .map(([k, v]) => {
       const label = FIELD_LABELS[k] ?? k;
       const value = formatValue(v);
@@ -70,9 +70,9 @@ function buildFieldRows(fields) {
     .join('');
 }
 
-function buildMapRow(fields, distanceMiles) {
+function buildMapRow(fields, distanceMiles, distanceRough = false) {
   // Homeowner: single projectAddress field. Trade: separate address components.
-  const hasAddress = fields.zipCode || fields.projectAddress;
+  const hasAddress = fields.zipCode || fields.projectAddress || fields.city;
   if (!hasAddress) return '';
   const parts = fields.projectAddress
     ? [fields.projectAddress]
@@ -80,7 +80,7 @@ function buildMapRow(fields, distanceMiles) {
   const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.filter(Boolean).join(', '))}`;
   const distanceBadge =
     distanceMiles != null
-      ? `<span style="display:inline-block;margin-left:8px;padding:5px 10px;background:#eff6ff;color:#1e40af;font-size:12px;font-weight:700;border-radius:4px;border:1px solid #bfdbfe;vertical-align:middle;">&#128207; ${distanceMiles} mi away</span>`
+      ? `<span style="display:inline-block;margin-left:8px;padding:5px 10px;background:#eff6ff;color:#1e40af;font-size:12px;font-weight:700;border-radius:4px;border:1px solid #bfdbfe;vertical-align:middle;">&#128207; ${distanceRough ? `roughly ${distanceMiles}` : distanceMiles} mi away</span>`
       : '';
   return `
     <tr>
@@ -115,11 +115,11 @@ function buildAttachmentRows(attachedFiles, failedFiles) {
     </tr>`;
 }
 
-export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFiles = [], distanceMiles = null }) {
+export function buildHtmlEmail({ formLabel, fields, attachedFiles = [], failedFiles = [], distanceMiles = null, distanceRough = false }) {
   const firstName = fields.firstName || '';
   const lastName = fields.lastName || '';
   const fieldRows = buildFieldRows(fields);
-  const mapRow = buildMapRow(fields, distanceMiles);
+  const mapRow = buildMapRow(fields, distanceMiles, distanceRough);
   const attachmentRows = buildAttachmentRows(attachedFiles, failedFiles);
 
   return `<!DOCTYPE html>

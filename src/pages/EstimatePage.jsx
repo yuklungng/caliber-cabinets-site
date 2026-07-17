@@ -145,6 +145,15 @@ function Req() {
   return <span className="req"> (Required)</span>;
 }
 
+/** Auto-formats a phone string to (###)###-#### as the user types */
+function formatPhone(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 10);
+  if (digits.length === 0) return '';
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)})${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)})${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 function SuccessState() {
   return (
     <div className="form-success-card">
@@ -174,6 +183,7 @@ export function EstimatePage() {
   const [isDirty, setIsDirty] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploadError, setUploadError] = useState('');
+  const [phone, setPhone] = useState('');
 
   useEffect(() => {
     const prevTitle = document.title;
@@ -349,7 +359,18 @@ export function EstimatePage() {
                 <div className="lead-field-grid lead-field-grid--two">
                   <div className="lead-field">
                     <label htmlFor="estimate-phone">Phone Number<Req /></label>
-                    <input id="estimate-phone" name="phone" type="tel" required />
+                    <input
+                      id="estimate-phone"
+                      name="phone"
+                      type="tel"
+                      required
+                      value={phone}
+                      onChange={e => setPhone(formatPhone(e.target.value))}
+                      placeholder="(925)555-1234"
+                      pattern="\(\d{3}\)\d{3}-\d{4}"
+                      title="Enter a 10-digit US phone number"
+                      maxLength={13}
+                    />
                   </div>
                   <div className="lead-field">
                     <label htmlFor="estimate-email">Email Address<Req /></label>

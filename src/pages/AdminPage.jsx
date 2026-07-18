@@ -321,7 +321,7 @@ function AddLeadModal({ onClose, onAdded }) {
     setError('');
     setIsSaving(true);
     try {
-      const r = await apiCall('/api/admin-add-lead', {
+      const r = await apiCall('/api/admin-leads?action=add-lead', {
         method: 'POST',
         body: { formType, fields: { ...fields, phone } },
       });

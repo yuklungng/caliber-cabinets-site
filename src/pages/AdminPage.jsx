@@ -679,8 +679,13 @@ function LeadDetail({ lead, onActivityChange }) {
 function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
+  const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
+  const isTrade     = lead.form_type === 'trade-estimate';
+  // Trade leads: "Client Name (Trade Pro Name)" — client is the primary identifier
   // HubSpot-only deals may have no contact name — fall back to the deal name
-  const name = contactName || f.dealName || '(no name)';
+  const name = isTrade && clientName
+    ? `${clientName} (${contactName || 'Unknown'})`
+    : contactName || f.dealName || '(no name)';
   const isHubSpotOnly = lead.source === 'hubspot';
   return (
     <div style={{ background: '#ffffff', border: `1px solid ${isStale ? '#fde68a' : '#e5e7eb'}`, borderRadius: '8px', overflow: 'hidden' }}>

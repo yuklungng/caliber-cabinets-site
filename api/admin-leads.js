@@ -59,6 +59,28 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
+  // PATCH ?action=lead-source — update leadSource inside the fields JSONB for a Supabase lead
+  if (req.method === 'PATCH' && req.query?.action === 'lead-source') {
+    const { id, leadSource } = req.body ?? {};
+    if (!id || !leadSource) return res.status(400).json({ error: 'Missing id or leadSource' });
+
+    // Fetch current fields, merge, and write back
+    const { data: current, error: fetchErr } = await supabase
+      .from('leads')
+      .select('fields')
+      .eq('id', id)
+      .single();
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+    const { error: updateErr } = await supabase
+      .from('leads')
+      .update({ fields: { ...current.fields, leadSource } })
+      .eq('id', id);
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    return res.status(200).json({ success: true });
+  }
+
   // PATCH — update deal stage in HubSpot
   if (req.method === 'PATCH') {
     const { dealId, stageId } = req.body ?? {};

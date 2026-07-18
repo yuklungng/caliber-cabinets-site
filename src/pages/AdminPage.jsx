@@ -271,6 +271,75 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   );
 }
 
+const SOURCE_OPTIONS = ['Website', 'Phone Call', 'Referral', 'Repeat Client', 'Trade Show', 'Walk-in', 'Other'];
+
+function SourcePicker({ lead, onSourceChange }) {
+  const [open, setOpen]     = useState(false);
+  const [saving, setSaving] = useState(false);
+  const triggerRef = useRef(null);
+  const current = lead.fields?.leadSource || 'Website';
+  const isNonWeb = current !== 'Website';
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e) {
+      const drop = document.getElementById('source-picker-dropdown');
+      if (triggerRef.current && !triggerRef.current.contains(e.target) && !drop?.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  // Only editable for Supabase-backed leads
+  if (lead.source === 'hubspot') return null;
+
+  async function select(src) {
+    if (src === current) { setOpen(false); return; }
+    setSaving(true);
+    setOpen(false);
+    try {
+      await apiCall('/api/admin-leads?action=lead-source', { method: 'PATCH', body: { id: lead.id, leadSource: src } });
+      onSourceChange(lead.id, src);
+    } catch { /* non-fatal */ }
+    setSaving(false);
+  }
+
+  const badgeBase = {
+    display: 'inline-flex', alignItems: 'center', gap: '3px',
+    fontSize: '11px', fontWeight: '700', borderRadius: '4px',
+    padding: '2px 7px', cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
+    background: isNonWeb ? '#f3e8ff' : '#f9fafb',
+    color: isNonWeb ? '#6b21a8' : '#6b7280',
+    outline: '1px solid ' + (isNonWeb ? '#d8b4fe' : '#e5e7eb'),
+  };
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }} ref={triggerRef}>
+      <button onClick={(e) => { e.stopPropagation(); if (!saving) setOpen((o) => !o); }} style={badgeBase}>
+        {saving ? '…' : current}
+        <span style={{ fontSize: '9px', opacity: 0.6 }}>▾</span>
+      </button>
+      {open && (
+        <div id="source-picker-dropdown" onClick={(e) => e.stopPropagation()}
+          style={{ position: 'fixed', zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '160px',
+            top: (() => { const r = triggerRef.current?.getBoundingClientRect(); return r ? r.bottom + 4 : 0; })(),
+            left: (() => { const r = triggerRef.current?.getBoundingClientRect(); return r ? r.left : 0; })(),
+          }}>
+          <div style={{ padding: '6px 12px 4px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Lead Source</div>
+          {SOURCE_OPTIONS.map((src) => (
+            <button key={src} onMouseDown={(e) => { e.preventDefault(); select(src); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 14px', border: 0, borderBottom: '1px solid #f3f4f6', background: src === current ? '#f3e8ff' : '#fff', color: '#111827', fontSize: '13px', fontWeight: src === current ? '700' : '400', cursor: 'pointer' }}>
+              {src}{src === current && <span style={{ marginLeft: '6px', fontSize: '10px', color: '#9ca3af' }}>current</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TypeBadge({ formType, source }) {
   if (source === 'hubspot') {
     return (
@@ -677,7 +746,7 @@ function LeadDetail({ lead, onActivityChange }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
@@ -694,11 +763,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} source={lead.source} />
-          {f.leadSource && f.leadSource !== 'Website' && (
-            <span style={{ fontSize: '11px', fontWeight: '700', color: '#6b21a8', background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
-              {f.leadSource}
-            </span>
-          )}
+          <SourcePicker lead={lead} onSourceChange={onSourceChange} />
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
@@ -2197,6 +2262,12 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     );
   }
 
+  function handleSourceChange(leadId, leadSource) {
+    setLeads((prev) =>
+      prev.map((l) => l.id === leadId ? { ...l, fields: { ...l.fields, leadSource } } : l),
+    );
+  }
+
   async function loadLeads(silent = false) {
     if (!silent) setIsLoading(true);
     setLoadError('');
@@ -2592,7 +2663,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

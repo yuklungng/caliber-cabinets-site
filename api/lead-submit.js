@@ -219,7 +219,9 @@ export default async function handler(req, res) {
       await transporter.sendMail({
         from: '"Caliber Cabinets" <info@calibercabinetshop.com>',
         to: notificationEmails.join(', '),
-        subject: `New ${formLabel} - ${fields.firstName || ''} ${fields.lastName || ''}`.trim(),
+        subject: formType === 'trade-estimate'
+          ? `New Trade Partner Estimate Request - ${[fields.clientFirstName, fields.clientLastName].filter(Boolean).join(' ') || 'Unknown Client'} (${[fields.firstName, fields.lastName].filter(Boolean).join(' ')})`
+          : `New ${formLabel} - ${[fields.firstName, fields.lastName].filter(Boolean).join(' ')}`,
         text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in admin panel.`,
         html: htmlBody,
         attachments: emailAttachments,

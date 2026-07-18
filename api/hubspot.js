@@ -355,9 +355,13 @@ export function buildHubSpotObjects(formType, fields, attachmentUrls = {}) {
 
   // --- Deal name ---
   const personName = `${fields.firstName ?? ''} ${fields.lastName ?? ''}`.trim();
+  const clientName = [fields.clientFirstName, fields.clientLastName].filter(Boolean).join(' ');
+  const tradeIdentifier = fields.companyName || personName; // prefer company, fall back to trade pro name
   const dealName = isHomeowner
     ? `Design Consultation – ${personName}`
-    : `Trade Estimate – ${fields.companyName ? `${fields.companyName} (${personName})` : personName}`;
+    : clientName
+      ? `Trade Estimate – ${clientName} (via ${tradeIdentifier})`
+      : `Trade Estimate – ${tradeIdentifier}`;
 
   // --- Deal description: full plain-text form content ---
   const lines = [];

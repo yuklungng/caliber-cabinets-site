@@ -273,6 +273,284 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
 
 const SOURCE_OPTIONS = ['Website', 'Phone Call', 'Referral', 'Repeat Client', 'Trade Show', 'Walk-in', 'Other'];
 
+// ─── Add Lead Modal ───────────────────────────────────────────────────────────
+
+const MANUAL_SOURCE_OPTIONS = ['Phone Call', 'Referral', 'Repeat Client', 'Trade Show', 'Walk-in', 'Other'];
+
+const AL_PROJECT_TYPES    = ['Kitchen', 'Bathroom', 'Closet', 'Garage', 'Entertainment Center', 'Other'];
+const AL_TIMELINE_OPTIONS = ['As soon as possible', '1–3 months', '3–6 months', '6+ months'];
+const AL_TRADE_TYPES      = ['Interior Designer', 'General Contractor', 'Architect', 'Builder / Developer', 'Remodeling Contractor', 'Other'];
+const AL_PREFERRED_CONTACT = ['Phone', 'Email', 'Either'];
+const AL_INSTALL_TIMELINE  = ['1-2 Months', '3-6 Months', '6-12 Months', 'Other'];
+const AL_CONSTRUCTION      = ['Face Frame, 1/8" Reveal, Full Overlay', 'Flush Inset Doors / Drawer Fronts', 'Frame-less (European Style), Full Overlay', 'Other (explain in comments)'];
+const AL_CROWN             = ['Traditional Crown Molding', 'Flat Crown Molding', 'No Molding / Shadow Line', 'Other (explain in comments)'];
+const AL_DOOR_STYLE        = ['Slab Door', 'Shaker Door / Flat Panel', 'Raised Panel', 'Other (attach photo or explain)'];
+const AL_WOOD_SPECIES      = ['Painted Cabinetry', 'Maple', 'Cherry', 'Alder', 'Beech', 'Hickory / Pecan', 'Red Oak', 'White Oak', 'Rift Oak', 'Quarter Sawn Oak', 'Walnut', 'Bamboo', 'Cleaf / Laminate', 'Vertical Grain Fir', 'Other (explain in comments)'];
+const AL_AREAS             = ['Kitchen', 'Bathroom(s)', 'Entertainment Center', 'Closet Cabinetry', 'Fireplace Mantle', 'Garage', 'Other'];
+const AL_ACCESSORIES       = ['Panelized Ends', 'Base Pull-Outs', 'Spice Rack / Drawers', 'Solid Wood Dovetail Drawer Boxes', 'Roll-Out Drawers', 'Two-Tier Silverware Drawer', 'LED Lighting', 'Lazy Susan', 'Lemans II', 'Other (explain in comments)'];
+const AL_STATES            = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','District of Columbia','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming','American Samoa','Guam','Northern Mariana Islands','Puerto Rico','U.S. Virgin Islands'];
+
+/** Auto-formats a phone string to (###)###-#### as the user types */
+function formatPhoneInput(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 10);
+  if (digits.length === 0) return '';
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)})${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)})${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function AddLeadModal({ onClose, onAdded }) {
+  const [formType, setFormType] = useState('homeowner-consultation');
+  const [fields, setFields]     = useState({ leadSource: 'Phone Call', state: 'California' });
+  const [phone, setPhone]       = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError]       = useState('');
+
+  function setF(key, value) {
+    setFields((prev) => ({ ...prev, [key]: value }));
+  }
+  function toggleArr(key, value) {
+    setFields((prev) => {
+      const arr = Array.isArray(prev[key]) ? prev[key] : [];
+      return { ...prev, [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value] };
+    });
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setIsSaving(true);
+    try {
+      const r = await apiCall('/api/admin-add-lead', {
+        method: 'POST',
+        body: { formType, fields: { ...fields, phone } },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed to add lead');
+      onAdded(data.lead);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // Shared styles
+  const inp  = { width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', outline: 'none', background: '#fff' };
+  const lbl  = { display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '4px' };
+  const g2   = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' };
+  const sec  = { margin: '16px 0 10px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px' };
+  const req  = <span style={{ color: '#b91c1c' }}> *</span>;
+  const mb12 = { marginBottom: '12px' };
+
+  const AddressBlock = () => (
+    <>
+      <div style={mb12}><label style={lbl}>Street Address</label><input style={inp} value={fields.streetAddress || ''} onChange={(e) => setF('streetAddress', e.target.value)} /></div>
+      <div style={g2}>
+        <div><label style={lbl}>City</label><input style={inp} value={fields.city || ''} onChange={(e) => setF('city', e.target.value)} /></div>
+        <div>
+          <label style={lbl}>State</label>
+          <select style={inp} value={fields.state || 'California'} onChange={(e) => setF('state', e.target.value)}>
+            {AL_STATES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={mb12}><label style={lbl}>ZIP Code</label><input style={inp} value={fields.zipCode || ''} onChange={(e) => setF('zipCode', e.target.value)} /></div>
+    </>
+  );
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '640px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+
+        {/* ── Header ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
+          <span style={{ fontSize: '16px', fontWeight: '700', color: '#111827' }}>Add Lead</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>✕</button>
+        </div>
+
+        {/* ── Scrollable body ── */}
+        <div style={{ overflowY: 'auto', padding: '16px 20px', flex: 1 }}>
+
+          {/* Form type toggle */}
+          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }}>
+            {[['homeowner-consultation', '🏠 Homeowner'], ['trade-estimate', '🔧 Trade Partner']].map(([type, label]) => (
+              <button key={type} onClick={() => { setFormType(type); setPhone(''); setFields({ leadSource: fields.leadSource || 'Phone Call', state: 'California' }); }}
+                style={{ flex: 1, padding: '8px', border: 0, background: formType === type ? '#78350f' : 'transparent', color: formType === type ? '#fff' : '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Lead Source — highlighted at top */}
+          <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px' }}>
+            <label style={lbl}>Lead Source{req}</label>
+            <select value={fields.leadSource || ''} onChange={(e) => setF('leadSource', e.target.value)} required style={inp}>
+              {MANUAL_SOURCE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+
+          <form id="add-lead-form" onSubmit={handleSubmit}>
+            {formType === 'homeowner-consultation' ? (
+              <>
+                <p style={sec}>Contact Information</p>
+                <div style={g2}>
+                  <div><label style={lbl}>First Name{req}</label><input style={inp} required value={fields.firstName || ''} onChange={(e) => setF('firstName', e.target.value)} /></div>
+                  <div><label style={lbl}>Last Name{req}</label><input style={inp} required value={fields.lastName || ''} onChange={(e) => setF('lastName', e.target.value)} /></div>
+                </div>
+                <div style={g2}>
+                  <div><label style={lbl}>Phone{req}</label><input style={inp} required type="tel" value={phone} onChange={(e) => setPhone(formatPhoneInput(e.target.value))} placeholder="(925)555-1234" pattern="\(\d{3}\)\d{3}-\d{4}" title="10-digit US phone" maxLength={13} /></div>
+                  <div><label style={lbl}>Email{req}</label><input style={inp} required type="email" value={fields.email || ''} onChange={(e) => setF('email', e.target.value)} /></div>
+                </div>
+
+                <p style={sec}>Project Details</p>
+                <div style={g2}>
+                  <div>
+                    <label style={lbl}>Project Type</label>
+                    <select style={inp} value={fields.projectType || ''} onChange={(e) => setF('projectType', e.target.value)}>
+                      <option value="">Select type</option>
+                      {AL_PROJECT_TYPES.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>Timeline</label>
+                    <select style={inp} value={fields.timeline || ''} onChange={(e) => setF('timeline', e.target.value)}>
+                      <option value="">Select timeline</option>
+                      {AL_TIMELINE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <AddressBlock />
+                <div style={mb12}><label style={lbl}>Description</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.description || ''} onChange={(e) => setF('description', e.target.value)} /></div>
+              </>
+            ) : (
+              <>
+                <p style={sec}>Trade Professional</p>
+                <div style={g2}>
+                  <div><label style={lbl}>First Name{req}</label><input style={inp} required value={fields.firstName || ''} onChange={(e) => setF('firstName', e.target.value)} /></div>
+                  <div><label style={lbl}>Last Name{req}</label><input style={inp} required value={fields.lastName || ''} onChange={(e) => setF('lastName', e.target.value)} /></div>
+                </div>
+                <div style={g2}>
+                  <div><label style={lbl}>Company</label><input style={inp} value={fields.companyName || ''} onChange={(e) => setF('companyName', e.target.value)} /></div>
+                  <div>
+                    <label style={lbl}>Trade Role</label>
+                    <select style={inp} value={fields.tradeRole || ''} onChange={(e) => setF('tradeRole', e.target.value)}>
+                      <option value="">Select role</option>
+                      {AL_TRADE_TYPES.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={g2}>
+                  <div><label style={lbl}>Phone{req}</label><input style={inp} required type="tel" value={phone} onChange={(e) => setPhone(formatPhoneInput(e.target.value))} placeholder="(925)555-1234" pattern="\(\d{3}\)\d{3}-\d{4}" title="10-digit US phone" maxLength={13} /></div>
+                  <div><label style={lbl}>Email{req}</label><input style={inp} required type="email" value={fields.email || ''} onChange={(e) => setF('email', e.target.value)} /></div>
+                </div>
+                <div style={g2}>
+                  <div><label style={lbl}>License #</label><input style={inp} value={fields.licenseNumber || ''} onChange={(e) => setF('licenseNumber', e.target.value)} /></div>
+                  <div>
+                    <label style={lbl}>Preferred Contact</label>
+                    <select style={inp} value={fields.preferredContact || ''} onChange={(e) => setF('preferredContact', e.target.value)}>
+                      <option value="">Select</option>
+                      {AL_PREFERRED_CONTACT.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ ...mb12, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input id="al-design-svc" type="checkbox" checked={!!fields.needsDesignServices} onChange={(e) => setF('needsDesignServices', e.target.checked)} />
+                  <label htmlFor="al-design-svc" style={{ ...lbl, marginBottom: 0, cursor: 'pointer' }}>Needs Design Services</label>
+                </div>
+
+                <p style={sec}>Client Information</p>
+                <div style={g2}>
+                  <div><label style={lbl}>Client First Name</label><input style={inp} value={fields.clientFirstName || ''} onChange={(e) => setF('clientFirstName', e.target.value)} /></div>
+                  <div><label style={lbl}>Client Last Name</label><input style={inp} value={fields.clientLastName || ''} onChange={(e) => setF('clientLastName', e.target.value)} /></div>
+                </div>
+                <AddressBlock />
+
+                <p style={sec}>Project Specs</p>
+                <div style={mb12}>
+                  <label style={lbl}>Areas Requiring Cabinetry</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                    {AL_AREAS.map((o) => (
+                      <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={(fields.areasRequiringCabinetry || []).includes(o)} onChange={() => toggleArr('areasRequiringCabinetry', o)} />
+                        {o}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div style={g2}>
+                  <div>
+                    <label style={lbl}>Installation Timeline</label>
+                    <select style={inp} value={fields.installationTimeline || ''} onChange={(e) => setF('installationTimeline', e.target.value)}>
+                      <option value="">Select</option>
+                      {AL_INSTALL_TIMELINE.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>Construction Method</label>
+                    <select style={inp} value={fields.constructionMethod || ''} onChange={(e) => setF('constructionMethod', e.target.value)}>
+                      <option value="">Select</option>
+                      {AL_CONSTRUCTION.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={g2}>
+                  <div>
+                    <label style={lbl}>Crown Molding</label>
+                    <select style={inp} value={fields.crownMolding || ''} onChange={(e) => setF('crownMolding', e.target.value)}>
+                      <option value="">Select</option>
+                      {AL_CROWN.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>Door Style</label>
+                    <select style={inp} value={fields.doorStyle || ''} onChange={(e) => setF('doorStyle', e.target.value)}>
+                      <option value="">Select</option>
+                      {AL_DOOR_STYLE.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={mb12}>
+                  <label style={lbl}>Wood Species</label>
+                  <select style={inp} value={fields.woodSpecies || ''} onChange={(e) => setF('woodSpecies', e.target.value)}>
+                    <option value="">Select</option>
+                    {AL_WOOD_SPECIES.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div style={mb12}>
+                  <label style={lbl}>Accessories</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                    {AL_ACCESSORIES.map((o) => (
+                      <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={(fields.accessories || []).includes(o)} onChange={() => toggleArr('accessories', o)} />
+                        {o}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div style={mb12}><label style={lbl}>Comments</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.comments || ''} onChange={(e) => setF('comments', e.target.value)} /></div>
+              </>
+            )}
+          </form>
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>
+          {error && <span style={{ flex: 1, fontSize: '13px', color: '#b91c1c' }}>{error}</span>}
+          <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', fontSize: '13px', cursor: 'pointer', color: '#374151' }}>Cancel</button>
+          <button form="add-lead-form" type="submit" disabled={isSaving} style={{ padding: '8px 20px', border: 0, borderRadius: '6px', background: '#78350f', color: '#fff', fontSize: '13px', fontWeight: '600', cursor: isSaving ? 'not-allowed' : 'pointer', opacity: isSaving ? 0.7 : 1 }}>
+            {isSaving ? 'Saving…' : '+ Add Lead'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SourcePicker({ lead, onSourceChange }) {
   const [open, setOpen]     = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2236,6 +2514,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const searchRef = useRef(null);
 
   const isSuperAdmin = currentUser?.is_super_admin ?? false;
@@ -2266,6 +2545,15 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     setLeads((prev) =>
       prev.map((l) => l.id === leadId ? { ...l, fields: { ...l.fields, leadSource } } : l),
     );
+  }
+
+  function handleLeadAdded(newLead) {
+    setLeads((prev) => [newLead, ...prev]);
+    setExpandedId(newLead.id);
+    // Scroll to the new card after render
+    setTimeout(() => {
+      document.getElementById(`lead-${newLead.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
   }
 
   async function loadLeads(silent = false) {
@@ -2636,7 +2924,18 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <button onClick={() => { loadLeads(); setFilterStage(null); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
           Refresh / Clear Filter
         </button>
+
+        <button
+          onClick={() => setShowAddModal(true)}
+          style={{ padding: '7px 16px', border: 0, borderRadius: '6px', background: '#78350f', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+        >
+          + Add Lead
+        </button>
       </div>
+
+      {showAddModal && (
+        <AddLeadModal onClose={() => setShowAddModal(false)} onAdded={handleLeadAdded} />
+      )}
 
       {newCount > 0 && (
         <div

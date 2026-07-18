@@ -121,6 +121,7 @@ export function ConsultationPage() {
     }
 
     const fields = {
+      leadSource: formData.get('leadSource') ?? 'Website',
       firstName: formData.get('firstName') ?? '',
       lastName: formData.get('lastName') ?? '',
       phone: formData.get('phone') ?? '',
@@ -171,6 +172,20 @@ export function ConsultationPage() {
               </p>
 
               <form className="lead-form" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
+
+                {/* Lead Source — default Website; staff change this for manually-entered leads */}
+                <div className="lead-field">
+                  <label htmlFor="c-lead-source">How did you reach us?</label>
+                  <select id="c-lead-source" name="leadSource" defaultValue="Website">
+                    <option value="Website">Website</option>
+                    <option value="Phone Call">Phone Call</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Repeat Client">Repeat Client</option>
+                    <option value="Trade Show">Trade Show</option>
+                    <option value="Walk-in">Walk-in</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
 
                 {/* Contact Info */}
                 <div className="lead-field-grid lead-field-grid--two">

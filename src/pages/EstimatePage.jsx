@@ -230,6 +230,7 @@ export function EstimatePage() {
     }
 
     const fields = {
+      leadSource: formData.get('leadSource') ?? 'Website',
       needsDesignServices: formData.get('needsDesignServices') === 'Yes',
       firstName: formData.get('firstName') ?? '',
       lastName: formData.get('lastName') ?? '',
@@ -301,6 +302,21 @@ export function EstimatePage() {
               </p>
 
               <form className="lead-form" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
+
+                {/* Lead Source — default Website; staff change this for manually-entered leads */}
+                <div className="lead-field">
+                  <label htmlFor="estimate-lead-source">How did this lead reach us?</label>
+                  <select id="estimate-lead-source" name="leadSource" defaultValue="Website">
+                    <option value="Website">Website</option>
+                    <option value="Phone Call">Phone Call</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Repeat Client">Repeat Client</option>
+                    <option value="Trade Show">Trade Show</option>
+                    <option value="Walk-in">Walk-in</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
                 <div className="lead-info-box">
                   <p>NEED DESIGN &amp; MEASURE SERVICES?</p>
                   <ul>

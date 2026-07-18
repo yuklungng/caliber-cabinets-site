@@ -9,6 +9,7 @@ const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VIT
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FIELD_LABELS = {
+  leadSource: 'Lead Source',
   firstName: 'First Name', lastName: 'Last Name', phone: 'Phone', email: 'Email',
   projectType: 'Project Type', timeline: 'Estimated Timeline', projectAddress: 'Project Address',
   description: 'Project Description', inspiration: 'Inspiration / Style',
@@ -693,6 +694,11 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: '700', fontSize: '15px', color: '#111827' }}>{name}</span>
           <TypeBadge formType={lead.form_type} source={lead.source} />
+          {f.leadSource && f.leadSource !== 'Website' && (
+            <span style={{ fontSize: '11px', fontWeight: '700', color: '#6b21a8', background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+              {f.leadSource}
+            </span>
+          )}
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
@@ -2873,12 +2879,16 @@ function PerformanceView() {
   );
 
   // ── Marketing computations (last 28 days) ───────────────────────────────────
+  // Marketing stats only count web-sourced leads so manually-entered leads don't
+  // skew click-to-lead ratios and the traffic/leads overlay chart.
+  const isWebLead = (l) => !l.fields?.leadSource || l.fields?.leadSource === 'Website';
   const cutoff28 = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
-  const leads28 = leads.filter((l) => new Date(l.created_at) >= cutoff28).length;
+  const leads28 = leads.filter((l) => isWebLead(l) && new Date(l.created_at) >= cutoff28).length;
 
-  // Leads per calendar day for the last 28 days (for trend chart)
+  // Web leads per calendar day for the last 28 days (for trend chart)
   const leadsByDay = {};
   for (const l of leads) {
+    if (!isWebLead(l)) continue;
     const d = new Date(l.created_at);
     if (d >= cutoff28) {
       const key = d.toISOString().split('T')[0];

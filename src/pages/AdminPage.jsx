@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { FileDropZone } from '../components/FileDropZone.jsx';
+import { uploadFiles } from '../lib/uploadFiles.js';
 
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -300,11 +301,13 @@ function formatPhoneInput(raw) {
 }
 
 function AddLeadModal({ onClose, onAdded }) {
-  const [formType, setFormType] = useState('homeowner-consultation');
-  const [fields, setFields]     = useState({ leadSource: 'Phone Call', state: 'California' });
-  const [phone, setPhone]       = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError]       = useState('');
+  const [formType, setFormType]       = useState('homeowner-consultation');
+  const [fields, setFields]           = useState({ leadSource: 'Phone Call', state: 'California' });
+  const [phone, setPhone]             = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadError, setUploadError] = useState('');
+  const [isSaving, setIsSaving]       = useState(false);
+  const [error, setError]             = useState('');
 
   function setF(key, value) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -315,15 +318,33 @@ function AddLeadModal({ onClose, onAdded }) {
       return { ...prev, [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value] };
     });
   }
+  function switchType(type) {
+    setFormType(type);
+    setPhone('');
+    setSelectedFiles([]);
+    setUploadError('');
+    setFields({ leadSource: fields.leadSource || 'Phone Call', state: 'California' });
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setUploadError('');
     setIsSaving(true);
     try {
+      let attachments = [];
+      if (selectedFiles.length > 0) {
+        try {
+          attachments = await uploadFiles(selectedFiles, formType);
+        } catch (uploadErr) {
+          setUploadError(uploadErr.message);
+          setIsSaving(false);
+          return;
+        }
+      }
       const r = await apiCall('/api/admin-leads?action=add-lead', {
         method: 'POST',
-        body: { formType, fields: { ...fields, phone } },
+        body: { formType, fields: { ...fields, phone, attachments } },
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Failed to add lead');
@@ -343,6 +364,18 @@ function AddLeadModal({ onClose, onAdded }) {
   const sec  = { margin: '16px 0 10px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px' };
   const req  = <span style={{ color: '#b91c1c' }}> *</span>;
   const mb12 = { marginBottom: '12px' };
+
+  // Inline checkbox grid used for areas, accessories, wood species
+  const CheckGrid = ({ keyName, options, cols = 2 }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '6px', marginTop: '6px' }}>
+      {options.map((o) => (
+        <label key={o} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', cursor: 'pointer', lineHeight: 1.4 }}>
+          <input type="checkbox" style={{ marginTop: '2px', flexShrink: 0 }} checked={(fields[keyName] || []).includes(o)} onChange={() => toggleArr(keyName, o)} />
+          {o}
+        </label>
+      ))}
+    </div>
+  );
 
   const AddressBlock = () => (
     <>
@@ -379,7 +412,7 @@ function AddLeadModal({ onClose, onAdded }) {
           {/* Form type toggle */}
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }}>
             {[['homeowner-consultation', '🏠 Homeowner'], ['trade-estimate', '🔧 Trade Partner']].map(([type, label]) => (
-              <button key={type} onClick={() => { setFormType(type); setPhone(''); setFields({ leadSource: fields.leadSource || 'Phone Call', state: 'California' }); }}
+              <button key={type} onClick={() => switchType(type)}
                 style={{ flex: 1, padding: '8px', border: 0, background: formType === type ? '#78350f' : 'transparent', color: formType === type ? '#fff' : '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
                 {label}
               </button>
@@ -426,16 +459,37 @@ function AddLeadModal({ onClose, onAdded }) {
                 </div>
                 <AddressBlock />
                 <div style={mb12}><label style={lbl}>Description</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.description || ''} onChange={(e) => setF('description', e.target.value)} /></div>
+                <div style={mb12}><label style={lbl}>Inspiration / Links</label><textarea style={{ ...inp, resize: 'vertical' }} rows={2} placeholder="Links, style references, or description of vision" value={fields.inspiration || ''} onChange={(e) => setF('inspiration', e.target.value)} /></div>
+
+                <p style={sec}>Photos &amp; Files</p>
+                <FileDropZone
+                  accept=".jpg,.jpeg,.png,.pdf"
+                  multiple
+                  hint="JPG, PNG, or PDF — up to 10MB each, max 5 files"
+                  selectedFiles={selectedFiles}
+                  onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
+                  error={uploadError}
+                />
               </>
             ) : (
               <>
                 <p style={sec}>Trade Professional</p>
+                <div style={{ ...mb12, padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input type="checkbox" style={{ marginTop: '2px' }} checked={!!fields.needsDesignServices} onChange={(e) => setF('needsDesignServices', e.target.checked)} />
+                    <span><strong>Client needs Design &amp; Measure services</strong> — $875 deposit (5 hrs × $175/hr), credited toward purchase</span>
+                  </label>
+                </div>
                 <div style={g2}>
                   <div><label style={lbl}>First Name{req}</label><input style={inp} required value={fields.firstName || ''} onChange={(e) => setF('firstName', e.target.value)} /></div>
                   <div><label style={lbl}>Last Name{req}</label><input style={inp} required value={fields.lastName || ''} onChange={(e) => setF('lastName', e.target.value)} /></div>
                 </div>
+                <div style={mb12}><label style={lbl}>Company / Firm Name</label><input style={inp} value={fields.companyName || ''} onChange={(e) => setF('companyName', e.target.value)} /></div>
                 <div style={g2}>
-                  <div><label style={lbl}>Company</label><input style={inp} value={fields.companyName || ''} onChange={(e) => setF('companyName', e.target.value)} /></div>
+                  <div><label style={lbl}>Phone{req}</label><input style={inp} required type="tel" value={phone} onChange={(e) => setPhone(formatPhoneInput(e.target.value))} placeholder="(925)555-1234" pattern="\(\d{3}\)\d{3}-\d{4}" title="10-digit US phone" maxLength={13} /></div>
+                  <div><label style={lbl}>Email{req}</label><input style={inp} required type="email" value={fields.email || ''} onChange={(e) => setF('email', e.target.value)} /></div>
+                </div>
+                <div style={g2}>
                   <div>
                     <label style={lbl}>Trade Role</label>
                     <select style={inp} value={fields.tradeRole || ''} onChange={(e) => setF('tradeRole', e.target.value)}>
@@ -443,13 +497,9 @@ function AddLeadModal({ onClose, onAdded }) {
                       {AL_TRADE_TYPES.map((o) => <option key={o}>{o}</option>)}
                     </select>
                   </div>
-                </div>
-                <div style={g2}>
-                  <div><label style={lbl}>Phone{req}</label><input style={inp} required type="tel" value={phone} onChange={(e) => setPhone(formatPhoneInput(e.target.value))} placeholder="(925)555-1234" pattern="\(\d{3}\)\d{3}-\d{4}" title="10-digit US phone" maxLength={13} /></div>
-                  <div><label style={lbl}>Email{req}</label><input style={inp} required type="email" value={fields.email || ''} onChange={(e) => setF('email', e.target.value)} /></div>
-                </div>
-                <div style={g2}>
                   <div><label style={lbl}>License #</label><input style={inp} value={fields.licenseNumber || ''} onChange={(e) => setF('licenseNumber', e.target.value)} /></div>
+                </div>
+                <div style={g2}>
                   <div>
                     <label style={lbl}>Preferred Contact</label>
                     <select style={inp} value={fields.preferredContact || ''} onChange={(e) => setF('preferredContact', e.target.value)}>
@@ -457,10 +507,7 @@ function AddLeadModal({ onClose, onAdded }) {
                       {AL_PREFERRED_CONTACT.map((o) => <option key={o}>{o}</option>)}
                     </select>
                   </div>
-                </div>
-                <div style={{ ...mb12, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input id="al-design-svc" type="checkbox" checked={!!fields.needsDesignServices} onChange={(e) => setF('needsDesignServices', e.target.checked)} />
-                  <label htmlFor="al-design-svc" style={{ ...lbl, marginBottom: 0, cursor: 'pointer' }}>Needs Design Services</label>
+                  <div><label style={lbl}>GC Name &amp; Phone <span style={{ fontWeight: 400, color: '#9ca3af' }}>(if different)</span></label><input style={inp} value={fields.gcNameAndPhone || ''} onChange={(e) => setF('gcNameAndPhone', e.target.value)} /></div>
                 </div>
 
                 <p style={sec}>Client Information</p>
@@ -470,69 +517,80 @@ function AddLeadModal({ onClose, onAdded }) {
                 </div>
                 <AddressBlock />
 
-                <p style={sec}>Project Specs</p>
+                <p style={sec}>Project Scope</p>
                 <div style={mb12}>
                   <label style={lbl}>Areas Requiring Cabinetry</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
-                    {AL_AREAS.map((o) => (
+                  <CheckGrid keyName="areasRequiringCabinetry" options={AL_AREAS} cols={2} />
+                </div>
+                <div style={mb12}>
+                  <label style={lbl}>Installation Timeline</label>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {AL_INSTALL_TIMELINE.map((o) => (
                       <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={(fields.areasRequiringCabinetry || []).includes(o)} onChange={() => toggleArr('areasRequiringCabinetry', o)} />
-                        {o}
+                        <input type="radio" name="al-install-timeline" checked={fields.installationTimeline === o} onChange={() => setF('installationTimeline', o)} />
+                        {o.replace(/-/g, '–')}
                       </label>
                     ))}
                   </div>
                 </div>
+
+                <p style={sec}>Materials &amp; Specifications</p>
                 <div style={g2}>
-                  <div>
-                    <label style={lbl}>Installation Timeline</label>
-                    <select style={inp} value={fields.installationTimeline || ''} onChange={(e) => setF('installationTimeline', e.target.value)}>
-                      <option value="">Select</option>
-                      {AL_INSTALL_TIMELINE.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
                   <div>
                     <label style={lbl}>Construction Method</label>
-                    <select style={inp} value={fields.constructionMethod || ''} onChange={(e) => setF('constructionMethod', e.target.value)}>
-                      <option value="">Select</option>
-                      {AL_CONSTRUCTION.map((o) => <option key={o}>{o}</option>)}
-                    </select>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                      {AL_CONSTRUCTION.map((o) => (
+                        <label key={o} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', cursor: 'pointer', lineHeight: 1.4 }}>
+                          <input type="radio" name="al-construction" style={{ marginTop: '2px', flexShrink: 0 }} checked={fields.constructionMethod === o} onChange={() => setF('constructionMethod', o)} />
+                          {o}
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div style={g2}>
                   <div>
                     <label style={lbl}>Crown Molding</label>
-                    <select style={inp} value={fields.crownMolding || ''} onChange={(e) => setF('crownMolding', e.target.value)}>
-                      <option value="">Select</option>
-                      {AL_CROWN.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={lbl}>Door Style</label>
-                    <select style={inp} value={fields.doorStyle || ''} onChange={(e) => setF('doorStyle', e.target.value)}>
-                      <option value="">Select</option>
-                      {AL_DOOR_STYLE.map((o) => <option key={o}>{o}</option>)}
-                    </select>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                      {AL_CROWN.map((o) => (
+                        <label key={o} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', cursor: 'pointer', lineHeight: 1.4 }}>
+                          <input type="radio" name="al-crown" style={{ marginTop: '2px', flexShrink: 0 }} checked={fields.crownMolding === o} onChange={() => setF('crownMolding', o)} />
+                          {o}
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div style={mb12}>
-                  <label style={lbl}>Wood Species</label>
-                  <select style={inp} value={fields.woodSpecies || ''} onChange={(e) => setF('woodSpecies', e.target.value)}>
-                    <option value="">Select</option>
-                    {AL_WOOD_SPECIES.map((o) => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-                <div style={mb12}>
-                  <label style={lbl}>Accessories</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
-                    {AL_ACCESSORIES.map((o) => (
+                  <label style={lbl}>Door Style</label>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {AL_DOOR_STYLE.map((o) => (
                       <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={(fields.accessories || []).includes(o)} onChange={() => toggleArr('accessories', o)} />
+                        <input type="radio" name="al-door-style" checked={fields.doorStyle === o} onChange={() => setF('doorStyle', o)} />
                         {o}
                       </label>
                     ))}
                   </div>
                 </div>
+                <div style={mb12}>
+                  <label style={lbl}>Wood Species / Material <span style={{ fontWeight: 400, color: '#9ca3af' }}>(select all that apply)</span></label>
+                  <CheckGrid keyName="woodSpecies" options={AL_WOOD_SPECIES} cols={2} />
+                </div>
+
+                <p style={sec}>Accessories &amp; Notes</p>
+                <div style={mb12}>
+                  <label style={lbl}>Accessories &amp; Upgrades</label>
+                  <CheckGrid keyName="accessories" options={AL_ACCESSORIES} cols={2} />
+                </div>
                 <div style={mb12}><label style={lbl}>Comments</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.comments || ''} onChange={(e) => setF('comments', e.target.value)} /></div>
+
+                <p style={sec}>Files</p>
+                <FileDropZone
+                  accept=".pdf,.dwg,.jpg,.jpeg,.png"
+                  multiple
+                  hint="PDF, DWG, JPG, or PNG — up to 10MB each, max 5 files"
+                  selectedFiles={selectedFiles}
+                  onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
+                  error={uploadError}
+                />
               </>
             )}
           </form>

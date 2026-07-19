@@ -2712,9 +2712,10 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const wonCount  = stageCountById['closedwon']  ?? 0;
-  // Closed Lost = Lost to Competitor + Declined (both are genuine losses)
-  // Referred Out / Partnered Out are Caliber-initiated exits — excluded from win rate
-  const lostCount = (stageCountById['closedlost'] ?? 0) + (stageCountById['3945178857'] ?? 0);
+  // Win Rate: only counts competitive outcomes (Won vs. Lost to Competitor)
+  // Declined = client chose not to proceed (not a competitive loss) — excluded
+  // Referred Out / Partnered Out are Caliber-initiated exits — excluded
+  const lostCount = stageCountById['closedlost'] ?? 0;
   const closedTotal = wonCount + lostCount;
   const winRate = closedTotal > 0 ? Math.round((wonCount / closedTotal) * 100) : null;
 

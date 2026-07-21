@@ -202,6 +202,15 @@ export async function createDealNote(dealId, noteBody) {
 }
 
 /**
+ * Update arbitrary properties on a HubSpot deal (e.g. amount, forecast amount).
+ */
+export async function updateDealProperties(dealId, properties) {
+  const res = await hs(`/crm/v3/objects/deals/${dealId}`, 'PATCH', { properties });
+  if (!res.ok) throw new Error(`HubSpot update deal ${res.status}: ${await res.text()}`);
+  return await res.json();
+}
+
+/**
  * Update the dealstage property of a HubSpot deal.
  */
 export async function updateDealStage(dealId, stageId) {

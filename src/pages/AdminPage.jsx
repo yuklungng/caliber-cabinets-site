@@ -609,6 +609,94 @@ function AddLeadModal({ onClose, onAdded }) {
   );
 }
 
+// ─── Quote Amount — inline-editable dollar field that syncs to HubSpot deal amount ──
+function QuoteAmountField({ lead, onAmountChange }) {
+  const [editing, setEditing] = useState(false);
+  const [raw, setRaw]         = useState('');
+  const [saving, setSaving]   = useState(false);
+  const inputRef = useRef(null);
+
+  // Only Supabase-backed leads have a local id to write to
+  if (!lead.id) return null;
+
+  const current = lead.fields?.quote_amount;
+
+  function startEdit(e) {
+    e.stopPropagation();
+    setRaw(current != null ? String(current) : '');
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function save(e) {
+    e?.stopPropagation();
+    setEditing(false);
+    const cleaned = raw.replace(/[^0-9.]/g, '');
+    const amount  = cleaned !== '' ? parseFloat(cleaned) : null;
+    // Skip API call if nothing changed
+    if (amount === (current ?? null)) return;
+    setSaving(true);
+    try {
+      await apiCall('/api/admin-leads?action=quote-amount', {
+        method: 'PATCH',
+        body: { id: lead.id, hubspot_deal_id: lead.hubspot_deal_id ?? null, quote_amount: amount },
+      });
+      onAmountChange(lead.id, amount);
+    } catch (err) {
+      console.error('[QuoteAmountField] save failed:', err);
+    }
+    setSaving(false);
+  }
+
+  function handleKeyDown(e) {
+    e.stopPropagation();
+    if (e.key === 'Enter')  save(e);
+    if (e.key === 'Escape') { setEditing(false); }
+  }
+
+  const formatted = current != null
+    ? `$${Number(current).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+    : null;
+
+  if (editing) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }} onClick={(e) => e.stopPropagation()}>
+        <span style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>$</span>
+        <input
+          ref={inputRef}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          onBlur={save}
+          onKeyDown={handleKeyDown}
+          placeholder="0"
+          style={{ width: '88px', padding: '2px 6px', border: '1px solid #78350f', borderRadius: '4px', fontSize: '13px', outline: 'none', color: '#111827' }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={startEdit}
+      disabled={saving}
+      title="Set quote amount — syncs to HubSpot deal amount"
+      style={{
+        background: formatted ? '#fef9ee' : 'transparent',
+        border: formatted ? '1px solid #fde68a' : '1px dashed #d1d5db',
+        borderRadius: '4px',
+        padding: '2px 9px',
+        fontSize: '13px',
+        fontWeight: formatted ? '700' : '400',
+        color: formatted ? '#92400e' : '#9ca3af',
+        cursor: saving ? 'wait' : 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {saving ? '…' : (formatted ?? '+ Quote')}
+    </button>
+  );
+}
+
 function SourcePicker({ lead, onSourceChange }) {
   const [open, setOpen]     = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1082,7 +1170,7 @@ function LeadDetail({ lead, onActivityChange }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
@@ -1101,6 +1189,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <TypeBadge formType={lead.form_type} source={lead.source} />
           <SourcePicker lead={lead} onSourceChange={onSourceChange} />
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
+          <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
               ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
@@ -2605,6 +2694,12 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     );
   }
 
+  function handleAmountChange(leadId, amount) {
+    setLeads((prev) =>
+      prev.map((l) => l.id === leadId ? { ...l, fields: { ...l.fields, quote_amount: amount } } : l),
+    );
+  }
+
   function handleLeadAdded(newLead) {
     setLeads((prev) => [newLead, ...prev]);
     setExpandedId(newLead.id);
@@ -3021,7 +3116,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

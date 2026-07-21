@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealStage, upsertContact } from './hubspot.js';
+import { batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Distance helpers (for POST ?action=add-lead) ─────────────────────────────
@@ -82,6 +82,41 @@ export default async function handler(req, res) {
       } catch (hsErr) {
         console.error('[admin-leads] HubSpot note error:', hsErr.message);
         // Non-fatal — Supabase already saved
+      }
+    }
+
+    return res.status(200).json({ success: true });
+  }
+
+  // PATCH ?action=quote-amount — save quote amount to Supabase and sync to HubSpot deal `amount`
+  if (req.method === 'PATCH' && req.query?.action === 'quote-amount') {
+    const { id, hubspot_deal_id, quote_amount } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    // Fetch current fields and merge
+    const { data: current, error: fetchErr } = await supabase
+      .from('leads').select('fields').eq('id', id).single();
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+    const updatedFields = { ...current.fields };
+    if (quote_amount != null) {
+      updatedFields.quote_amount = quote_amount;
+    } else {
+      delete updatedFields.quote_amount;
+    }
+
+    const { error: updateErr } = await supabase
+      .from('leads').update({ fields: updatedFields }).eq('id', id);
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    // Sync to HubSpot deal `amount` (non-fatal — used as forecast amount and deal revenue at won)
+    if (hubspot_deal_id && process.env.HUBSPOT_ACCESS_TOKEN) {
+      try {
+        await updateDealProperties(hubspot_deal_id, {
+          amount: quote_amount != null ? String(quote_amount) : '',
+        });
+      } catch (hsErr) {
+        console.error('[admin-leads/quote-amount] HubSpot error (non-fatal):', hsErr.message);
       }
     }
 

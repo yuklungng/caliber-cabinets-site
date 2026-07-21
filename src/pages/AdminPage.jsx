@@ -707,23 +707,27 @@ function QuoteAmountField({ lead, onAmountChange }) {
   );
 }
 
-// ─── Per-deal probability override — shown next to QuoteAmountField when amount is set ──
-function ProbabilityField({ lead, onProbabilityChange }) {
+// ─── Per-deal probability — shows resolved % (stage default or per-deal override) ──
+function ProbabilityField({ lead, stageProbabilities, onProbabilityChange }) {
   const [editing, setEditing] = useState(false);
   const [raw, setRaw]         = useState('');
   const [saving, setSaving]   = useState(false);
   const inputRef = useRef(null);
 
-  // Only for Supabase-backed leads with a quote amount — probability × 0 = 0 anyway
+  // Only for Supabase-backed leads with a quote amount on active pipeline stages
   if (!lead.id || !lead.fields?.quote_amount) return null;
-  // Hide on exit stages
   if (EXIT_STAGE_IDS.has(lead.hs_stage_id)) return null;
 
-  const override = lead.fields?.probability; // null = use stage default
+  const override     = lead.fields?.probability; // explicit per-deal value, or null
+  const stageDef     = DEFAULT_STAGE_FORECAST.find((s) => s.id === lead.hs_stage_id);
+  const stageDefault = stageProbabilities?.[lead.hs_stage_id] ?? stageDef?.probability ?? null;
+  const effective    = override ?? stageDefault; // what the forecast actually uses
+  const isOverride   = override != null;
 
   function startEdit(e) {
     e.stopPropagation();
-    setRaw(override != null ? String(override) : '');
+    // Pre-fill with whatever is currently displayed so user can adjust from there
+    setRaw(effective != null ? String(effective) : '');
     setEditing(true);
     setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -732,15 +736,17 @@ function ProbabilityField({ lead, onProbabilityChange }) {
     e?.stopPropagation();
     setEditing(false);
     const cleaned = raw.replace(/[^0-9.]/g, '');
-    const val     = cleaned !== '' ? Math.min(100, Math.max(0, parseFloat(cleaned))) : null;
-    if (val === (override ?? null)) return; // no change
+    // If user entered the exact stage default value, treat as "no override" (null) to keep it dynamic
+    const parsed  = cleaned !== '' ? Math.min(100, Math.max(0, parseFloat(cleaned))) : null;
+    const newVal  = parsed === stageDefault ? null : parsed; // clear override when it matches default
+    if (newVal === (override ?? null)) return; // no change
     setSaving(true);
     try {
       await apiCall('/api/admin-leads?action=probability', {
         method: 'PATCH',
-        body: { id: lead.id, probability: val },
+        body: { id: lead.id, probability: newVal },
       });
-      onProbabilityChange(lead.id, val);
+      onProbabilityChange(lead.id, newVal);
     } catch (err) {
       console.error('[ProbabilityField] save failed:', err);
     }
@@ -774,20 +780,23 @@ function ProbabilityField({ lead, onProbabilityChange }) {
     <button
       onClick={startEdit}
       disabled={saving}
-      title={override != null ? 'Deal-level probability override — click to change' : 'Click to override this deal\'s win probability'}
+      title={isOverride
+        ? `Win probability: ${effective}% (deal override — click to change or clear)`
+        : `Win probability: ${effective}% (stage default — click to override for this deal)`}
       style={{
-        background: override != null ? '#ecfdf5' : 'transparent',
-        border: override != null ? '1px solid #6ee7b7' : '1px dashed #d1d5db',
+        // Green border = explicit override; muted dashed = using stage default
+        background:   isOverride ? '#ecfdf5' : '#f9fafb',
+        border:       isOverride ? '1px solid #6ee7b7' : '1px solid #e5e7eb',
         borderRadius: '4px',
-        padding: '2px 8px',
-        fontSize: '13px',
-        fontWeight: override != null ? '700' : '400',
-        color: override != null ? '#065f46' : '#9ca3af',
-        cursor: saving ? 'wait' : 'pointer',
-        whiteSpace: 'nowrap',
+        padding:      '2px 8px',
+        fontSize:     '13px',
+        fontWeight:   isOverride ? '700' : '500',
+        color:        isOverride ? '#065f46' : '#6b7280',
+        cursor:       saving ? 'wait' : 'pointer',
+        whiteSpace:   'nowrap',
       }}
     >
-      {saving ? '…' : override != null ? `${override}%` : '% override'}
+      {saving ? '…' : effective != null ? `${effective}%` : '—'}
     </button>
   );
 }
@@ -1265,7 +1274,7 @@ function LeadDetail({ lead, onActivityChange }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, onProbabilityChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, onProbabilityChange, stageProbabilities, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
@@ -1285,7 +1294,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <SourcePicker lead={lead} onSourceChange={onSourceChange} />
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
-          <ProbabilityField lead={lead} onProbabilityChange={onProbabilityChange} />
+          <ProbabilityField lead={lead} stageProbabilities={stageProbabilities} onProbabilityChange={onProbabilityChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
               ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
@@ -2762,6 +2771,15 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
   const isSuperAdmin = currentUser?.is_super_admin ?? false;
   const [newCount, setNewCount] = useState(0);
+  const [stageProbabilities, setStageProbabilities] = useState({});
+
+  // Load stage probability config once on mount
+  useEffect(() => {
+    apiCall('/api/admin-settings')
+      .then((r) => r.json())
+      .then((d) => setStageProbabilities(d?.settings?.stage_probabilities ?? {}))
+      .catch(() => {});
+  }, []);
 
   // Use local constants — no API call needed; we control which stages are selectable.
   // Legacy Appt/PPT/DM stages are intentionally excluded (activity, not pipeline stage).
@@ -3218,7 +3236,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} onProbabilityChange={handleProbabilityChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} onProbabilityChange={handleProbabilityChange} stageProbabilities={stageProbabilities} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

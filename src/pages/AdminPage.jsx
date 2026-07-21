@@ -71,6 +71,15 @@ const LEAD_ACTIVITIES = [
   { key: 'appt_completed', label: 'Appointment Completed' },
 ];
 
+// Default win-probability % per pipeline stage (editable in Forecast Settings).
+// Exit stages (Won/Lost/Declined) are not configurable — they're terminal.
+const DEFAULT_STAGE_FORECAST = [
+  { id: '3869825744', label: 'New Request',    probability: 15 },
+  { id: 'qualifiedtobuy', label: 'Qualified',  probability: 30 },
+  { id: '3869825755', label: 'Quote Sent',     probability: 45 },
+  { id: 'contractsent', label: 'Contract Sent', probability: 75 },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function daysBetween(start, end) {
@@ -698,6 +707,91 @@ function QuoteAmountField({ lead, onAmountChange }) {
   );
 }
 
+// ─── Per-deal probability override — shown next to QuoteAmountField when amount is set ──
+function ProbabilityField({ lead, onProbabilityChange }) {
+  const [editing, setEditing] = useState(false);
+  const [raw, setRaw]         = useState('');
+  const [saving, setSaving]   = useState(false);
+  const inputRef = useRef(null);
+
+  // Only for Supabase-backed leads with a quote amount — probability × 0 = 0 anyway
+  if (!lead.id || !lead.fields?.quote_amount) return null;
+  // Hide on exit stages
+  if (EXIT_STAGE_IDS.has(lead.hs_stage_id)) return null;
+
+  const override = lead.fields?.probability; // null = use stage default
+
+  function startEdit(e) {
+    e.stopPropagation();
+    setRaw(override != null ? String(override) : '');
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function save(e) {
+    e?.stopPropagation();
+    setEditing(false);
+    const cleaned = raw.replace(/[^0-9.]/g, '');
+    const val     = cleaned !== '' ? Math.min(100, Math.max(0, parseFloat(cleaned))) : null;
+    if (val === (override ?? null)) return; // no change
+    setSaving(true);
+    try {
+      await apiCall('/api/admin-leads?action=probability', {
+        method: 'PATCH',
+        body: { id: lead.id, probability: val },
+      });
+      onProbabilityChange(lead.id, val);
+    } catch (err) {
+      console.error('[ProbabilityField] save failed:', err);
+    }
+    setSaving(false);
+  }
+
+  function handleKeyDown(e) {
+    e.stopPropagation();
+    if (e.key === 'Enter')  save(e);
+    if (e.key === 'Escape') setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }} onClick={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          onBlur={save}
+          onKeyDown={handleKeyDown}
+          placeholder="—"
+          style={{ width: '52px', padding: '2px 6px', border: '1px solid #78350f', borderRadius: '4px', fontSize: '13px', outline: 'none', textAlign: 'right' }}
+        />
+        <span style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>%</span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={startEdit}
+      disabled={saving}
+      title={override != null ? 'Deal-level probability override — click to change' : 'Click to override this deal\'s win probability'}
+      style={{
+        background: override != null ? '#ecfdf5' : 'transparent',
+        border: override != null ? '1px solid #6ee7b7' : '1px dashed #d1d5db',
+        borderRadius: '4px',
+        padding: '2px 8px',
+        fontSize: '13px',
+        fontWeight: override != null ? '700' : '400',
+        color: override != null ? '#065f46' : '#9ca3af',
+        cursor: saving ? 'wait' : 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {saving ? '…' : override != null ? `${override}%` : '% override'}
+    </button>
+  );
+}
+
 function SourcePicker({ lead, onSourceChange }) {
   const [open, setOpen]     = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1171,7 +1265,7 @@ function LeadDetail({ lead, onActivityChange }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, onProbabilityChange, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
@@ -1191,6 +1285,7 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <SourcePicker lead={lead} onSourceChange={onSourceChange} />
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
+          <ProbabilityField lead={lead} onProbabilityChange={onProbabilityChange} />
           {isStale && (
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
               ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
@@ -2701,6 +2796,12 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     );
   }
 
+  function handleProbabilityChange(leadId, probability) {
+    setLeads((prev) =>
+      prev.map((l) => l.id === leadId ? { ...l, fields: { ...l.fields, probability } } : l),
+    );
+  }
+
   function handleLeadAdded(newLead) {
     setLeads((prev) => [newLead, ...prev]);
     setExpandedId(newLead.id);
@@ -3117,7 +3218,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} onProbabilityChange={handleProbabilityChange} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>
@@ -3239,10 +3340,229 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
   );
 }
 
+// ─── Cashflow Forecast ────────────────────────────────────────────────────────
+// Won deals only in the cash timeline (no speculative projection from pipeline dates).
+// Pipeline deals appear in the weighted table — probability × quote amount — but
+// are not placed in any calendar month.
+function CashflowForecastSection({ leads, stageProbabilities }) {
+  const BALANCE_DAYS = 63; // 9 weeks = deposit-to-balance gap
+
+  // Resolve effective probability for a lead
+  function effectiveProb(lead) {
+    if (lead.fields?.probability != null) return lead.fields.probability / 100;
+    const def = DEFAULT_STAGE_FORECAST.find((s) => s.id === lead.hs_stage_id);
+    const override = stageProbabilities?.[lead.hs_stage_id];
+    return ((override ?? def?.probability) ?? 0) / 100;
+  }
+
+  // ── Weighted pipeline table (active pipeline deals with quote amounts) ──────
+  const pipelineRows = DEFAULT_STAGE_FORECAST.map((stageDef) => {
+    const stageLeads = leads.filter(
+      (l) => l.hs_stage_id === stageDef.id && l.fields?.quote_amount > 0
+    );
+    const totalQuoted = stageLeads.reduce((s, l) => s + (l.fields?.quote_amount ?? 0), 0);
+    const expectedValue = stageLeads.reduce((s, l) => {
+      const p = l.fields?.probability != null ? l.fields.probability / 100
+        : ((stageProbabilities?.[stageDef.id] ?? stageDef.probability) / 100);
+      return s + (l.fields?.quote_amount ?? 0) * p;
+    }, 0);
+    const prob = stageProbabilities?.[stageDef.id] ?? stageDef.probability;
+    return { ...stageDef, prob, count: stageLeads.length, totalQuoted, expectedValue };
+  }).filter((r) => r.count > 0);
+
+  const totalExpected = pipelineRows.reduce((s, r) => s + r.expectedValue, 0);
+  const totalQuotedAll = pipelineRows.reduce((s, r) => s + r.totalQuoted, 0);
+
+  // ── Cash inflow — won deals only ─────────────────────────────────────────
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Build month buckets: 3 months back + current + 5 ahead = 9 total
+  const PAST_MONTHS = 3;
+  const FWD_MONTHS  = 5;
+  const monthBuckets = [];
+  for (let i = -PAST_MONTHS; i <= FWD_MONTHS; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    monthBuckets.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      year: d.getFullYear(),
+      month: d.getMonth(),
+      deposit: 0,
+      balance: 0,
+    });
+  }
+  const bucketMap = Object.fromEntries(monthBuckets.map((b) => [b.key, b]));
+
+  function addToBucket(dateObj, field, amount) {
+    const key = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+    if (bucketMap[key]) bucketMap[key][field] += amount;
+  }
+
+  const wonDeals = leads.filter(
+    (l) => l.hs_stage_id === 'closedwon' && l.fields?.quote_amount > 0
+  );
+  for (const deal of wonDeals) {
+    const wonDate = deal.hs_date_entered_closed_won
+      ? new Date(deal.hs_date_entered_closed_won)
+      : new Date(deal.created_at);
+    const amt = deal.fields.quote_amount;
+    addToBucket(wonDate, 'deposit', amt * 0.5);
+    addToBucket(new Date(wonDate.getTime() + BALANCE_DAYS * 86400000), 'balance', amt * 0.5);
+  }
+
+  const totalCommitted = wonDeals.reduce((s, l) => s + (l.fields?.quote_amount ?? 0), 0);
+  const depositsDue    = monthBuckets.filter((b) => {
+    const bDate = new Date(b.year, b.month, 1);
+    return bDate >= new Date(today.getFullYear(), today.getMonth(), 1);
+  }).reduce((s, b) => s + b.deposit + b.balance, 0);
+
+  const maxBarAmt = Math.max(...monthBuckets.map((b) => b.deposit + b.balance), 1);
+  const fmtCurrency = (n) => n >= 1000
+    ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
+    : `$${Math.round(n).toLocaleString()}`;
+  const fmtFull = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+  const sectionLabel = (text, sub) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+      <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{text}</span>
+      {sub && <span style={{ fontSize: '11px', color: '#9ca3af' }}>{sub}</span>}
+      <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+    </div>
+  );
+
+  return (
+    <section>
+      {/* ── Top KPIs ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Cashflow Forecast</span>
+        <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+        {[
+          { label: 'Won — Total Contract Value', value: fmtFull(totalCommitted), sub: `${wonDeals.length} deal${wonDeals.length !== 1 ? 's' : ''}`, color: '#166534', bg: '#f0fdf4', border: '#bbf7d0' },
+          { label: 'Won — Cash Still Incoming', value: fmtFull(depositsDue),     sub: 'deposits + balances due from today', color: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' },
+          { label: 'Pipeline — Weighted Expected', value: totalExpected > 0 ? fmtFull(totalExpected) : '—', sub: totalQuotedAll > 0 ? `of ${fmtFull(totalQuotedAll)} quoted` : 'no quoted pipeline deals', color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
+        ].map(({ label, value, sub, color, bg, border }) => (
+          <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '8px', padding: '14px 16px' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+            <p style={{ margin: '0 0 4px', fontSize: '22px', fontWeight: '800', color, lineHeight: 1.1 }}>{value}</p>
+            <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+        {/* ── Cash inflow chart — won deals ── */}
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+          {sectionLabel('Cash Inflow · Won Deals', '50% deposit at close · 50% balance at +9 wks')}
+          {wonDeals.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No won deals with quote amounts yet.</p>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '140px' }}>
+              {monthBuckets.map((b) => {
+                const total  = b.deposit + b.balance;
+                const barH   = total > 0 ? Math.max(4, Math.round((total / maxBarAmt) * 120)) : 0;
+                const depH   = total > 0 ? Math.round((b.deposit / total) * barH) : 0;
+                const balH   = barH - depH;
+                const isCur  = b.key === currentMonthKey;
+                const isPast = new Date(b.year, b.month + 1, 0) < today;
+                return (
+                  <div key={b.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    {total > 0 && (
+                      <span style={{ fontSize: '9px', color: '#6b7280', fontWeight: '600', whiteSpace: 'nowrap' }}>
+                        {fmtCurrency(total)}
+                      </span>
+                    )}
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '120px' }}>
+                      {total > 0 && (
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '3px 3px 0 0', overflow: 'hidden' }}>
+                          {balH > 0 && (
+                            <div style={{ height: `${balH}px`, background: isPast ? '#d1d5db' : '#78350f', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} title={`Balance: ${fmtFull(b.balance)}`} />
+                          )}
+                          {depH > 0 && (
+                            <div style={{ height: `${depH}px`, background: isPast ? '#9ca3af' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} title={`Deposit: ${fmtFull(b.deposit)}`} />
+                          )}
+                        </div>
+                      )}
+                      {total === 0 && (
+                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }} />
+                      )}
+                    </div>
+                    <span style={{ fontSize: '9px', color: isCur ? '#78350f' : '#9ca3af', fontWeight: isCur ? '800' : '500', whiteSpace: 'nowrap' }}>
+                      {b.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {wonDeals.length > 0 && (
+            <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#d97706', display: 'inline-block' }} />Deposit (50%)
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#78350f', display: 'inline-block' }} />Balance (50% · +9 wks)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Weighted pipeline table ── */}
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+          {sectionLabel('Weighted Pipeline', 'probability × quote amount per stage')}
+          {pipelineRows.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No active pipeline deals with quote amounts yet. Set quote amounts from the Leads view.</p>
+          ) : (
+            <>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    {['Stage', 'Deals', 'Quoted', 'Prob', 'Expected'].map((h) => (
+                      <th key={h} style={{ padding: '4px 8px 8px', textAlign: h === 'Stage' ? 'left' : 'right', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pipelineRows.map((row) => (
+                    <tr key={row.id} style={{ borderBottom: '1px solid #f9fafb' }}>
+                      <td style={{ padding: '8px', color: '#374151', fontWeight: '500' }}>{row.label}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#6b7280' }}>{row.count}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#374151' }}>{fmtFull(row.totalQuoted)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#6b7280' }}>{row.prob}%</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700', color: '#78350f' }}>{fmtFull(row.expectedValue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '2px solid #f3e8d0' }}>
+                    <td colSpan={2} style={{ padding: '10px 8px', fontSize: '12px', fontWeight: '700', color: '#374151' }}>Total</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '700', color: '#374151' }}>{fmtFull(totalQuotedAll)}</td>
+                    <td />
+                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '800', color: '#78350f', fontSize: '14px' }}>{fmtFull(totalExpected)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+              <p style={{ margin: '10px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                Probabilities are stage defaults. Override per-deal from the Leads view.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function PerformanceView() {
   const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [stageProbabilities, setStageProbabilities] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -3254,10 +3574,12 @@ function PerformanceView() {
         return r.json();
       }),
       apiCall('/api/admin-analytics').then((r) => r.json()).catch(() => null),
+      apiCall('/api/admin-settings').then((r) => r.json()).catch(() => null),
     ])
-      .then(([leadsData, analyticsData]) => {
+      .then(([leadsData, analyticsData, settingsData]) => {
         setLeads(leadsData.leads ?? []);
         setAnalytics(analyticsData);
+        setStageProbabilities(settingsData?.settings?.stage_probabilities ?? {});
         setIsLoading(false);
       })
       .catch(() => { setLoadError('Failed to load performance data.'); setIsLoading(false); });
@@ -3770,6 +4092,7 @@ function PerformanceView() {
         {sectionLabel('Pipeline Health')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
 
+
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
@@ -3852,6 +4175,11 @@ function PerformanceView() {
           </div>
         </div>
       </section>
+
+      {/* ── Cashflow Forecast ── */}
+      {!isLoading && (
+        <CashflowForecastSection leads={leads} stageProbabilities={stageProbabilities ?? {}} />
+      )}
 
     </div>
   );
@@ -3953,6 +4281,85 @@ function LoginScreen({ onLogin }) {
         </button>
       </form>
     </AuthShell>
+  );
+}
+
+// ─── Forecast Settings Panel ──────────────────────────────────────────────────
+
+function ForecastSettingsPanel() {
+  const [probs, setProbs] = useState(null); // stageId → probability number
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+
+  useEffect(() => {
+    apiCall('/api/admin-settings')
+      .then((r) => r.json())
+      .then((d) => {
+        const stored = d.settings?.stage_probabilities ?? {};
+        // Merge stored values over defaults
+        const merged = {};
+        for (const stage of DEFAULT_STAGE_FORECAST) {
+          merged[stage.id] = stored[stage.id] ?? stage.probability;
+        }
+        setProbs(merged);
+      })
+      .catch(() => {
+        const merged = {};
+        for (const stage of DEFAULT_STAGE_FORECAST) merged[stage.id] = stage.probability;
+        setProbs(merged);
+      });
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await apiCall('/api/admin-settings', {
+        method: 'PUT',
+        body: { key: 'stage_probabilities', value: probs },
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch { /* ignore */ }
+    setSaving(false);
+  }
+
+  if (!probs) return <p style={{ fontSize: '14px', color: '#9ca3af' }}>Loading…</p>;
+
+  return (
+    <PanelShell
+      title="Forecast Settings"
+      description="Win probability per pipeline stage. Used to weight expected deal value in the cashflow forecast. Override individual deals from the Leads view."
+    >
+      <div style={{ display: 'grid', gap: '12px', maxWidth: '420px' }}>
+        {DEFAULT_STAGE_FORECAST.map((stage) => (
+          <div key={stage.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ flex: 1, fontSize: '14px', color: '#374151', fontWeight: '500' }}>{stage.label}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={probs[stage.id] ?? stage.probability}
+                onChange={(e) => setProbs((p) => ({ ...p, [stage.id]: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) }))}
+                style={{ width: '64px', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', textAlign: 'right', outline: 'none' }}
+              />
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>%</span>
+            </div>
+          </div>
+        ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{ padding: '9px 20px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {saved && <span style={{ fontSize: '13px', color: '#166534' }}>✓ Saved</span>}
+        </div>
+      </div>
+    </PanelShell>
   );
 }
 
@@ -4298,6 +4705,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', section: 'Content' },
   { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true },
+  { key: 'forecast-settings', label: 'Forecast', section: 'Settings', superAdminOnly: true },
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true },
 ];
 
@@ -4493,12 +4901,13 @@ export function AdminPage() {
   const isSuperAdmin = currentUser?.is_super_admin;
 
   function renderView() {
-    const settingsViews = ['notifications', 'confirmations', 'users'];
+    const settingsViews = ['notifications', 'confirmations', 'forecast-settings', 'users'];
     if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     switch (activeView) {
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
+      case 'forecast-settings': return <ForecastSettingsPanel />;
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;

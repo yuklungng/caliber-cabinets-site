@@ -88,6 +88,29 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
+  // PATCH ?action=probability — save per-deal win probability override to Supabase
+  if (req.method === 'PATCH' && req.query?.action === 'probability') {
+    const { id, probability } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    const { data: current, error: fetchErr } = await supabase
+      .from('leads').select('fields').eq('id', id).single();
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+    const updatedFields = { ...current.fields };
+    if (probability != null) {
+      updatedFields.probability = probability;
+    } else {
+      delete updatedFields.probability;
+    }
+
+    const { error: updateErr } = await supabase
+      .from('leads').update({ fields: updatedFields }).eq('id', id);
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    return res.status(200).json({ success: true });
+  }
+
   // PATCH ?action=quote-amount — save quote amount to Supabase and sync to HubSpot deal `amount`
   if (req.method === 'PATCH' && req.query?.action === 'quote-amount') {
     const { id, hubspot_deal_id, quote_amount } = req.body ?? {};

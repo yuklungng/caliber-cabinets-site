@@ -632,7 +632,8 @@ function QuoteAmountField({ lead, onAmountChange }) {
     e?.stopPropagation();
     setEditing(false);
     const cleaned = raw.replace(/[^0-9.]/g, '');
-    const amount  = cleaned !== '' ? parseFloat(cleaned) : null;
+    const parsed  = cleaned !== '' ? parseFloat(cleaned) : null;
+    const amount  = parsed != null && parsed > 0 ? parsed : null; // 0 or blank → clear
     // Skip API call if nothing changed
     if (amount === (current ?? null)) return;
     setSaving(true);

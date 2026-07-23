@@ -88,10 +88,16 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
-  // PATCH ?action=probability — save per-deal win probability override to Supabase
+  // PATCH ?action=probability — save per-deal win probability override to Supabase.
+  // HubSpot-only leads (id starts with "hs-") have no Supabase row; skip gracefully.
   if (req.method === 'PATCH' && req.query?.action === 'probability') {
     const { id, probability } = req.body ?? {};
     if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    if (String(id).startsWith('hs-')) {
+      // No Supabase row for HubSpot-only leads — probability overrides are unsupported for now
+      return res.status(200).json({ success: true });
+    }
 
     const { data: current, error: fetchErr } = await supabase
       .from('leads').select('fields').eq('id', id).single();
@@ -111,28 +117,35 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
-  // PATCH ?action=quote-amount — save quote amount to Supabase and sync to HubSpot deal `amount`
+  // PATCH ?action=quote-amount — save quote amount to Supabase (Supabase-backed leads) and/or
+  // sync to HubSpot deal `amount` (all leads). For HubSpot-only leads (id starts with "hs-"),
+  // HubSpot is the source of truth and getAllPipelineDeals now fetches `amount` back on every load.
   if (req.method === 'PATCH' && req.query?.action === 'quote-amount') {
     const { id, hubspot_deal_id, quote_amount } = req.body ?? {};
-    if (!id) return res.status(400).json({ error: 'Missing id' });
+    if (!id && !hubspot_deal_id) return res.status(400).json({ error: 'Missing id' });
 
-    // Fetch current fields and merge
-    const { data: current, error: fetchErr } = await supabase
-      .from('leads').select('fields').eq('id', id).single();
-    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    const isHsOnly = !id || String(id).startsWith('hs-');
 
-    const updatedFields = { ...current.fields };
-    if (quote_amount != null) {
-      updatedFields.quote_amount = quote_amount;
-    } else {
-      delete updatedFields.quote_amount;
+    if (!isHsOnly) {
+      // Supabase-backed lead — persist to fields.quote_amount
+      const { data: current, error: fetchErr } = await supabase
+        .from('leads').select('fields').eq('id', id).single();
+      if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+      const updatedFields = { ...current.fields };
+      if (quote_amount != null) {
+        updatedFields.quote_amount = quote_amount;
+      } else {
+        delete updatedFields.quote_amount;
+      }
+
+      const { error: updateErr } = await supabase
+        .from('leads').update({ fields: updatedFields }).eq('id', id);
+      if (updateErr) return res.status(500).json({ error: updateErr.message });
     }
 
-    const { error: updateErr } = await supabase
-      .from('leads').update({ fields: updatedFields }).eq('id', id);
-    if (updateErr) return res.status(500).json({ error: updateErr.message });
-
-    // Sync to HubSpot deal `amount` (non-fatal — used as forecast amount and deal revenue at won)
+    // Sync to HubSpot deal `amount` for all leads (Supabase-backed and HubSpot-only).
+    // For HubSpot-only leads this is the sole persistence — getAllPipelineDeals reads it back.
     if (hubspot_deal_id && process.env.HUBSPOT_ACCESS_TOKEN) {
       try {
         await updateDealProperties(hubspot_deal_id, {
@@ -308,17 +321,17 @@ export default async function handler(req, res) {
     });
 
     // Batch-sync HubSpot stages back to Supabase so the DB mirrors current pipeline state.
-    // Fire-and-settle — we don't block the response on this; failures are non-fatal.
+    // Awaited so Vercel doesn't terminate the function before the writes complete.
     const toSync = enriched.filter((l) => l.id && l.hs_stage_id);
     if (toSync.length > 0) {
-      Promise.allSettled(
+      await Promise.allSettled(
         toSync.map((l) =>
           supabase.from('leads').update({
             hs_stage_id:    l.hs_stage_id,
             hs_stage_label: l.hs_stage_label ?? null,
           }).eq('id', l.id)
         )
-      ).catch(() => {});
+      );
     }
 
     // Merge in HubSpot-only deals (deals that exist in HubSpot but not from a web form)

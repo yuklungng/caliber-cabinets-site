@@ -242,7 +242,7 @@ export async function getAllPipelineDeals() {
   do {
     const res = await hs('/crm/v3/objects/deals/search', 'POST', {
       filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
-      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate'],
+      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate', 'amount'],
       limit: 100,
       ...(after ? { after } : {}),
     });
@@ -321,11 +321,13 @@ export async function getAllPipelineDeals() {
       created_at: p.createdate ?? new Date().toISOString(),
       hubspot_deal_id: deal.id,
       fields: {
-        firstName: contact.firstname ?? '',
-        lastName:  contact.lastname  ?? '',
-        email:     contact.email     ?? '',
-        phone:     contact.phone     ?? '',
-        dealName:  p.dealname ?? '',
+        firstName:    contact.firstname ?? '',
+        lastName:     contact.lastname  ?? '',
+        email:        contact.email     ?? '',
+        phone:        contact.phone     ?? '',
+        dealName:     p.dealname ?? '',
+        // quote_amount lives in HubSpot `amount` for HS-only deals (no Supabase row)
+        ...(p.amount != null && p.amount !== '' ? { quote_amount: parseFloat(p.amount) } : {}),
       },
       hs_stage_id:    stageId,
       hs_stage_label: stageLabels[stageId] ?? stageId,

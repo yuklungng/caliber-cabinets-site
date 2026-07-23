@@ -1856,21 +1856,58 @@ function StatTile({ label, value, sub, accent }) {
   );
 }
 
+function ChartTooltip({ tip }) {
+  if (!tip) return null;
+  return (
+    <div style={{
+      position: 'fixed',
+      left: tip.x + 14,
+      top: tip.y - 44,
+      background: 'rgba(17,24,39,0.92)',
+      color: '#fff',
+      padding: '7px 11px',
+      borderRadius: '6px',
+      fontSize: '12px',
+      fontWeight: '500',
+      lineHeight: '1.65',
+      pointerEvents: 'none',
+      zIndex: 9999,
+      whiteSpace: 'pre',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+    }}>
+      {tip.content}
+    </div>
+  );
+}
+
 function MiniBar({ daily, field, color }) {
+  const [tip, setTip] = useState(null);
   if (!daily?.length) return null;
   const values = daily.map((d) => d[field] ?? 0);
   const max = Math.max(...values, 1);
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '40px' }}>
-      {values.map((v, i) => (
-        <div key={i} title={`${daily[i].date}: ${v.toLocaleString()}`} style={{ flex: 1, borderRadius: '2px 2px 0 0', background: color ?? '#78350f', opacity: 0.7 + (v / max) * 0.3, height: `${Math.max(4, Math.round((v / max) * 40))}px` }} />
-      ))}
-    </div>
+    <>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '40px' }}>
+        {values.map((v, i) => (
+          <div
+            key={i}
+            onMouseEnter={(e) => setTip({ x: e.clientX, y: e.clientY, content: `${daily[i].date}\n${v.toLocaleString()}` })}
+            onMouseMove={(e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+            onMouseLeave={() => setTip(null)}
+            style={{ flex: 1, borderRadius: '2px 2px 0 0', background: color ?? '#78350f', opacity: 0.7 + (v / max) * 0.3, height: `${Math.max(4, Math.round((v / max) * 40))}px`, cursor: 'crosshair' }}
+          />
+        ))}
+      </div>
+      <ChartTooltip tip={tip} />
+    </>
   );
 }
 
 // TrendChart — SVG area/line chart, supports 1 or 2 independently-scaled lines
 function TrendChart({ daily, lines, height = 90 }) {
+  const [tip, setTip] = useState(null);
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   if (!daily?.length) return <EmptyFrame label="No trend data yet" />;
   const allZero = lines.every((l) => daily.every((d) => !d[l.key]));
   if (allZero) return <EmptyFrame label="Data will appear as traffic accumulates" />;
@@ -1895,37 +1932,61 @@ function TrendChart({ daily, lines, height = 90 }) {
     return { ...line, pts, poly, area };
   });
 
+  function handleEnter(e, i) {
+    const parts = [daily[i].date, ...rendered.map((l) => `${l.label}: ${l.pts[i].v.toLocaleString()}`)];
+    setTip({ x: e.clientX, y: e.clientY, content: parts.join('\n') });
+    setHoverIdx(i);
+  }
+
+  // Build one hit-area strip per data point (full column height)
+  const strips = rendered[0]?.pts.map((p, i) => {
+    const prevX = i > 0 ? (p.x + rendered[0].pts[i - 1].x) / 2 : PL;
+    const nextX = i < n - 1 ? (p.x + rendered[0].pts[i + 1].x) / 2 : W - PR;
+    return { x: prevX, width: nextX - prevX, i };
+  }) ?? [];
+
   return (
-    <div>
-      {/* Legend */}
-      {lines.length > 1 && (
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '6px' }}>
-          {lines.map((l) => (
-            <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-              <span style={{ width: '20px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
-              {l.label}
-              {lines.length > 1 && <span style={{ color: '#9ca3af', fontSize: '10px' }}>(own scale)</span>}
-            </span>
-          ))}
-        </div>
-      )}
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
-        {rendered.map((line) => (
-          <g key={line.key}>
-            <polygon points={line.area} fill={line.color} opacity={0.12} />
-            <polyline points={line.poly} fill="none" stroke={line.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-            {line.pts.map((p, i) => (
-              <circle key={i} cx={p.x} cy={p.y} r="0">
-                <title>{`${p.date}: ${p.v.toLocaleString()} ${line.label}`}</title>
-              </circle>
+    <>
+      <div>
+        {/* Legend */}
+        {lines.length > 1 && (
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '6px' }}>
+            {lines.map((l) => (
+              <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+                <span style={{ width: '20px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
+                {l.label}
+                {lines.length > 1 && <span style={{ color: '#9ca3af', fontSize: '10px' }}>(own scale)</span>}
+              </span>
             ))}
-          </g>
-        ))}
-        {/* Date labels */}
-        <text x={PL} y={H - 2} fontSize="9" fill="#9ca3af">{daily[0]?.date}</text>
-        <text x={W - PR} y={H - 2} fontSize="9" fill="#9ca3af" textAnchor="end">{daily[daily.length - 1]?.date}</text>
-      </svg>
-    </div>
+          </div>
+        )}
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
+          {rendered.map((line) => (
+            <g key={line.key}>
+              <polygon points={line.area} fill={line.color} opacity={0.12} />
+              <polyline points={line.poly} fill="none" stroke={line.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+              {/* Visible dot on hover */}
+              {hoverIdx !== null && (
+                <circle cx={line.pts[hoverIdx].x} cy={line.pts[hoverIdx].y} r="4.5" fill={line.color} stroke="white" strokeWidth="1.5" />
+              )}
+            </g>
+          ))}
+          {/* Invisible hit-area strips for hover detection */}
+          {strips.map((s) => (
+            <rect key={s.i} x={s.x} y={PT} width={s.width} height={cH}
+              fill="transparent" style={{ cursor: 'crosshair' }}
+              onMouseEnter={(e) => handleEnter(e, s.i)}
+              onMouseMove={(e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+              onMouseLeave={() => { setTip(null); setHoverIdx(null); }}
+            />
+          ))}
+          {/* Date labels */}
+          <text x={PL} y={H - 2} fontSize="9" fill="#9ca3af">{daily[0]?.date}</text>
+          <text x={W - PR} y={H - 2} fontSize="9" fill="#9ca3af" textAnchor="end">{daily[daily.length - 1]?.date}</text>
+        </svg>
+      </div>
+      <ChartTooltip tip={tip} />
+    </>
   );
 }
 
@@ -1947,6 +2008,41 @@ function NotConfiguredCard({ service, envVars, hint }) {
         {envVars.join(' · ')}
       </p>
     </div>
+  );
+}
+
+function TurnstileBarsChart({ daily }) {
+  const [tip, setTip] = useState(null);
+  const last14 = daily.slice(-14);
+  const maxTotal = Math.max(...last14.map((x) => (x.passed ?? 0) + (x.failed ?? 0)), 1);
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '48px' }}>
+        {last14.map((d) => {
+          const dayTotal = (d.passed ?? 0) + (d.failed ?? 0);
+          const total = Math.max(dayTotal, 1);
+          const barH = Math.max(4, Math.round((total / maxTotal) * 48));
+          const verifiedPct = dayTotal > 0 ? (d.passed ?? 0) / dayTotal : 1;
+          return (
+            <div
+              key={d.date}
+              onMouseEnter={(e) => setTip({ x: e.clientX, y: e.clientY, content: `${d.date}\n✓ ${(d.passed ?? 0).toLocaleString()} verified\n✗ ${(d.failed ?? 0).toLocaleString()} blocked` })}
+              onMouseMove={(e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+              onMouseLeave={() => setTip(null)}
+              style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse', cursor: 'crosshair' }}
+            >
+              <div style={{ height: `${Math.round(verifiedPct * 100)}%`, background: '#16a34a', opacity: 0.85 }} />
+              <div style={{ flex: 1, background: '#dc2626', opacity: 0.7 }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+        <span style={{ fontSize: '10px', color: '#9ca3af' }}>{last14[0]?.date}</span>
+        <span style={{ fontSize: '10px', color: '#9ca3af' }}>{last14[last14.length - 1]?.date}</span>
+      </div>
+      <ChartTooltip tip={tip} />
+    </>
   );
 }
 
@@ -2126,29 +2222,7 @@ function SiteStatsView() {
                   <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: '600' }}>■ Verified</span>
                   <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>■ Blocked</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '48px' }}>
-                  {turnstile.daily.slice(-14).map((d) => {
-                    const dayTotal = (d.passed ?? 0) + (d.failed ?? 0);
-                    const total = Math.max(dayTotal, 1);
-                    const maxTotal = Math.max(...turnstile.daily.map((x) => (x.passed ?? 0) + (x.failed ?? 0)), 1);
-                    const barH = Math.max(4, Math.round((total / maxTotal) * 48));
-                    const verifiedPct = dayTotal > 0 ? (d.passed ?? 0) / dayTotal : 1;
-                    return (
-                      <div
-                        key={d.date}
-                        title={`${d.date}: ${(d.passed ?? 0).toLocaleString()} verified, ${(d.failed ?? 0).toLocaleString()} blocked`}
-                        style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse' }}
-                      >
-                        <div style={{ height: `${Math.round(verifiedPct * 100)}%`, background: '#16a34a', opacity: 0.85 }} />
-                        <div style={{ flex: 1, background: '#dc2626', opacity: 0.7 }} />
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{turnstile.daily.slice(-14)[0]?.date}</span>
-                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>{turnstile.daily.slice(-1)[0]?.date}</span>
-                </div>
+                <TurnstileBarsChart daily={turnstile.daily} />
               </div>
             )}
           </div>
@@ -3265,37 +3339,46 @@ const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'contractsent', 'closedwon']
 
 // Monthly stacked bar chart (Homeowner vs Trade volume)
 function MonthlyVolumeBars({ data }) {
+  const [tip, setTip] = useState(null);
   if (!data?.length || data.every((d) => d.newLeads === 0)) return <EmptyFrame label="No leads submitted yet" />;
   const maxVal = Math.max(...data.map((d) => d.newLeads), 1);
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '90px' }}>
-        {data.map((d) => {
-          const barH = Math.max(d.newLeads > 0 ? 4 : 0, Math.round((d.newLeads / maxVal) * 90));
-          const trH = d.newLeads > 0 ? Math.round((d.tradeLeads / d.newLeads) * barH) : 0;
-          const hwH = barH - trH;
-          return (
-            <div key={d.key}
-              title={`${d.label}: ${d.newLeads} total — ${d.homeownerLeads} homeowner, ${d.tradeLeads} trade`}
-              style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
-            >
-              {trH > 0 && <div style={{ height: `${trH}px`, background: '#166534', opacity: 0.8 }} />}
-              {hwH > 0 && <div style={{ height: `${hwH}px`, background: '#c2410c', opacity: 0.8 }} />}
-            </div>
-          );
-        })}
+    <>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '90px' }}>
+          {data.map((d) => {
+            const barH = Math.max(d.newLeads > 0 ? 4 : 0, Math.round((d.newLeads / maxVal) * 90));
+            const trH = d.newLeads > 0 ? Math.round((d.tradeLeads / d.newLeads) * barH) : 0;
+            const hwH = barH - trH;
+            return (
+              <div key={d.key}
+                onMouseEnter={(e) => setTip({ x: e.clientX, y: e.clientY, content: `${d.label}\n${d.newLeads} total\n${d.homeownerLeads} homeowner · ${d.tradeLeads} trade` })}
+                onMouseMove={(e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+                onMouseLeave={() => setTip(null)}
+                style={{ flex: 1, height: `${barH}px`, borderRadius: '2px 2px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column', cursor: 'crosshair' }}
+              >
+                {trH > 0 && <div style={{ height: `${trH}px`, background: '#166534', opacity: 0.8 }} />}
+                {hwH > 0 && <div style={{ height: `${hwH}px`, background: '#c2410c', opacity: 0.8 }} />}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: '3px', marginTop: '5px' }}>
+          {data.map((d) => (
+            <span key={d.key} style={{ flex: 1, fontSize: '8px', color: '#9ca3af', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{d.label}</span>
+          ))}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: '3px', marginTop: '5px' }}>
-        {data.map((d) => (
-          <span key={d.key} style={{ flex: 1, fontSize: '8px', color: '#9ca3af', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{d.label}</span>
-        ))}
-      </div>
-    </div>
+      <ChartTooltip tip={tip} />
+    </>
   );
 }
 
 // Monthly line chart with gap support for null months
 function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
+  const [tip, setTip] = useState(null);
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   if (!data?.length) return <EmptyFrame label="No trend data yet" />;
   const hasAny = lines.some((l) => data.some((d) => d[l.key] !== null && d[l.key] !== undefined));
   if (!hasAny) return <EmptyFrame label="Data will appear as deals progress and close" />;
@@ -3307,7 +3390,7 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
 
   const rendered = lines.map((line) => {
     const defined = data.map((d) => d[line.key]).filter((v) => v !== null && v !== undefined);
-    if (!defined.length) return { ...line, segments: [], dots: [] };
+    if (!defined.length) return { ...line, segments: [], dots: [], pts: [] };
     const max = Math.max(...defined, 1);
     const pts = data.map((d, i) => ({
       x: PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW),
@@ -3320,41 +3403,73 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
       if (p.y !== null) { seg.push(p); } else { if (seg.length) { segments.push(seg); seg = []; } }
     }
     if (seg.length) segments.push(seg);
-    return { ...line, segments, dots: pts.filter((p) => p.y !== null) };
+    return { ...line, segments, dots: pts.filter((p) => p.y !== null), pts };
   });
 
+  function handleEnter(e, i) {
+    const parts = [data[i].label];
+    for (const line of rendered) {
+      const pt = line.pts[i];
+      if (pt?.v != null) parts.push(`${line.label}: ${formatTip ? formatTip(pt.v) : pt.v}`);
+    }
+    setTip({ x: e.clientX, y: e.clientY, content: parts.join('\n') });
+    setHoverIdx(i);
+  }
+
+  // Build hit-area strips using first line with data
+  const refLine = rendered.find((l) => l.pts.length > 0);
+  const strips = refLine?.pts.map((p, i) => {
+    const prevX = i > 0 ? (p.x + refLine.pts[i - 1].x) / 2 : PL;
+    const nextX = i < n - 1 ? (p.x + refLine.pts[i + 1].x) / 2 : W - PR;
+    return { x: prevX, width: nextX - prevX, i };
+  }) ?? [];
+
   return (
-    <div>
-      {lines.length > 1 && (
-        <div style={{ display: 'flex', gap: '14px', marginBottom: '8px' }}>
-          {lines.map((l) => (
-            <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-              <span style={{ width: '18px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
-              {l.label}
-            </span>
+    <>
+      <div>
+        {lines.length > 1 && (
+          <div style={{ display: 'flex', gap: '14px', marginBottom: '8px' }}>
+            {lines.map((l) => (
+              <span key={l.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+                <span style={{ width: '18px', height: '3px', background: l.color, borderRadius: '2px', display: 'inline-block' }} />
+                {l.label}
+              </span>
+            ))}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
+          {rendered.map((line) => (
+            <g key={line.key}>
+              {line.segments.map((sg, si) => (
+                <polyline key={si} points={sg.map((p) => `${p.x},${p.y}`).join(' ')}
+                  fill="none" stroke={line.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              ))}
+              {line.dots.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={line.color} />
+              ))}
+              {/* Enlarged dot on hovered index */}
+              {hoverIdx !== null && line.pts[hoverIdx]?.y != null && (
+                <circle cx={line.pts[hoverIdx].x} cy={line.pts[hoverIdx].y} r="5.5" fill={line.color} stroke="white" strokeWidth="1.5" />
+              )}
+            </g>
           ))}
-        </div>
-      )}
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }} preserveAspectRatio="none">
-        {rendered.map((line) => (
-          <g key={line.key}>
-            {line.segments.map((sg, si) => (
-              <polyline key={si} points={sg.map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="none" stroke={line.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-            ))}
-            {line.dots.map((p, i) => (
-              <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={line.color}>
-                <title>{`${p.label}: ${formatTip ? formatTip(p.v) : p.v}`}</title>
-              </circle>
-            ))}
-          </g>
-        ))}
-        {data.map((d, i) => (
-          <text key={i} x={PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW)} y={H - 4}
-            fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
-        ))}
-      </svg>
-    </div>
+          {/* Invisible hit-area strips for hover detection */}
+          {strips.map((s) => (
+            <rect key={s.i} x={s.x} y={PT} width={s.width} height={cH}
+              fill="transparent" style={{ cursor: 'crosshair' }}
+              onMouseEnter={(e) => handleEnter(e, s.i)}
+              onMouseMove={(e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+              onMouseLeave={() => { setTip(null); setHoverIdx(null); }}
+            />
+          ))}
+          {data.map((d, i) => (
+            <text key={i} x={PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW)} y={H - 4}
+              fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
+          ))}
+        </svg>
+      </div>
+      <ChartTooltip tip={tip} />
+    </>
   );
 }
 
@@ -3363,6 +3478,7 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
 // Pipeline deals appear in the weighted table — probability × quote amount — but
 // are not placed in any calendar month.
 function CashflowForecastSection({ leads, stageProbabilities }) {
+  const [cashTip, setCashTip] = useState(null);
   const BALANCE_DAYS = 63; // 9 weeks = deposit-to-balance gap
 
   // Resolve effective probability for a lead
@@ -3489,7 +3605,13 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
                 const isCur  = b.key === currentMonthKey;
                 const isPast = new Date(b.year, b.month + 1, 0) < today;
                 return (
-                  <div key={b.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <div
+                    key={b.key}
+                    onMouseEnter={(e) => total > 0 && setCashTip({ x: e.clientX, y: e.clientY, content: `${b.label}\nTotal: ${fmtFull(total)}${b.deposit > 0 ? `\nDeposit: ${fmtFull(b.deposit)}` : ''}${b.balance > 0 ? `\nBalance: ${fmtFull(b.balance)}` : ''}` })}
+                    onMouseMove={(e) => setCashTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+                    onMouseLeave={() => setCashTip(null)}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: total > 0 ? 'crosshair' : 'default' }}
+                  >
                     {total > 0 && (
                       <span style={{ fontSize: '9px', color: '#6b7280', fontWeight: '600', whiteSpace: 'nowrap' }}>
                         {fmtCurrency(total)}
@@ -3499,10 +3621,10 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
                       {total > 0 && (
                         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '3px 3px 0 0', overflow: 'hidden' }}>
                           {balH > 0 && (
-                            <div style={{ height: `${balH}px`, background: isPast ? '#d1d5db' : '#78350f', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} title={`Balance: ${fmtFull(b.balance)}`} />
+                            <div style={{ height: `${balH}px`, background: isPast ? '#d1d5db' : '#78350f', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} />
                           )}
                           {depH > 0 && (
-                            <div style={{ height: `${depH}px`, background: isPast ? '#9ca3af' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} title={`Deposit: ${fmtFull(b.deposit)}`} />
+                            <div style={{ height: `${depH}px`, background: isPast ? '#9ca3af' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} />
                           )}
                         </div>
                       )}
@@ -3572,6 +3694,7 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
           )}
         </div>
       </div>
+      <ChartTooltip tip={cashTip} />
     </section>
   );
 }

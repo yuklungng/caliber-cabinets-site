@@ -80,6 +80,17 @@ const DEFAULT_STAGE_FORECAST = [
   { id: 'contractsent', label: 'Contract Sent', probability: 75 },
 ];
 
+const SORT_OPTIONS = [
+  { key: 'newest',     label: '↓ Newest' },
+  { key: 'oldest',     label: '↑ Oldest' },
+  { key: 'quote-desc', label: '$ High→Low' },
+  { key: 'quote-asc',  label: '$ Low→High' },
+  { key: 'prob-desc',  label: '% High→Low' },
+  { key: 'prob-asc',   label: '% Low→High' },
+  { key: 'name-asc',   label: 'A→Z Name' },
+  { key: 'name-desc',  label: 'Z→A Name' },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function daysBetween(start, end) {
@@ -2858,7 +2869,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterStage, setFilterStage] = useState(null); // null = all stages
-  const [sortOrder, setSortOrder] = useState('desc'); // 'desc' = newest first, 'asc' = oldest first
+  const [sortKey, setSortKey] = useState('newest');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
@@ -3004,9 +3015,27 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
       );
     })
     .sort((a, b) => {
-      const ta = new Date(a.created_at).getTime();
-      const tb = new Date(b.created_at).getTime();
-      return sortOrder === 'desc' ? tb - ta : ta - tb;
+      if (sortKey === 'newest' || sortKey === 'oldest') {
+        const ta = new Date(a.created_at).getTime();
+        const tb = new Date(b.created_at).getTime();
+        return sortKey === 'newest' ? tb - ta : ta - tb;
+      }
+      if (sortKey === 'quote-desc' || sortKey === 'quote-asc') {
+        const qa = a.fields?.quote_amount ?? -1;
+        const qb = b.fields?.quote_amount ?? -1;
+        return sortKey === 'quote-desc' ? qb - qa : qa - qb;
+      }
+      if (sortKey === 'prob-desc' || sortKey === 'prob-asc') {
+        const pa = a.fields?.probability ?? -1;
+        const pb = b.fields?.probability ?? -1;
+        return sortKey === 'prob-desc' ? pb - pa : pa - pb;
+      }
+      if (sortKey === 'name-asc' || sortKey === 'name-desc') {
+        const na = `${a.fields?.firstName ?? ''} ${a.fields?.lastName ?? ''}`.trim().toLowerCase();
+        const nb = `${b.fields?.firstName ?? ''} ${b.fields?.lastName ?? ''}`.trim().toLowerCase();
+        return sortKey === 'name-asc' ? na.localeCompare(nb) : nb.localeCompare(na);
+      }
+      return 0;
     });
 
   const totalLeads = leads.length;
@@ -3284,11 +3313,14 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         </div>
 
         <button
-          onClick={() => setSortOrder((o) => o === 'desc' ? 'asc' : 'desc')}
-          title={sortOrder === 'desc' ? 'Showing newest first — click for oldest first' : 'Showing oldest first — click for newest first'}
-          style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}
+          onClick={() => setSortKey((k) => {
+            const idx = SORT_OPTIONS.findIndex((o) => o.key === k);
+            return SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length].key;
+          })}
+          title={`Sort: ${SORT_OPTIONS.find((o) => o.key === sortKey)?.label} — click to cycle`}
+          style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, whiteSpace: 'nowrap' }}
         >
-          {sortOrder === 'desc' ? '↓' : '↑'} {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+          {SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort'}
         </button>
 
         <button onClick={() => { loadLeads(); setFilterStage(null); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>

@@ -309,6 +309,56 @@ function formatPhoneInput(raw) {
   return `(${digits.slice(0, 3)})${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+// ── Shared styles for AddLeadModal — defined at module level so extracted sub-components
+// can reference them without re-creating objects on every render.
+const AL_INP  = { width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', outline: 'none', background: '#fff' };
+const AL_LBL  = { display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '4px' };
+const AL_G2   = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' };
+const AL_SEC  = { margin: '16px 0 10px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px' };
+const AL_MB12 = { marginBottom: '12px' };
+
+// Must be defined outside AddLeadModal — inline component definitions cause remount on every
+// keystroke, losing focus after a single character.
+function AddressBlock({ fields, setF }) {
+  return (
+    <>
+      <div style={AL_MB12}>
+        <label style={AL_LBL}>Street Address</label>
+        <input style={AL_INP} autoComplete="off" value={fields.streetAddress || ''} onChange={(e) => setF('streetAddress', e.target.value)} />
+      </div>
+      <div style={AL_G2}>
+        <div>
+          <label style={AL_LBL}>City</label>
+          <input style={AL_INP} autoComplete="off" value={fields.city || ''} onChange={(e) => setF('city', e.target.value)} />
+        </div>
+        <div>
+          <label style={AL_LBL}>State</label>
+          <select style={AL_INP} value={fields.state || 'California'} onChange={(e) => setF('state', e.target.value)}>
+            {AL_STATES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={AL_MB12}>
+        <label style={AL_LBL}>ZIP Code</label>
+        <input style={AL_INP} autoComplete="off" value={fields.zipCode || ''} onChange={(e) => setF('zipCode', e.target.value)} />
+      </div>
+    </>
+  );
+}
+
+function AddLeadCheckGrid({ options, cols = 2, values, onToggle }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '6px', marginTop: '6px' }}>
+      {options.map((o) => (
+        <label key={o} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', cursor: 'pointer', lineHeight: 1.4 }}>
+          <input type="checkbox" style={{ marginTop: '2px', flexShrink: 0 }} checked={(values || []).includes(o)} onChange={() => onToggle(o)} />
+          {o}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function AddLeadModal({ onClose, onAdded }) {
   const [formType, setFormType]       = useState('homeowner-consultation');
   const [fields, setFields]           = useState({ leadSource: 'Phone Call', state: 'California' });
@@ -366,41 +416,13 @@ function AddLeadModal({ onClose, onAdded }) {
     }
   }
 
-  // Shared styles
-  const inp  = { width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', outline: 'none', background: '#fff' };
-  const lbl  = { display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '4px' };
-  const g2   = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' };
-  const sec  = { margin: '16px 0 10px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px' };
+  // Alias module-level style constants with short names used throughout this component's JSX
+  const inp  = AL_INP;
+  const lbl  = AL_LBL;
+  const g2   = AL_G2;
+  const sec  = AL_SEC;
+  const mb12 = AL_MB12;
   const req  = <span style={{ color: '#b91c1c' }}> *</span>;
-  const mb12 = { marginBottom: '12px' };
-
-  // Inline checkbox grid used for areas, accessories, wood species
-  const CheckGrid = ({ keyName, options, cols = 2 }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '6px', marginTop: '6px' }}>
-      {options.map((o) => (
-        <label key={o} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', cursor: 'pointer', lineHeight: 1.4 }}>
-          <input type="checkbox" style={{ marginTop: '2px', flexShrink: 0 }} checked={(fields[keyName] || []).includes(o)} onChange={() => toggleArr(keyName, o)} />
-          {o}
-        </label>
-      ))}
-    </div>
-  );
-
-  const AddressBlock = () => (
-    <>
-      <div style={mb12}><label style={lbl}>Street Address</label><input style={inp} value={fields.streetAddress || ''} onChange={(e) => setF('streetAddress', e.target.value)} /></div>
-      <div style={g2}>
-        <div><label style={lbl}>City</label><input style={inp} value={fields.city || ''} onChange={(e) => setF('city', e.target.value)} /></div>
-        <div>
-          <label style={lbl}>State</label>
-          <select style={inp} value={fields.state || 'California'} onChange={(e) => setF('state', e.target.value)}>
-            {AL_STATES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-      </div>
-      <div style={mb12}><label style={lbl}>ZIP Code</label><input style={inp} value={fields.zipCode || ''} onChange={(e) => setF('zipCode', e.target.value)} /></div>
-    </>
-  );
 
   return (
     <div
@@ -436,7 +458,7 @@ function AddLeadModal({ onClose, onAdded }) {
             </select>
           </div>
 
-          <form id="add-lead-form" onSubmit={handleSubmit}>
+          <form id="add-lead-form" autoComplete="off" onSubmit={handleSubmit}>
             {formType === 'homeowner-consultation' ? (
               <>
                 <p style={sec}>Contact Information</p>
@@ -466,7 +488,7 @@ function AddLeadModal({ onClose, onAdded }) {
                     </select>
                   </div>
                 </div>
-                <AddressBlock />
+                <AddressBlock fields={fields} setF={setF} />
                 <div style={mb12}><label style={lbl}>Description</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.description || ''} onChange={(e) => setF('description', e.target.value)} /></div>
                 <div style={mb12}><label style={lbl}>Inspiration / Links</label><textarea style={{ ...inp, resize: 'vertical' }} rows={2} placeholder="Links, style references, or description of vision" value={fields.inspiration || ''} onChange={(e) => setF('inspiration', e.target.value)} /></div>
 
@@ -524,12 +546,12 @@ function AddLeadModal({ onClose, onAdded }) {
                   <div><label style={lbl}>Client First Name</label><input style={inp} value={fields.clientFirstName || ''} onChange={(e) => setF('clientFirstName', e.target.value)} /></div>
                   <div><label style={lbl}>Client Last Name</label><input style={inp} value={fields.clientLastName || ''} onChange={(e) => setF('clientLastName', e.target.value)} /></div>
                 </div>
-                <AddressBlock />
+                <AddressBlock fields={fields} setF={setF} />
 
                 <p style={sec}>Project Scope</p>
                 <div style={mb12}>
                   <label style={lbl}>Areas Requiring Cabinetry</label>
-                  <CheckGrid keyName="areasRequiringCabinetry" options={AL_AREAS} cols={2} />
+                  <AddLeadCheckGrid options={AL_AREAS} cols={2} values={fields.areasRequiringCabinetry} onToggle={(v) => toggleArr('areasRequiringCabinetry', v)} />
                 </div>
                 <div style={mb12}>
                   <label style={lbl}>Installation Timeline</label>
@@ -581,13 +603,13 @@ function AddLeadModal({ onClose, onAdded }) {
                 </div>
                 <div style={mb12}>
                   <label style={lbl}>Wood Species / Material <span style={{ fontWeight: 400, color: '#9ca3af' }}>(select all that apply)</span></label>
-                  <CheckGrid keyName="woodSpecies" options={AL_WOOD_SPECIES} cols={2} />
+                  <AddLeadCheckGrid options={AL_WOOD_SPECIES} cols={2} values={fields.woodSpecies} onToggle={(v) => toggleArr('woodSpecies', v)} />
                 </div>
 
                 <p style={sec}>Accessories &amp; Notes</p>
                 <div style={mb12}>
                   <label style={lbl}>Accessories &amp; Upgrades</label>
-                  <CheckGrid keyName="accessories" options={AL_ACCESSORIES} cols={2} />
+                  <AddLeadCheckGrid options={AL_ACCESSORIES} cols={2} values={fields.accessories} onToggle={(v) => toggleArr('accessories', v)} />
                 </div>
                 <div style={mb12}><label style={lbl}>Comments</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={fields.comments || ''} onChange={(e) => setF('comments', e.target.value)} /></div>
 

@@ -200,7 +200,7 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
     setSaving(true);
     setOpen(false);
     try {
-      await apiCall('/api/admin-leads', { method: 'PATCH', body: { dealId: lead.hubspot_deal_id, stageId: stage.id } });
+      await apiCall('/api/admin-leads', { method: 'PATCH', body: { dealId: lead.hubspot_deal_id, stageId: stage.id, stageLabel: stage.label } });
       onStageChange(lead.id ?? lead.hubspot_deal_id, stage);
     } catch { /* non-fatal */ }
     setSaving(false);

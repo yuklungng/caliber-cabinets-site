@@ -241,12 +241,22 @@ export default async function handler(req, res) {
     });
   }
 
-  // PATCH — update deal stage in HubSpot
+  // PATCH — update deal stage in HubSpot and persist to Supabase
   if (req.method === 'PATCH') {
-    const { dealId, stageId } = req.body ?? {};
+    const { dealId, stageId, stageLabel } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
     try {
       await updateDealStage(dealId, stageId);
+
+      // Persist stage to Supabase (non-fatal — HubSpot is source of truth but Supabase mirrors it)
+      const stageUpdate = { hs_stage_id: stageId };
+      if (stageLabel) stageUpdate.hs_stage_label = stageLabel;
+      const { error: stageErr } = await supabase
+        .from('leads')
+        .update(stageUpdate)
+        .eq('hubspot_deal_id', dealId);
+      if (stageErr) console.error('[admin-leads] Supabase stage sync error (non-fatal):', stageErr.message);
+
       return res.status(200).json({ success: true });
     } catch (err) {
       console.error('[admin-leads] HubSpot update stage error:', err.message);
@@ -296,6 +306,20 @@ export default async function handler(req, res) {
         hs_date_entered_closed_lost:   hs?.dateEnteredClosedLost   ?? null,
       };
     });
+
+    // Batch-sync HubSpot stages back to Supabase so the DB mirrors current pipeline state.
+    // Fire-and-settle — we don't block the response on this; failures are non-fatal.
+    const toSync = enriched.filter((l) => l.id && l.hs_stage_id);
+    if (toSync.length > 0) {
+      Promise.allSettled(
+        toSync.map((l) =>
+          supabase.from('leads').update({
+            hs_stage_id:    l.hs_stage_id,
+            hs_stage_label: l.hs_stage_label ?? null,
+          }).eq('id', l.id)
+        )
+      ).catch(() => {});
+    }
 
     // Merge in HubSpot-only deals (deals that exist in HubSpot but not from a web form)
     let hsOnlyDeals = [];

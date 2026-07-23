@@ -3318,13 +3318,13 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
             return SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length].key;
           })}
           title={`Sort: ${SORT_OPTIONS.find((o) => o.key === sortKey)?.label} — click to cycle`}
-          style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, whiteSpace: 'nowrap' }}
+          style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', flexShrink: 0, whiteSpace: 'nowrap', width: '120px', textAlign: 'center' }}
         >
           {SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort'}
         </button>
 
         <button onClick={() => { loadLeads(); setFilterStage(null); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
-          Refresh / Clear Filter
+          Reset
         </button>
 
         <button

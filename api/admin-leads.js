@@ -111,7 +111,11 @@ export default async function handler(req, res) {
     }
 
     const { error: updateErr } = await supabase
-      .from('leads').update({ fields: updatedFields }).eq('id', id);
+      .from('leads').update({
+        fields: updatedFields,
+        last_modified_by: auth.user?.name ?? auth.user?.email ?? 'Admin',
+        last_modified_at: new Date().toISOString(),
+      }).eq('id', id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
     return res.status(200).json({ success: true });
@@ -140,17 +144,27 @@ export default async function handler(req, res) {
       }
 
       const { error: updateErr } = await supabase
-        .from('leads').update({ fields: updatedFields }).eq('id', id);
+        .from('leads').update({
+          fields: updatedFields,
+          last_modified_by: auth.user?.name ?? auth.user?.email ?? 'Admin',
+          last_modified_at: new Date().toISOString(),
+        }).eq('id', id);
       if (updateErr) return res.status(500).json({ error: updateErr.message });
     }
 
     // Sync to HubSpot deal `amount` for all leads (Supabase-backed and HubSpot-only).
     // For HubSpot-only leads this is the sole persistence — getAllPipelineDeals reads it back.
     if (hubspot_deal_id && process.env.HUBSPOT_ACCESS_TOKEN) {
+      const actor = auth.user?.name ?? auth.user?.email ?? 'Admin';
       try {
         await updateDealProperties(hubspot_deal_id, {
           amount: quote_amount != null ? String(quote_amount) : '',
         });
+        const amtLabel = quote_amount != null
+          ? `$${Number(quote_amount).toLocaleString()}`
+          : '(cleared)';
+        await createDealNote(hubspot_deal_id,
+          `Quote amount set to ${amtLabel} by ${actor}`);
       } catch (hsErr) {
         console.error('[admin-leads/quote-amount] HubSpot error (non-fatal):', hsErr.message);
       }
@@ -258,11 +272,24 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { dealId, stageId, stageLabel } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
+    const actor = auth.user?.name ?? auth.user?.email ?? 'Admin';
     try {
       await updateDealStage(dealId, stageId);
 
+      // Add a HubSpot note recording who made the stage change
+      try {
+        await createDealNote(dealId,
+          `Stage changed to "${stageLabel ?? stageId}" by ${actor}`);
+      } catch (noteErr) {
+        console.error('[admin-leads] HubSpot note error (non-fatal):', noteErr.message);
+      }
+
       // Persist stage to Supabase (non-fatal — HubSpot is source of truth but Supabase mirrors it)
-      const stageUpdate = { hs_stage_id: stageId };
+      const stageUpdate = {
+        hs_stage_id: stageId,
+        last_modified_by: actor,
+        last_modified_at: new Date().toISOString(),
+      };
       if (stageLabel) stageUpdate.hs_stage_label = stageLabel;
       const { error: stageErr } = await supabase
         .from('leads')

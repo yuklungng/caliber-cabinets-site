@@ -3904,6 +3904,14 @@ function PerformanceView() {
   const avgFullCycleDays = fullCycleSamples.length > 0
     ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
 
+  // Avg Time to Quote (all-time)
+  const avgTimeToQuoteSamples = leads
+    .filter((l) => l.hs_date_entered_quote_sent)
+    .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+    .filter((d) => d !== null && d >= 0);
+  const avgTimeToQuoteAllTime = avgTimeToQuoteSamples.length > 0
+    ? avgTimeToQuoteSamples.reduce((a, b) => a + b, 0) / avgTimeToQuoteSamples.length : null;
+
   const sectionLabel = (text) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
       <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{text}</span>
@@ -3980,6 +3988,99 @@ function PerformanceView() {
         </p>
       </div>
 
+      {/* ── Cashflow Forecast ── */}
+      {!isLoading && (
+        <CashflowForecastSection leads={leads} stageProbabilities={stageProbabilities ?? {}} />
+      )}
+
+      {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
+      <section>
+        {sectionLabel('Pipeline Health')}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
+            </div>
+            {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {stageVelocity.map((stage) => {
+                  const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
+                  const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
+                  const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
+                  return (
+                    <div key={stage.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {stage.avg !== null
+                            ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
+                            : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
+                          {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
+                          {stage.activeInStage > 0 && (
+                            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
+                              {stage.activeInStage} active
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
+              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
+            </div>
+            {lostLeads.length === 0 ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
+                  const count = lostByStage[stageDef.id] ?? 0;
+                  const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
+                  const barPct = Math.max(count > 0 ? 4 : 0, pct);
+                  return (
+                    <div key={stageDef.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
+                          {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
+                        </div>
+                      </div>
+                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {lostLeads.length > 0 && (
+                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                    {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
+                     lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
+                     lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
+                     'Losses at early stages — lead quality or response time may be the issue.'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* ── Conversion by Lead Type ───────────────────────────────────────────── */}
       <section>
         {sectionLabel('Conversion by Lead Type')}
@@ -4012,26 +4113,88 @@ function PerformanceView() {
             </div>
           ))}
         </div>
+
+        {/* ── Velocity Stats ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+          <WithTip tip="Average days from first contact (New Request) to Quote Sent, across all deals that have been quoted. Lower = faster proposal turnaround.">
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 24px', display: 'flex', alignItems: 'baseline', gap: '14px' }}>
+              <span style={{ fontSize: '36px', fontWeight: '700', color: avgTimeToQuoteAllTime !== null ? '#78350f' : '#9ca3af', lineHeight: 1 }}>
+                {avgTimeToQuoteAllTime !== null ? formatDays(avgTimeToQuoteAllTime) : '—'}
+              </span>
+              <div>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#374151' }}>Avg Time to Quote</p>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>New Request → Quote Sent</p>
+                <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                  {avgTimeToQuoteSamples.length > 0
+                    ? `Based on ${avgTimeToQuoteSamples.length} quoted deal${avgTimeToQuoteSamples.length !== 1 ? 's' : ''}`
+                    : 'No quoted deals yet'}
+                </p>
+              </div>
+            </div>
+          </WithTip>
+          <WithTip tip="Average days from first contact (New Request) to Closed Won, across all won deals with complete stage history. Lower = faster sales cycle.">
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 24px', display: 'flex', alignItems: 'baseline', gap: '14px' }}>
+              <span style={{ fontSize: '36px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
+                {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
+              </span>
+              <div>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#374151' }}>Avg Full Cycle</p>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>New Request → Closed Won</p>
+                <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                  {fullCycleSamples.length > 0
+                    ? `Based on ${fullCycleSamples.length} won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full history`
+                    : 'No won deals with full history yet'}
+                </p>
+              </div>
+            </div>
+          </WithTip>
+        </div>
       </section>
 
-      {/* ── Avg Full Cycle (all-time) ─────────────────────────────────────────── */}
+      {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
       <section>
-        {sectionLabel('Avg Full Cycle')}
-        <WithTip tip="Average number of days from first contact to Closed Won, across all won deals that have complete stage history in HubSpot. Lower = faster sales cycle. Only deals with a recorded New Request date are included.">
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px 24px', display: 'flex', alignItems: 'baseline', gap: '16px' }}>
-            <span style={{ fontSize: '40px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
-              {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
-            </span>
-            <div>
-              <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>New Request → Closed Won</p>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                {fullCycleSamples.length > 0
-                  ? `Average of ${fullCycleSamples.length} closed-won deal${fullCycleSamples.length !== 1 ? 's' : ''} with full stage history`
-                  : 'No won deals with full stage history yet'}
-              </p>
-            </div>
-          </div>
-        </WithTip>
+        {sectionLabel('Trends · Last 12 Months')}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
+
+          {chartCard(
+            'New Leads per Month',
+            <><span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Homeowner &nbsp;<span style={{ color: '#166534', fontWeight: '700' }}>■</span> Trade</>,
+            <MonthlyVolumeBars data={monthlyStats} />,
+          )}
+
+          {chartCard(
+            'Conversion Rates',
+            'Win Rate % and Lead → Quote % by month  ·  min. 2 data points to plot',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[
+                { key: 'winRate',     label: 'Win Rate',     color: '#16a34a' },
+                { key: 'leadToQuote', label: 'Lead → Quote', color: '#7c3aed' },
+              ]}
+              formatTip={(v) => `${v}%`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Time to Quote',
+            'Days from New Request → Quote Sent, grouped by month the quote was sent',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+
+          {chartCard(
+            'Avg Full Cycle',
+            'Days from New Request → Closed Won, grouped by month the deal was won',
+            <MonthlyLineChart
+              data={monthlyStats}
+              lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}
+              formatTip={(v) => `${Math.round(v)}d`}
+            />,
+          )}
+        </div>
       </section>
 
       {/* ── Marketing Effectiveness ───────────────────────────────────────────── */}
@@ -4236,145 +4399,6 @@ function PerformanceView() {
           </div>
         </div>
       </section>
-      {/* ── Trend Charts ─────────────────────────────────────────────────────── */}
-      <section>
-        {sectionLabel('Trends · Last 12 Months')}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
-
-          {chartCard(
-            'New Leads per Month',
-            <><span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Homeowner &nbsp;<span style={{ color: '#166534', fontWeight: '700' }}>■</span> Trade</>,
-            <MonthlyVolumeBars data={monthlyStats} />,
-          )}
-
-          {chartCard(
-            'Conversion Rates',
-            'Win Rate % and Lead → Quote % by month  ·  min. 2 data points to plot',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[
-                { key: 'winRate',     label: 'Win Rate',     color: '#16a34a' },
-                { key: 'leadToQuote', label: 'Lead → Quote', color: '#7c3aed' },
-              ]}
-              formatTip={(v) => `${v}%`}
-            />,
-          )}
-
-          {chartCard(
-            'Avg Time to Quote',
-            'Days from New Request → Quote Sent, grouped by month the quote was sent',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
-              formatTip={(v) => `${Math.round(v)}d`}
-            />,
-          )}
-
-          {chartCard(
-            'Avg Full Cycle',
-            'Days from New Request → Closed Won, grouped by month the deal was won',
-            <MonthlyLineChart
-              data={monthlyStats}
-              lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}
-              formatTip={(v) => `${Math.round(v)}d`}
-            />,
-          )}
-        </div>
-      </section>
-
-      {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
-      <section>
-        {sectionLabel('Pipeline Health')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-
-
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
-              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
-            </div>
-            {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
-              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {stageVelocity.map((stage) => {
-                  const maxAvg = Math.max(...stageVelocity.map((s) => s.avg ?? 0), 1);
-                  const barPct = stage.avg !== null ? Math.max(4, Math.round((stage.avg / maxAvg) * 100)) : 0;
-                  const s = HS_STAGE_COLORS[stage.id] ?? { bg: '#f3f4f6', color: '#6b7280' };
-                  return (
-                    <div key={stage.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stage.label}</span>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          {stage.avg !== null
-                            ? <span style={{ fontSize: '13px', fontWeight: '700', color: s.color }}>{formatDays(stage.avg)}</span>
-                            : <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>}
-                          {stage.n > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>n={stage.n}</span>}
-                          {stage.activeInStage > 0 && (
-                            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', padding: '1px 5px', fontWeight: '600' }}>
-                              {stage.activeInStage} active
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                        <div style={{ width: `${barPct}%`, height: '100%', background: s.color, borderRadius: '3px', opacity: 0.75, transition: 'width 400ms ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
-              <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
-            </div>
-            {lostLeads.length === 0 ? (
-              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
-                  const count = lostByStage[stageDef.id] ?? 0;
-                  const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
-                  const barPct = Math.max(count > 0 ? 4 : 0, pct);
-                  return (
-                    <div key={stageDef.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{stageDef.label}</span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <span style={{ fontSize: '13px', fontWeight: '700', color: count > 0 ? '#991b1b' : '#9ca3af' }}>{count}</span>
-                          {count > 0 && <span style={{ fontSize: '10px', color: '#9ca3af' }}>{pct}%</span>}
-                        </div>
-                      </div>
-                      <div style={{ height: '6px', background: '#f3f4f6', borderRadius: '3px' }}>
-                        <div style={{ width: `${barPct}%`, height: '100%', background: count > 0 ? '#dc2626' : '#f3f4f6', borderRadius: '3px', opacity: 0.6, transition: 'width 400ms ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                {lostLeads.length > 0 && (
-                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
-                    {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
-                     lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
-                     lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
-                     'Losses at early stages — lead quality or response time may be the issue.'}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Cashflow Forecast ── */}
-      {!isLoading && (
-        <CashflowForecastSection leads={leads} stageProbabilities={stageProbabilities ?? {}} />
-      )}
 
     </div>
   );

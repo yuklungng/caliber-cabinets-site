@@ -202,6 +202,46 @@ export async function createDealNote(dealId, noteBody) {
 }
 
 /**
+ * Batch-fetch contact IDs associated with a list of HubSpot deal IDs.
+ * Returns a map of dealId → contactId (string).
+ */
+export async function batchGetContactIdsByDealIds(dealIds) {
+  if (!dealIds?.length) return {};
+  const res = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
+    inputs: dealIds.map((id) => ({ id })),
+  });
+  if (!res.ok) return {};
+  const map = {};
+  for (const r of (await res.json()).results ?? []) {
+    if (r.to?.length > 0) map[String(r.from.id)] = String(r.to[0].toObjectId);
+  }
+  return map;
+}
+
+/**
+ * Batch-fetch contact properties for a list of HubSpot contact IDs.
+ * Returns a map of contactId → { firstName, lastName, email, phone }.
+ */
+export async function batchGetContactProperties(contactIds) {
+  if (!contactIds?.length) return {};
+  const res = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
+    properties: ['firstname', 'lastname', 'email', 'phone'],
+    inputs: [...new Set(contactIds)].map((id) => ({ id })),
+  });
+  if (!res.ok) throw new Error(`HubSpot batch contact read ${res.status}: ${await res.text()}`);
+  const map = {};
+  for (const c of (await res.json()).results ?? []) {
+    map[c.id] = {
+      firstName: c.properties.firstname ?? '',
+      lastName:  c.properties.lastname  ?? '',
+      email:     c.properties.email     ?? '',
+      phone:     c.properties.phone     ?? '',
+    };
+  }
+  return map;
+}
+
+/**
  * Update arbitrary properties on a HubSpot deal (e.g. amount, forecast amount).
  */
 export async function updateDealProperties(dealId, properties) {

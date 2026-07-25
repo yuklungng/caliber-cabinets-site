@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './hubspot.js';
+import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Distance helpers (for POST ?action=add-lead) ─────────────────────────────
@@ -248,7 +248,10 @@ export default async function handler(req, res) {
         const contactId = await upsertContact(contactProperties);
         hubspotDealId = await createDeal(dealProperties, contactId);
         if (hubspotDealId && insertData?.id) {
-          await supabase.from('leads').update({ hubspot_deal_id: hubspotDealId }).eq('id', insertData.id);
+          await supabase.from('leads').update({
+            hubspot_deal_id:    hubspotDealId,
+            hubspot_contact_id: contactId ?? null,
+          }).eq('id', insertData.id);
         }
       } catch (hsErr) {
         console.error('[admin-leads/add-lead] HubSpot error (non-fatal):', hsErr.message);
@@ -329,10 +332,55 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── Live contact sync from HubSpot ────────────────────────────────────────
+    // For every Supabase lead linked to HubSpot, fetch fresh contact properties
+    // so edits made in HubSpot (name, email, phone) are always reflected here.
+    let contactProps = {}; // hubspot_contact_id → { firstName, lastName, email, phone }
+    if (process.env.HUBSPOT_ACCESS_TOKEN) {
+      try {
+        // Leads already have a contact ID stored — use them directly
+        const leadsWithContact  = data.filter((l) => l.hubspot_contact_id);
+        // Leads with a deal ID but no contact ID yet — resolve via association (self-healing backfill)
+        const leadsNeedingLookup = data.filter((l) => l.hubspot_deal_id && !l.hubspot_contact_id);
+
+        let resolvedMap = {}; // dealId → contactId
+        if (leadsNeedingLookup.length > 0) {
+          resolvedMap = await batchGetContactIdsByDealIds(leadsNeedingLookup.map((l) => l.hubspot_deal_id));
+          // Persist resolved contact IDs so we don't need to look them up again
+          await Promise.allSettled(
+            leadsNeedingLookup
+              .filter((l) => resolvedMap[l.hubspot_deal_id])
+              .map((l) => supabase.from('leads')
+                .update({ hubspot_contact_id: resolvedMap[l.hubspot_deal_id] })
+                .eq('id', l.id))
+          );
+          // Attach resolved IDs to the in-memory objects so enriched map can use them
+          for (const l of leadsNeedingLookup) {
+            if (resolvedMap[l.hubspot_deal_id]) l.hubspot_contact_id = resolvedMap[l.hubspot_deal_id];
+          }
+        }
+
+        const allContactIds = [
+          ...leadsWithContact.map((l) => l.hubspot_contact_id),
+          ...Object.values(resolvedMap),
+        ].filter(Boolean);
+
+        if (allContactIds.length > 0) {
+          contactProps = await batchGetContactProperties(allContactIds);
+        }
+      } catch (contactErr) {
+        console.error('[admin-leads] Contact sync error (non-fatal):', contactErr.message);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const enriched = data.map((lead) => {
       const hs = lead.hubspot_deal_id ? (hsStages[lead.hubspot_deal_id] ?? null) : null;
+      // Overlay live HubSpot contact data onto fields so admin always sees current values
+      const freshContact = lead.hubspot_contact_id ? (contactProps[lead.hubspot_contact_id] ?? null) : null;
       return {
         ...lead,
+        fields: freshContact ? { ...lead.fields, ...freshContact } : lead.fields,
         hs_stage_label: hs?.stageLabel ?? null,
         hs_stage_id:    hs?.stageId   ?? null,
         hs_stage_date:  hs?.stageDate ?? null,

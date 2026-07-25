@@ -295,14 +295,17 @@ export default async function handler(req, res) {
       const dealId = await createDeal(dealProperties, contactId);
       console.log('[lead-submit] HubSpot contact and deal created, deal ID:', dealId);
 
-      // Write deal ID back to Supabase so admin page can link to HubSpot
+      // Write deal ID + contact ID back to Supabase
       if (dealId && insertData?.id) {
         const { error: updateError } = await supabase
           .from('leads')
-          .update({ hubspot_deal_id: dealId })
+          .update({
+            hubspot_deal_id:    dealId,
+            hubspot_contact_id: contactId ?? null,
+          })
           .eq('id', insertData.id);
         if (updateError) {
-          console.error('[lead-submit] Failed to store hubspot_deal_id:', updateError.message);
+          console.error('[lead-submit] Failed to store hubspot IDs:', updateError.message);
         }
       }
     } catch (hsError) {

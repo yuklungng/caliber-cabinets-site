@@ -2120,7 +2120,15 @@ function SiteStatsView() {
   return (
     <div style={{ display: 'grid', gap: '32px', maxWidth: '860px' }}>
 
-      {/* ── UptimeRobot ── */}
+      {/* ── Page header ── */}
+      <div>
+        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Site Health</h2>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
+          Uptime, traffic, search visibility, and security for calibercabinetshop.com.
+        </p>
+      </div>
+
+      {/* ── Uptime ── */}
       <section>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Uptime</h2>
@@ -2150,43 +2158,60 @@ function SiteStatsView() {
         )}
 
         {uptime?.configured && uptime?.monitors && (
-          <div style={{ display: 'grid', gap: '12px' }}>
-            {uptime.monitors.map((m) => {
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+            {/* Column header row */}
+            {!isMobile && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr repeat(4, 80px)', gap: '10px', padding: '8px 20px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Monitor</span>
+                {['7-day', '30-day', 'Avg resp.', 'All-time'].map((h) => (
+                  <span key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>{h}</span>
+                ))}
+              </div>
+            )}
+            {uptime.monitors.map((m, idx) => {
               const statusColor = m.status === 'up' ? '#16a34a' : m.status === 'seems_down' ? '#d97706' : '#dc2626';
-              const statusLabel = m.status === 'up' ? '● Up' : m.status === 'seems_down' ? '⚠ Seems Down' : '✕ Down';
+              const statusDot   = m.status === 'up' ? '●' : m.status === 'seems_down' ? '⚠' : '✕';
+              const pct7Color   = m.uptimeRatio7 >= 99.9 ? '#16a34a' : m.uptimeRatio7 >= 99 ? '#d97706' : '#dc2626';
               return (
-                <div key={m.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '14px', fontWeight: '700', color: '#111827' }}>{m.name}</span>
-                    <span style={{ fontSize: '12px', color: '#9ca3af' }}>{m.url}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: '13px', fontWeight: '700', color: statusColor }}>{statusLabel}</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
+                <div key={m.id} style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : '1fr repeat(4, 80px)',
+                  gap: isMobile ? '8px' : '10px',
+                  padding: '14px 20px',
+                  alignItems: 'center',
+                  borderTop: idx > 0 ? '1px solid #f3f4f6' : 'none',
+                }}>
+                  {/* Name + URL + status */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: '700', color: statusColor, flexShrink: 0 }}>{statusDot}</span>
                     <div>
-                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>7-day uptime</p>
-                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: m.uptimeRatio7 >= 99.9 ? '#16a34a' : m.uptimeRatio7 >= 99 ? '#d97706' : '#dc2626' }}>
-                        {m.uptimeRatio7 != null ? `${m.uptimeRatio7}%` : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>30-day uptime</p>
-                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
-                        {m.uptimeRatio30 != null ? `${m.uptimeRatio30}%` : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg response</p>
-                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
-                        {m.avgResponseMs != null ? `${m.avgResponseMs}ms` : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 2px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>All-time</p>
-                      <p style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>
-                        {m.uptimeRatioAll != null ? `${m.uptimeRatioAll}%` : '—'}
-                      </p>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#111827' }}>{m.name}</p>
+                      <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{m.url}</p>
                     </div>
                   </div>
+                  {/* Stat cells */}
+                  {isMobile ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginLeft: '24px' }}>
+                      {[
+                        { label: '7-day', value: m.uptimeRatio7 != null ? `${m.uptimeRatio7}%` : '—', color: pct7Color },
+                        { label: '30-day', value: m.uptimeRatio30 != null ? `${m.uptimeRatio30}%` : '—', color: '#111827' },
+                        { label: 'Avg resp.', value: m.avgResponseMs != null ? `${m.avgResponseMs}ms` : '—', color: '#111827' },
+                        { label: 'All-time', value: m.uptimeRatioAll != null ? `${m.uptimeRatioAll}%` : '—', color: '#111827' },
+                      ].map((s) => (
+                        <div key={s.label}>
+                          <p style={{ margin: '0 0 1px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</p>
+                          <p style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: s.color }}>{s.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: pct7Color, textAlign: 'right' }}>{m.uptimeRatio7 != null ? `${m.uptimeRatio7}%` : '—'}</p>
+                      <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#111827', textAlign: 'right' }}>{m.uptimeRatio30 != null ? `${m.uptimeRatio30}%` : '—'}</p>
+                      <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#111827', textAlign: 'right' }}>{m.avgResponseMs != null ? `${m.avgResponseMs}ms` : '—'}</p>
+                      <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#111827', textAlign: 'right' }}>{m.uptimeRatioAll != null ? `${m.uptimeRatioAll}%` : '—'}</p>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -2194,170 +2219,7 @@ function SiteStatsView() {
         )}
       </section>
 
-      {/* ── Turnstile ── */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Bot Protection</h2>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare Turnstile · last 6 days</span>
-        </div>
-
-        {!turnstile?.configured && (
-          <NotConfiguredCard
-            service="Cloudflare Turnstile"
-            envVars={['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']}
-            hint="Add your Cloudflare Account ID and an API token with Account Analytics:Read permission."
-          />
-        )}
-
-        {turnstile?.configured && turnstile?.error && (
-          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
-            Turnstile error: {turnstile.error}
-          </p>
-        )}
-
-        {turnstile?.configured && turnstile?.totals && (
-          <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${turnstile.simpleMode ? 2 : 4}, 1fr)`, gap: '12px' }}>
-              <StatTile
-                label="Form Loads"
-                value={turnstile.totals.pageLoads?.toLocaleString()}
-                sub="Times Turnstile ran"
-                accent="#6366f1"
-              />
-              <StatTile
-                label="Humans Verified"
-                value={turnstile.totals.verified?.toLocaleString()}
-                sub="Tokens issued to real users"
-                accent="#16a34a"
-              />
-              {!turnstile.simpleMode && (
-                <StatTile
-                  label="Bots Blocked"
-                  value={turnstile.totals.blocked?.toLocaleString()}
-                  sub="Stopped before submit"
-                  accent="#dc2626"
-                />
-              )}
-              {!turnstile.simpleMode && (
-                <StatTile
-                  label="Solve Rate"
-                  value={turnstile.totals.solveRate != null ? `${turnstile.totals.solveRate}%` : '—'}
-                  sub="Humans / total loads"
-                  accent="#f59e0b"
-                />
-              )}
-            </div>
-
-            {turnstile.daily?.length > 0 && (
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                <div style={{ display: 'flex', gap: '20px', marginBottom: '12px' }}>
-                  <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily breakdown</p>
-                  <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: '600' }}>■ Verified</span>
-                  <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>■ Blocked</span>
-                </div>
-                <TurnstileBarsChart daily={turnstile.daily} />
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* ── Google Search Console ── */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Google Search</h2>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Search Console · last 28 days</span>
-        </div>
-
-        {!gsc?.configured && (
-          <NotConfiguredCard
-            service="Google Search Console"
-            envVars={['SEARCH_CONSOLE_SITE']}
-            hint="Set SEARCH_CONSOLE_SITE to sc-domain:calibercabinetshop.com and add the service account to Search Console as a Full user."
-          />
-        )}
-
-        {gsc?.configured && gsc?.error && (
-          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
-            Search Console error: {gsc.error}
-          </p>
-        )}
-
-        {gsc?.configured && gsc?.totals && (
-          <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
-              <StatTile label="Total Clicks" value={gsc.totals.clicks?.toLocaleString()} accent="#4285f4" sub="Visits from Google search" />
-              <StatTile label="Impressions" value={gsc.totals.impressions?.toLocaleString()} accent="#34a853" sub="Times shown in results" />
-              <StatTile label="Click-Through Rate" value={gsc.totals.ctr != null ? `${gsc.totals.ctr}%` : '—'} accent="#fbbc04" sub="Higher is better" />
-              <StatTile label="Avg Position" value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'} accent="#ea4335" sub="Lower # = higher ranking" />
-            </div>
-
-            {/* Search trend chart */}
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Clicks &amp; impressions over time · last 28 days</p>
-              <TrendChart
-                daily={gsc.daily}
-                lines={[
-                  { key: 'clicks', label: 'Clicks', color: '#4285f4' },
-                  { key: 'impressions', label: 'Impressions', color: '#34a853' },
-                ]}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
-                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>What people type to find the site</p>
-                {gsc.queries?.length > 0
-                  ? <div style={{ display: 'grid', gap: '10px' }}>
-                      {gsc.queries.map((q) => (
-                        <div key={q.query} style={{ display: 'grid', gap: '2px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.query}</span>
-                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
-                              <span style={{ color: '#4285f4', fontWeight: '700' }}>{q.clicks} clicks</span>
-                              <span style={{ color: '#9ca3af' }}>#{q.position}</span>
-                            </div>
-                          </div>
-                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                            <div style={{ width: `${Math.round((q.clicks / gsc.queries[0].clicks) * 100)}%`, height: '100%', background: '#4285f4', borderRadius: '2px', opacity: 0.7 }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  : <EmptyFrame label="caliber cabinets livermore · custom cabinets…" />
-                }
-              </div>
-
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pages getting clicks</p>
-                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Which pages Google sends visitors to</p>
-                {gsc.pages?.length > 0
-                  ? <div style={{ display: 'grid', gap: '10px' }}>
-                      {gsc.pages.map((p) => (
-                        <div key={p.page} style={{ display: 'grid', gap: '2px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
-                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
-                              <span style={{ color: '#34a853', fontWeight: '700' }}>{p.clicks} clicks</span>
-                              <span style={{ color: '#9ca3af' }}>#{p.position}</span>
-                            </div>
-                          </div>
-                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
-                            <div style={{ width: `${Math.round((p.clicks / (gsc.pages[0].clicks || 1)) * 100)}%`, height: '100%', background: '#34a853', borderRadius: '2px', opacity: 0.7 }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  : <EmptyFrame label="/ · /gallery · /contact" />
-                }
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ── Google Analytics ── */}
+      {/* ── Website Traffic (GA) ── */}
       <section>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Website Traffic</h2>
@@ -2528,6 +2390,169 @@ function SiteStatsView() {
                 }
               </div>
             </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Google Search Console ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Google Search</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Search Console · last 28 days</span>
+        </div>
+
+        {!gsc?.configured && (
+          <NotConfiguredCard
+            service="Google Search Console"
+            envVars={['SEARCH_CONSOLE_SITE']}
+            hint="Set SEARCH_CONSOLE_SITE to sc-domain:calibercabinetshop.com and add the service account to Search Console as a Full user."
+          />
+        )}
+
+        {gsc?.configured && gsc?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
+            Search Console error: {gsc.error}
+          </p>
+        )}
+
+        {gsc?.configured && gsc?.totals && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
+              <StatTile label="Total Clicks" value={gsc.totals.clicks?.toLocaleString()} accent="#4285f4" sub="Visits from Google search" />
+              <StatTile label="Impressions" value={gsc.totals.impressions?.toLocaleString()} accent="#34a853" sub="Times shown in results" />
+              <StatTile label="Click-Through Rate" value={gsc.totals.ctr != null ? `${gsc.totals.ctr}%` : '—'} accent="#fbbc04" sub="Higher is better" />
+              <StatTile label="Avg Position" value={gsc.totals.position != null ? `#${gsc.totals.position}` : '—'} accent="#ea4335" sub="Lower # = higher ranking" />
+            </div>
+
+            {/* Search trend chart */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Clicks &amp; impressions over time · last 28 days</p>
+              <TrendChart
+                daily={gsc.daily}
+                lines={[
+                  { key: 'clicks', label: 'Clicks', color: '#4285f4' },
+                  { key: 'impressions', label: 'Impressions', color: '#34a853' },
+                ]}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top search queries</p>
+                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>What people type to find the site</p>
+                {gsc.queries?.length > 0
+                  ? <div style={{ display: 'grid', gap: '10px' }}>
+                      {gsc.queries.map((q) => (
+                        <div key={q.query} style={{ display: 'grid', gap: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.query}</span>
+                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                              <span style={{ color: '#4285f4', fontWeight: '700' }}>{q.clicks} clicks</span>
+                              <span style={{ color: '#9ca3af' }}>#{q.position}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${Math.round((q.clicks / gsc.queries[0].clicks) * 100)}%`, height: '100%', background: '#4285f4', borderRadius: '2px', opacity: 0.7 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  : <EmptyFrame label="caliber cabinets livermore · custom cabinets…" />
+                }
+              </div>
+
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pages getting clicks</p>
+                <p style={{ margin: '0 0 12px', fontSize: '11px', color: '#9ca3af' }}>Which pages Google sends visitors to</p>
+                {gsc.pages?.length > 0
+                  ? <div style={{ display: 'grid', gap: '10px' }}>
+                      {gsc.pages.map((p) => (
+                        <div key={p.page} style={{ display: 'grid', gap: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.page}</span>
+                            <div style={{ display: 'flex', gap: '10px', flexShrink: 0, fontSize: '11px' }}>
+                              <span style={{ color: '#34a853', fontWeight: '700' }}>{p.clicks} clicks</span>
+                              <span style={{ color: '#9ca3af' }}>#{p.position}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }}>
+                            <div style={{ width: `${Math.round((p.clicks / (gsc.pages[0].clicks || 1)) * 100)}%`, height: '100%', background: '#34a853', borderRadius: '2px', opacity: 0.7 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  : <EmptyFrame label="/ · /gallery · /contact" />
+                }
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Bot Protection (Turnstile) ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#111827' }}>Bot Protection</h2>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>via Cloudflare Turnstile · last 6 days</span>
+        </div>
+
+        {!turnstile?.configured && (
+          <NotConfiguredCard
+            service="Cloudflare Turnstile"
+            envVars={['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']}
+            hint="Add your Cloudflare Account ID and an API token with Account Analytics:Read permission."
+          />
+        )}
+
+        {turnstile?.configured && turnstile?.error && (
+          <p style={{ color: '#b91c1c', fontSize: '14px', background: '#fef2f2', padding: '12px 16px', borderRadius: '8px' }}>
+            Turnstile error: {turnstile.error}
+          </p>
+        )}
+
+        {turnstile?.configured && turnstile?.totals && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${turnstile.simpleMode ? 2 : 4}, 1fr)`, gap: '12px' }}>
+              <StatTile
+                label="Form Loads"
+                value={turnstile.totals.pageLoads?.toLocaleString()}
+                sub="Times Turnstile ran"
+                accent="#6366f1"
+              />
+              <StatTile
+                label="Humans Verified"
+                value={turnstile.totals.verified?.toLocaleString()}
+                sub="Tokens issued to real users"
+                accent="#16a34a"
+              />
+              {!turnstile.simpleMode && (
+                <StatTile
+                  label="Bots Blocked"
+                  value={turnstile.totals.blocked?.toLocaleString()}
+                  sub="Stopped before submit"
+                  accent="#dc2626"
+                />
+              )}
+              {!turnstile.simpleMode && (
+                <StatTile
+                  label="Solve Rate"
+                  value={turnstile.totals.solveRate != null ? `${turnstile.totals.solveRate}%` : '—'}
+                  sub="Humans / total loads"
+                  accent="#f59e0b"
+                />
+              )}
+            </div>
+
+            {turnstile.daily?.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+                <div style={{ display: 'flex', gap: '20px', marginBottom: '12px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily breakdown</p>
+                  <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: '600' }}>■ Verified</span>
+                  <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>■ Blocked</span>
+                </div>
+                <TurnstileBarsChart daily={turnstile.daily} />
+              </div>
+            )}
           </div>
         )}
       </section>

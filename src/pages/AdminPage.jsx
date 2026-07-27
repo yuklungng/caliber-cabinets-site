@@ -5633,6 +5633,20 @@ export function AdminPage() {
   const [activeView, setActiveView] = useState('leads');
   const [navWinRate, setNavWinRate] = useState(null); // bubbled up from LeadsView, shown in nav on all tabs
 
+  // Dark mode — per-browser preference (each person's own toggle, stored locally).
+  // Implemented as a CSS filter invert rather than per-element theming, since this
+  // page has no color-token system. See the wrapper style below for why it's
+  // position:fixed + internal scroll while dark: `filter` on an ancestor makes it
+  // the containing block for `position: fixed` descendants (dropdowns, modals,
+  // tooltips), so the wrapper itself must occupy the true viewport at all times
+  // for those to stay positioned correctly.
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem('admin_dark_mode') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('admin_dark_mode', String(darkMode)); } catch { /* ignore */ }
+  }, [darkMode]);
+
   useEffect(() => {
     const token = sessionStorage.getItem('admin_token');
     const user = (() => { try { return JSON.parse(sessionStorage.getItem('admin_user') ?? ''); } catch { return null; } })();
@@ -5694,10 +5708,20 @@ export function AdminPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+    <div style={darkMode ? {
+      position: 'fixed', inset: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+      background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif',
+      filter: 'invert(1) hue-rotate(180deg)',
+    } : {
+      minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif',
+    }}>
       {/* Header */}
       <header style={{ background: '#78350f', padding: '0 16px', display: 'flex', alignItems: 'center', height: '52px', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src="/images/caliber-logo-brand.webp" alt="Caliber Cabinets" style={{ height: '34px', width: 'auto', borderRadius: '4px', objectFit: 'contain' }} />
+        <img
+          src="/images/caliber-logo-brand.webp"
+          alt="Caliber Cabinets"
+          style={{ height: '34px', width: 'auto', borderRadius: '4px', objectFit: 'contain', filter: darkMode ? 'invert(1) hue-rotate(180deg)' : 'none' }}
+        />
         <p style={{ margin: 0, color: '#ffffff', fontWeight: '700', fontSize: isMobile ? '14px' : '16px', flex: 1 }}>
           Caliber Cabinets
           <span style={{ opacity: 0.6, fontWeight: '400', fontSize: '13px', marginLeft: '8px' }}>Admin</span>
@@ -5705,6 +5729,13 @@ export function AdminPage() {
         {!isMobile && currentUser?.name && (
           <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{currentUser.name}</span>
         )}
+        <button
+          onClick={() => setDarkMode((d) => !d)}
+          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: '5px', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1 }}
+        >
+          {darkMode ? '☀️' : '🌙'}
+        </button>
         <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.8)', padding: isMobile ? '5px 10px' : '6px 14px', borderRadius: '5px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Sign Out
         </button>

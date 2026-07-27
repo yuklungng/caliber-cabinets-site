@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './_lib/hubspot.js';
+import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, ensureLostReasonProperties, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Distance helpers (for POST ?action=add-lead) ─────────────────────────────
@@ -273,16 +273,46 @@ export default async function handler(req, res) {
 
   // PATCH — update deal stage in HubSpot and persist to Supabase
   if (req.method === 'PATCH') {
-    const { dealId, stageId, stageLabel } = req.body ?? {};
+    const { dealId, stageId, stageLabel, lostReason, lostReasonDetail } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
+
+    // Lost Deal requires a reason — Competitor / Pricing / Value / Other.
+    // "Other" requires the free-text detail to actually say something.
+    const LOST_REASONS = new Set(['Competitor', 'Pricing', 'Value', 'Other']);
+    if (stageId === 'closedlost') {
+      if (!lostReason || !LOST_REASONS.has(lostReason)) {
+        return res.status(400).json({ error: 'A lost reason (Competitor, Pricing, Value, or Other) is required to close a deal as lost.' });
+      }
+      if (lostReason === 'Other' && !lostReasonDetail?.trim()) {
+        return res.status(400).json({ error: 'Please describe the reason when selecting "Other".' });
+      }
+    }
+
     const actor = auth.user?.name ?? auth.user?.email ?? 'Admin';
     try {
       await updateDealStage(dealId, stageId);
 
+      // Lost Deal — push the reason to HubSpot as custom deal properties.
+      // Non-fatal: Supabase remains the source of truth even if this fails.
+      if (stageId === 'closedlost' && lostReason) {
+        try {
+          await ensureLostReasonProperties();
+          await updateDealProperties(dealId, {
+            lost_reason: lostReason,
+            ...(lostReasonDetail?.trim() ? { lost_reason_detail: lostReasonDetail.trim() } : {}),
+          });
+        } catch (lostErr) {
+          console.error('[admin-leads] HubSpot lost-reason property error (non-fatal):', lostErr.message);
+        }
+      }
+
       // Add a HubSpot note recording who made the stage change
       try {
+        const reasonNote = stageId === 'closedlost' && lostReason
+          ? ` — Reason: ${lostReason}${lostReasonDetail?.trim() ? ` (${lostReasonDetail.trim()})` : ''}`
+          : '';
         await createDealNote(dealId,
-          `Stage changed to "${stageLabel ?? stageId}" by ${actor}`);
+          `Stage changed to "${stageLabel ?? stageId}" by ${actor}${reasonNote}`);
       } catch (noteErr) {
         console.error('[admin-leads] HubSpot note error (non-fatal):', noteErr.message);
       }
@@ -294,6 +324,10 @@ export default async function handler(req, res) {
         last_modified_at: new Date().toISOString(),
       };
       if (stageLabel) stageUpdate.hs_stage_label = stageLabel;
+      if (stageId === 'closedlost' && lostReason) {
+        stageUpdate.lost_reason = lostReason;
+        stageUpdate.lost_reason_detail = lostReasonDetail?.trim() || null;
+      }
       const { error: stageErr } = await supabase
         .from('leads')
         .update(stageUpdate)

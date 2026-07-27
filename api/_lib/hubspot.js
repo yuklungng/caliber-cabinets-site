@@ -261,9 +261,59 @@ export async function updateDealStage(dealId, stageId) {
   return await res.json();
 }
 
+/**
+ * Ensure the custom "lost_reason" and "lost_reason_detail" deal properties
+ * exist in this HubSpot portal. Safe to call repeatedly — no-ops once the
+ * properties already exist. Best-effort: failures are logged, not thrown,
+ * since Supabase remains the source of truth for this data either way.
+ */
+export async function ensureLostReasonProperties() {
+  const defs = [
+    {
+      name: 'lost_reason',
+      label: 'Lost Reason',
+      groupName: 'dealinformation',
+      type: 'enumeration',
+      fieldType: 'select',
+      options: [
+        { label: 'Competitor', value: 'Competitor', displayOrder: 0 },
+        { label: 'Pricing',    value: 'Pricing',    displayOrder: 1 },
+        { label: 'Value',      value: 'Value',      displayOrder: 2 },
+        { label: 'Other',      value: 'Other',      displayOrder: 3 },
+      ],
+    },
+    {
+      name: 'lost_reason_detail',
+      label: 'Lost Reason Detail',
+      groupName: 'dealinformation',
+      type: 'string',
+      fieldType: 'textarea',
+    },
+  ];
+  for (const def of defs) {
+    try {
+      const check = await hs(`/crm/v3/properties/deals/${def.name}`, 'GET');
+      if (check.ok) continue; // already exists
+    } catch { /* fall through to create attempt */ }
+    try {
+      const createRes = await hs('/crm/v3/properties/deals', 'POST', def);
+      if (!createRes.ok && createRes.status !== 409) {
+        console.error(`[hubspot] Failed to create property "${def.name}": ${createRes.status} ${await createRes.text()}`);
+      }
+    } catch (err) {
+      console.error(`[hubspot] Error creating property "${def.name}":`, err.message);
+    }
+  }
+}
+
 export async function getAllPipelineDeals() {
   const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
   const portalId   = process.env.HUBSPOT_PORTAL_ID;
+
+  // Make sure the lost-reason properties exist before requesting them below —
+  // cheap no-op once created (two GET checks), but guards against the search
+  // API rejecting unknown property names on a fresh portal.
+  try { await ensureLostReasonProperties(); } catch { /* non-fatal */ }
 
   // Resolve stage labels for this pipeline
   let stageLabels = { ...DEFAULT_STAGE_LABELS };
@@ -282,7 +332,7 @@ export async function getAllPipelineDeals() {
   do {
     const res = await hs('/crm/v3/objects/deals/search', 'POST', {
       filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
-      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate', 'amount'],
+      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate', 'amount', 'lost_reason', 'lost_reason_detail'],
       limit: 100,
       ...(after ? { after } : {}),
     });
@@ -381,6 +431,10 @@ export async function getAllPipelineDeals() {
       hs_date_entered_contract_sent: firstEntered['contractsent']   ?? null,
       hs_date_entered_closed_won:    firstEntered['closedwon']      ?? null,
       hs_date_entered_closed_lost:   firstEntered['closedlost']     ?? null,
+      // Lost-reason — only ever set for deals in the closedlost stage. HubSpot-only
+      // deals (no Supabase row) rely on this since Supabase can't store it for them.
+      lost_reason:        p.lost_reason ?? null,
+      lost_reason_detail: p.lost_reason_detail ?? null,
     };
   });
 }

@@ -1,0 +1,36 @@
+name: Weekly DB Backup
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # 10 AM UTC = 2 AM Pacific (after the previous day's work ends)
+  workflow_dispatch:        # allows manual trigger from GitHub Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run pg_dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          mkdir -p backups
+          TIMESTAMP=$(date +%Y-%m-%d)
+          pg_dump "$SUPABASE_DB_URL" \
+            --no-owner --no-acl \
+            | gzip > backups/caliber-$TIMESTAMP.sql.gz
+          # Keep only the 30 most recent snapshots (~1 month)
+          ls -t backups/*.sql.gz | tail -n +31 | xargs -r rm --
+
+      - name: Commit backup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backups/
+          git diff --staged --quiet || git commit -m "chore: db backup $(date +%Y-%m-%d)"
+          git push origin main

@@ -3022,7 +3022,11 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   }
 
   const filtered = leads
-    .filter((l) => filterType === 'all' || l.form_type === filterType)
+    .filter((l) => {
+      if (filterType === 'all') return true;
+      if (filterType === 'hubspot') return l.source === 'hubspot';
+      return l.form_type === filterType;
+    })
     .filter((l) => {
       if (!filterStage) return true;
       const ids = Array.isArray(filterStage) ? filterStage : [filterStage];
@@ -3066,6 +3070,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const totalLeads = leads.length;
   const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
   const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
+  const hubspotLeads = leads.filter((l) => l.source === 'hubspot').length;
 
   // Stage breakdown — count by stage ID across all pipeline stages
   const stageCountById = {};
@@ -3291,13 +3296,16 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
       {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden', background: '#ffffff' }}>
-          {[{ value: 'all', label: 'All Types' }, { value: 'homeowner-consultation', label: 'Homeowner' }, { value: 'trade-estimate', label: 'Trade' }].map((opt) => (
-            <button key={opt.value} onClick={() => setFilterType(opt.value)} style={{ padding: '7px 14px', border: 0, borderRight: '1px solid #e5e7eb', background: filterType === opt.value ? '#78350f' : 'transparent', color: filterType === opt.value ? '#ffffff' : '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          style={{ padding: '7px 30px 7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#ffffff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer', flexShrink: 0, appearance: 'auto' }}
+        >
+          <option value="all">All Types ({totalLeads})</option>
+          <option value="homeowner-consultation">Homeowner ({homeownerLeads})</option>
+          <option value="trade-estimate">Trade ({tradeLeads})</option>
+          <option value="hubspot">HubSpot ({hubspotLeads})</option>
+        </select>
 
         {/* Search with suggestions */}
         <div ref={searchRef} style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
@@ -3329,7 +3337,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
                     {lead.hs_stage_label && (
                       <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} />
                     )}
-                    <TypeBadge formType={lead.form_type} />
+                    <TypeBadge formType={lead.form_type} source={lead.source} />
                   </button>
                 );
               })}

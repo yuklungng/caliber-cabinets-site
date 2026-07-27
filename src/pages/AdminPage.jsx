@@ -3353,6 +3353,30 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         </button>
 
         <button
+          onClick={() => {
+            const a = document.createElement('a');
+            a.href = '/api/admin-backup?action=export-csv';
+            // Pass token via URL is not secure; instead open via fetch with auth header
+            apiCall('/api/admin-backup?action=export-csv')
+              .then((r) => r.blob())
+              .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = `caliber-leads-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              })
+              .catch(() => alert('Export failed. Please try again.'));
+          }}
+          title="Download all leads as CSV"
+          style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          ↓ Export CSV
+        </button>
+
+        <button
           onClick={() => setShowAddModal(true)}
           style={{ padding: '7px 16px', border: 0, borderRadius: '6px', background: '#78350f', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
         >
@@ -4940,6 +4964,287 @@ function ProjectsPanel() {
   );
 }
 
+// ─── BackupRestoreView ────────────────────────────────────────────────────────
+
+function BackupRestoreView({ isSuperAdmin }) {
+  const isMobile = useIsMobile();
+  const [backups, setBackups] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [actionState, setActionState] = useState('idle'); // idle | working | done | error
+  const [actionMsg, setActionMsg]   = useState('');
+  const [confirmRestore, setConfirmRestore] = useState(null); // filename to confirm
+
+  async function loadBackups() {
+    setIsLoading(true);
+    setLoadError('');
+    try {
+      const r = await apiCall('/api/admin-backup?action=list');
+      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
+      const d = await r.json();
+      setBackups(d.files ?? []);
+    } catch (err) {
+      setLoadError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => { loadBackups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCreate() {
+    setActionState('working');
+    setActionMsg('Creating backup…');
+    try {
+      const r = await apiCall('/api/admin-backup?action=create', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? 'Backup failed');
+      setActionState('done');
+      setActionMsg(`Backup created: ${d.filename} (${d.lead_count} leads)`);
+      loadBackups();
+    } catch (err) {
+      setActionState('error');
+      setActionMsg(err.message);
+    }
+  }
+
+  async function handleRestore(filename) {
+    setConfirmRestore(null);
+    setActionState('working');
+    setActionMsg('Restoring… (creating safety snapshot first)');
+    try {
+      const r = await apiCall(
+        `/api/admin-backup?action=restore&filename=${encodeURIComponent(filename)}`,
+        { method: 'POST' },
+      );
+      const d = await r.json();
+      if (!r.ok && r.status !== 207) throw new Error(d.error ?? 'Restore failed');
+      if (d.errors?.length > 0) {
+        setActionState('error');
+        setActionMsg(`Partial restore — errors: ${d.errors.join('; ')}. Safety backup: ${d.safety_backup}`);
+      } else {
+        setActionState('done');
+        setActionMsg(`Restored from ${filename} (${d.lead_count} leads). Safety snapshot: ${d.safety_backup}`);
+      }
+      loadBackups();
+    } catch (err) {
+      setActionState('error');
+      setActionMsg(err.message);
+    }
+  }
+
+  function formatBytes(n) {
+    if (!n) return '—';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  const isSafetyFile = (name) => name?.startsWith('pre-restore-');
+  const isBackupFile  = (name) => name?.startsWith('backup-');
+
+  const regularBackups = backups.filter((f) => isBackupFile(f.name));
+  const safetyBackups  = backups.filter((f) => isSafetyFile(f.name));
+
+  const statusColor = { idle: '#374151', working: '#d97706', done: '#16a34a', error: '#dc2626' };
+  const statusBg    = { idle: '#f9fafb', working: '#fffbeb', done: '#f0fdf4', error: '#fef2f2' };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: '20px' }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Backup &amp; Restore</h2>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
+          Create JSON snapshots of leads, settings, and users — stored in Supabase. Restore replaces data by ID (upsert).
+        </p>
+      </div>
+
+      {/* Action feedback banner */}
+      {actionState !== 'idle' && (
+        <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', background: statusBg[actionState], border: `1px solid ${statusColor[actionState]}33`, display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+          {actionState === 'working' && (
+            <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #d97706', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite', flexShrink: 0, marginTop: '1px' }} />
+          )}
+          <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: statusColor[actionState], flex: 1 }}>{actionMsg}</p>
+          {actionState !== 'working' && (
+            <button onClick={() => setActionState('idle')} style={{ background: 'none', border: 0, color: '#9ca3af', cursor: 'pointer', padding: 0, fontSize: '16px', lineHeight: 1, flexShrink: 0 }}>×</button>
+          )}
+        </div>
+      )}
+
+      {/* Create backup button */}
+      <div style={{ marginBottom: '24px', padding: '20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', flexDirection: isMobile ? 'column' : 'row', gap: '12px' }}>
+        <div>
+          <p style={{ margin: '0 0 3px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>Create Backup Now</p>
+          <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>Snapshot leads, admin settings, and user records to Supabase Storage.</p>
+        </div>
+        <button
+          onClick={handleCreate}
+          disabled={actionState === 'working'}
+          style={{ padding: '9px 20px', border: 0, borderRadius: '6px', background: actionState === 'working' ? '#d1d5db' : '#78350f', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: actionState === 'working' ? 'not-allowed' : 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          {actionState === 'working' ? 'Working…' : '↑ Create Backup'}
+        </button>
+      </div>
+
+      {/* Backup list */}
+      {loadError ? (
+        <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
+          {loadError} — <button onClick={loadBackups} style={{ background: 'none', border: 0, color: '#b91c1c', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Retry</button>
+        </div>
+      ) : isLoading ? (
+        <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>Loading backups…</div>
+      ) : (
+        <>
+          {/* Regular backups */}
+          <div style={{ marginBottom: '24px' }}>
+            <p style={{ margin: '0 0 10px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Backups ({regularBackups.length})
+            </p>
+            {regularBackups.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+                No backups yet — click "Create Backup Now" to make your first one.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                {!isMobile && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 90px 120px', gap: '8px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                    {['File', 'Size', 'Created', ''].map((h) => (
+                      <span key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === '' ? 'right' : 'left' }}>{h}</span>
+                    ))}
+                  </div>
+                )}
+                {regularBackups.map((f, idx) => (
+                  <div key={f.name} style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 90px 120px',
+                    gap: isMobile ? '6px' : '8px',
+                    padding: '12px 16px',
+                    alignItems: 'center',
+                    borderTop: idx > 0 ? '1px solid #f3f4f6' : 'none',
+                    background: '#fff',
+                  }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#111827', wordBreak: 'break-all' }}>{f.name}</p>
+                      {isMobile && (
+                        <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          {formatBytes(f.metadata?.size)} · {formatDate(f.created_at)}
+                        </p>
+                      )}
+                    </div>
+                    {!isMobile && (
+                      <>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>{formatBytes(f.metadata?.size)}</span>
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>{formatDate(f.created_at)}</span>
+                      </>
+                    )}
+                    <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                      <button
+                        onClick={() => setConfirmRestore(f.name)}
+                        disabled={actionState === 'working'}
+                        style={{ padding: '5px 14px', border: '1px solid #fca5a5', borderRadius: '5px', background: '#fff', color: '#b91c1c', fontSize: '12px', fontWeight: '600', cursor: actionState === 'working' ? 'not-allowed' : 'pointer' }}
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Safety / pre-restore backups */}
+          {safetyBackups.length > 0 && (
+            <div>
+              <p style={{ margin: '0 0 10px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Auto-Safety Snapshots ({safetyBackups.length})
+              </p>
+              <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#9ca3af' }}>
+                Automatically created before each restore operation.
+              </p>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                {safetyBackups.map((f, idx) => (
+                  <div key={f.name} style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 90px 120px',
+                    gap: isMobile ? '6px' : '8px',
+                    padding: '12px 16px',
+                    alignItems: 'center',
+                    borderTop: idx > 0 ? '1px solid #f3f4f6' : 'none',
+                    background: '#fffbeb',
+                  }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#92400e', wordBreak: 'break-all' }}>{f.name}</p>
+                      {isMobile && (
+                        <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          {formatBytes(f.metadata?.size)} · {formatDate(f.created_at)}
+                        </p>
+                      )}
+                    </div>
+                    {!isMobile && (
+                      <>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>{formatBytes(f.metadata?.size)}</span>
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>{formatDate(f.created_at)}</span>
+                      </>
+                    )}
+                    <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                      <button
+                        onClick={() => setConfirmRestore(f.name)}
+                        disabled={actionState === 'working'}
+                        style={{ padding: '5px 14px', border: '1px solid #fca5a5', borderRadius: '5px', background: '#fff', color: '#b91c1c', fontSize: '12px', fontWeight: '600', cursor: actionState === 'working' ? 'not-allowed' : 'pointer' }}
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Restore confirmation modal */}
+      {confirmRestore && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '440px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Confirm Restore</h3>
+            <p style={{ margin: '0 0 6px', fontSize: '14px', color: '#374151' }}>
+              Restore from <strong>{confirmRestore}</strong>?
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#6b7280' }}>
+              A safety snapshot of the current data will be created automatically before restoring. Existing records are updated by ID — no rows are deleted.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmRestore(null)}
+                style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRestore(confirmRestore)}
+                style={{ padding: '8px 18px', border: 0, borderRadius: '6px', background: '#b91c1c', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
@@ -4947,6 +5252,7 @@ const NAV_ITEMS = [
   { key: 'performance', label: 'Performance', section: null },
   { key: 'site-stats', label: 'Site Stats', section: null },
   { key: 'projects', label: 'Projects', section: 'Content' },
+  { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true },
   { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true },
   { key: 'forecast-settings', label: 'Forecast', section: 'Settings', superAdminOnly: true },
@@ -5145,7 +5451,7 @@ export function AdminPage() {
   const isSuperAdmin = currentUser?.is_super_admin;
 
   function renderView() {
-    const settingsViews = ['notifications', 'confirmations', 'forecast-settings', 'users'];
+    const settingsViews = ['notifications', 'confirmations', 'forecast-settings', 'users', 'backup'];
     if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     switch (activeView) {
       case 'performance': return <PerformanceView />;
@@ -5155,6 +5461,7 @@ export function AdminPage() {
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
+      case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
       default: return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }

@@ -93,14 +93,83 @@ const SORT_OPTIONS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function daysBetween(start, end) {
+// ─── Business-hours time math ──────────────────────────────────────────────
+// All "days" KPIs on this page (response time, time to quote, full cycle,
+// stale-deal age, stage velocity) count ONLY business time: Mon–Fri,
+// 8:00 AM–5:00 PM Pacific. Evenings, nights, and weekends never accrue.
+// A "business day" = 9 hours (8am–5pm). This keeps team-performance metrics
+// honest — a lead that sits overnight or over a weekend isn't a slow response.
+const BIZ_TZ = 'America/Los_Angeles';
+const BIZ_START_HOUR = 8;   // 8:00 AM Pacific
+const BIZ_END_HOUR = 17;    // 5:00 PM Pacific
+const BIZ_HOURS_PER_DAY = BIZ_END_HOUR - BIZ_START_HOUR; // 9
+const BIZ_HOURS_LABEL = 'Mon–Fri, 8am–5pm Pacific';
+
+// Convert Y/M/D + local hour/min/sec in `timeZone` to the equivalent UTC Date.
+// Standard double-conversion trick — handles DST correctly since it reads the
+// real UTC offset for that specific date rather than assuming a fixed offset.
+function zonedTimeToUtc(y, m, d, h, mi, s, timeZone) {
+  const asUTC = Date.UTC(y, m - 1, d, h, mi, s);
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const map = {};
+  for (const p of dtf.formatToParts(new Date(asUTC))) if (p.type !== 'literal') map[p.type] = p.value;
+  const asIfLocal = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+  return new Date(asUTC + (asUTC - asIfLocal));
+}
+
+// Y/M/D of a UTC instant, as seen in `timeZone`.
+function getZonedYMD(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const map = {};
+  for (const p of dtf.formatToParts(date)) if (p.type !== 'literal') map[p.type] = p.value;
+  return { y: +map.year, m: +map.month, d: +map.day };
+}
+
+// Milliseconds of overlap between [startD, endD] and business hours
+// (Mon–Fri, 8am–5pm Pacific), summed across every day in the range.
+function businessMsBetween(startD, endD) {
+  if (endD <= startD) return 0;
+  let total = 0;
+  const { y: sy, m: sm, d: sd } = getZonedYMD(startD, BIZ_TZ);
+  const { y: ey, m: em, d: ed } = getZonedYMD(endD, BIZ_TZ);
+  let cursor = Date.UTC(sy, sm - 1, sd);
+  const last = Date.UTC(ey, em - 1, ed);
+
+  let guard = 0; // safety cap (~10 years of days) against runaway loops on bad data
+  while (cursor <= last && guard < 3700) {
+    guard++;
+    const cd = new Date(cursor);
+    const weekday = cd.getUTCDay(); // 0=Sun..6=Sat — safe: cursor is a plain calendar date
+    if (weekday >= 1 && weekday <= 5) {
+      const y = cd.getUTCFullYear(), m = cd.getUTCMonth() + 1, d = cd.getUTCDate();
+      const dayStart = zonedTimeToUtc(y, m, d, BIZ_START_HOUR, 0, 0, BIZ_TZ);
+      const dayEnd = zonedTimeToUtc(y, m, d, BIZ_END_HOUR, 0, 0, BIZ_TZ);
+      const overlapStart = dayStart > startD ? dayStart : startD;
+      const overlapEnd = dayEnd < endD ? dayEnd : endD;
+      if (overlapEnd > overlapStart) total += (overlapEnd - overlapStart);
+    }
+    cursor += 24 * 60 * 60 * 1000; // next calendar day
+  }
+  return total;
+}
+
+// Business time between two timestamps, in "business day" units where
+// 1.0 = one full business day (9 hours). Returns null for missing/invalid
+// input (mirrors the old daysBetween contract used to filter bad samples).
+function businessDaysBetween(start, end) {
   if (!start) return null;
-  const ms = new Date(end ?? Date.now()) - new Date(start);
-  return ms > 0 ? ms / (1000 * 60 * 60 * 24) : null;
+  const startD = new Date(start);
+  const endD = new Date(end ?? Date.now());
+  if (isNaN(startD) || isNaN(endD) || endD <= startD) return null;
+  return businessMsBetween(startD, endD) / (BIZ_HOURS_PER_DAY * 60 * 60 * 1000);
 }
 function formatDays(days) {
   if (days === null || days === undefined) return '—';
-  if (days < 1) return `${Math.round(days * 24)}h`;
+  if (days < 1) return `${Math.round(days * BIZ_HOURS_PER_DAY)}h`;
   if (days < 2) return '1d';
   return `${Math.round(days)}d`;
 }
@@ -1329,8 +1398,11 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
           <ProbabilityField lead={lead} stageProbabilities={stageProbabilities} onProbabilityChange={onProbabilityChange} />
           {isStale && (
-            <span style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}>
-              ⚠ Stale · {Math.floor(daysBetween(lead.hs_stage_date, null))}d
+            <span
+              title={`Business days since last stage change (${BIZ_HOURS_LABEL}) — weekends and off-hours don't count.`}
+              style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}
+            >
+              ⚠ Stale · {Math.floor(businessDaysBetween(lead.hs_stage_date, null))}d
             </span>
           )}
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
@@ -2826,7 +2898,7 @@ function MetricCards({
         value={isLoading ? dash : formatDays(avgResponseDays)}
         valueColor={isLoading || avgResponseDays === null ? '#9ca3af' : avgResponseDays <= 1 ? '#16a34a' : avgResponseDays <= 3 ? '#d97706' : '#dc2626'}
         tooltip={!isLoading && (
-          <TipBody desc="Average time from a lead entering New Request to being moved to Qualified. Measures how quickly the team follows up.">
+          <TipBody desc={`Average time from a lead entering New Request to being moved to Qualified. Measures how quickly the team follows up. Counts business hours only (${BIZ_HOURS_LABEL}) — nights, weekends, and off-hours don't count against response time.`}>
             {responseSamples.length > 0 ? (
               <>
                 <Pill bg="#14532d" color="#bbf7d0">New Request → Qualified</Pill>
@@ -2841,7 +2913,7 @@ function MetricCards({
         value={isLoading ? dash : formatDays(avgTimeToQuoteDays)}
         valueColor={isLoading || avgTimeToQuoteDays === null ? '#9ca3af' : '#111827'}
         tooltip={!isLoading && (
-          <TipBody desc="Average time from first contact to Quote Sent. Measures how efficiently the team turns an inquiry into a formal proposal.">
+          <TipBody desc={`Average time from first contact to Quote Sent. Measures how efficiently the team turns an inquiry into a formal proposal. Counts business hours only (${BIZ_HOURS_LABEL}).`}>
             {quoteSamples.length > 0 ? (
               <>
                 <Pill bg="#4c1d95" color="#ddd6fe">New Request → Quote Sent</Pill>
@@ -2873,10 +2945,10 @@ function MetricCards({
         bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
         border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
         tooltip={!isLoading && (
-          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more days. These likely need a follow-up or a decision.`}>
+          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more business days (${BIZ_HOURS_LABEL}). These likely need a follow-up or a decision.`}>
             {staleCount > 0
-              ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ days</Pill>
-              : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS}d ✓</Pill>
+              ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ business days</Pill>
+              : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS} business days ✓</Pill>
             }
           </TipBody>
         )}
@@ -3118,7 +3190,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   // Avg response time: New Request → Qualified
   const responseSamples = leads
     .filter((l) => l.hs_date_entered_qualified)
-    .map((l) => daysBetween(startDate(l), l.hs_date_entered_qualified))
+    .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_qualified))
     .filter((d) => d !== null && d >= 0);
   const avgResponseDays = responseSamples.length > 0
     ? responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length : null;
@@ -3126,7 +3198,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   // Avg time to quote: New Request → Quote Sent
   const quoteSamples = leads
     .filter((l) => l.hs_date_entered_quote_sent)
-    .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+    .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_quote_sent))
     .filter((d) => d !== null && d >= 0);
   const avgTimeToQuoteDays = quoteSamples.length > 0
     ? quoteSamples.reduce((a, b) => a + b, 0) / quoteSamples.length : null;
@@ -3160,7 +3232,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     leads
       .filter((l) => {
         if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
-        const d = daysBetween(l.hs_stage_date, null);
+        const d = businessDaysBetween(l.hs_stage_date, null);
         return d !== null && d >= STALE_DAYS;
       })
       .map((l) => l.id),
@@ -3170,7 +3242,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   // ── Tier 3: Avg Full Cycle (New Request → Closed Won) ────────────────────
   const fullCycleSamples = leads
     .filter((l) => l.hs_date_entered_closed_won)
-    .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
+    .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_closed_won))
     .filter((d) => d !== null && d >= 0);
   const avgFullCycleDays = fullCycleSamples.length > 0
     ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
@@ -3886,13 +3958,13 @@ function PerformanceView() {
     });
 
     const timeToQuoteSamples = quotedThisMonth
-      .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+      .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_quote_sent))
       .filter((d) => d !== null && d >= 0);
     const avgTimeToQuote = timeToQuoteSamples.length > 0
       ? timeToQuoteSamples.reduce((a, b) => a + b, 0) / timeToQuoteSamples.length : null;
 
     const fullCycleSamplesMonth = wonThisMonth
-      .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
+      .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_closed_won))
       .filter((d) => d !== null && d >= 0);
     const avgFullCycle = fullCycleSamplesMonth.length > 0
       ? fullCycleSamplesMonth.reduce((a, b) => a + b, 0) / fullCycleSamplesMonth.length : null;
@@ -3916,7 +3988,7 @@ function PerformanceView() {
   const stageVelocity = PERF_STAGE_VELOCITY_DEFS.map((def) => {
     const samples = leads
       .filter((l) => l[def.startKey] && l[def.endKey])
-      .map((l) => daysBetween(l[def.startKey], l[def.endKey]))
+      .map((l) => businessDaysBetween(l[def.startKey], l[def.endKey]))
       .filter((d) => d !== null && d >= 0);
     const avg = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : null;
     const activeInStage = leads.filter(
@@ -3956,7 +4028,7 @@ function PerformanceView() {
   // Avg Full Cycle (all-time)
   const fullCycleSamples = leads
     .filter((l) => l.hs_date_entered_closed_won)
-    .map((l) => daysBetween(startDate(l), l.hs_date_entered_closed_won))
+    .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_closed_won))
     .filter((d) => d !== null && d >= 0);
   const avgFullCycleDays = fullCycleSamples.length > 0
     ? fullCycleSamples.reduce((a, b) => a + b, 0) / fullCycleSamples.length : null;
@@ -3964,7 +4036,7 @@ function PerformanceView() {
   // Avg Time to Quote (all-time)
   const avgTimeToQuoteSamples = leads
     .filter((l) => l.hs_date_entered_quote_sent)
-    .map((l) => daysBetween(startDate(l), l.hs_date_entered_quote_sent))
+    .map((l) => businessDaysBetween(startDate(l), l.hs_date_entered_quote_sent))
     .filter((d) => d !== null && d >= 0);
   const avgTimeToQuoteAllTime = avgTimeToQuoteSamples.length > 0
     ? avgTimeToQuoteSamples.reduce((a, b) => a + b, 0) / avgTimeToQuoteSamples.length : null;
@@ -4059,7 +4131,9 @@ function PerformanceView() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stage Velocity</span>
               <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>avg days per stage</span>
+              <WithTip tip={`Average business days a deal spends in each stage before moving on. Counts business hours only (${BIZ_HOURS_LABEL}) — nights, weekends, and off-hours don't accrue.`}>
+                <span style={{ fontSize: '11px', color: '#9ca3af', cursor: 'default', borderBottom: '1px dotted #d1d5db' }}>avg business days per stage</span>
+              </WithTip>
             </div>
             {stageVelocity.every((s) => s.n === 0 && s.activeInStage === 0) ? (
               <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Not enough data yet — needs deals that have progressed through multiple stages.</p>
@@ -4173,7 +4247,7 @@ function PerformanceView() {
 
         {/* ── Velocity Stats ── */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginTop: '12px' }}>
-          <WithTip tip="Average days from first contact (New Request) to Quote Sent, across all deals that have been quoted. Lower = faster proposal turnaround.">
+          <WithTip tip={`Average business time from first contact (New Request) to Quote Sent, across all deals that have been quoted. Lower = faster proposal turnaround. Counts business hours only (${BIZ_HOURS_LABEL}).`}>
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 24px', display: 'flex', alignItems: 'baseline', gap: '14px' }}>
               <span style={{ fontSize: '36px', fontWeight: '700', color: avgTimeToQuoteAllTime !== null ? '#78350f' : '#9ca3af', lineHeight: 1 }}>
                 {avgTimeToQuoteAllTime !== null ? formatDays(avgTimeToQuoteAllTime) : '—'}
@@ -4189,7 +4263,7 @@ function PerformanceView() {
               </div>
             </div>
           </WithTip>
-          <WithTip tip="Average days from first contact (New Request) to Closed Won, across all won deals with complete stage history. Lower = faster sales cycle.">
+          <WithTip tip={`Average business time from first contact (New Request) to Closed Won, across all won deals with complete stage history. Lower = faster sales cycle. Counts business hours only (${BIZ_HOURS_LABEL}).`}>
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 24px', display: 'flex', alignItems: 'baseline', gap: '14px' }}>
               <span style={{ fontSize: '36px', fontWeight: '700', color: avgFullCycleDays !== null ? '#111827' : '#9ca3af', lineHeight: 1 }}>
                 {avgFullCycleDays !== null ? formatDays(avgFullCycleDays) : '—'}
@@ -4234,7 +4308,7 @@ function PerformanceView() {
 
           {chartCard(
             'Avg Time to Quote',
-            'Days from New Request → Quote Sent, grouped by month the quote was sent',
+            'Business days from New Request → Quote Sent (Mon–Fri, 8am–5pm PT), grouped by month the quote was sent',
             <MonthlyLineChart
               data={monthlyStats}
               lines={[{ key: 'avgTimeToQuote', label: 'Avg days', color: '#78350f' }]}
@@ -4244,7 +4318,7 @@ function PerformanceView() {
 
           {chartCard(
             'Avg Full Cycle',
-            'Days from New Request → Closed Won, grouped by month the deal was won',
+            'Business days from New Request → Closed Won (Mon–Fri, 8am–5pm PT), grouped by month the deal was won',
             <MonthlyLineChart
               data={monthlyStats}
               lines={[{ key: 'avgFullCycle', label: 'Avg days', color: '#b45309' }]}

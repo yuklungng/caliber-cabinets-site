@@ -2,8 +2,8 @@
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
-import { buildHtmlEmail } from './email-template.js';
-import { upsertContact, createDeal, buildHubSpotObjects } from './hubspot.js';
+import { buildHtmlEmail } from './_lib/email-template.js';
+import { upsertContact, createDeal, buildHubSpotObjects } from './_lib/hubspot.js';
 
 // ─── Distance helpers ──────────────────────────────────────────────────────────
 // Caliber Cabinets: 5640 La Ribera St., Unit A, Livermore, CA 94550

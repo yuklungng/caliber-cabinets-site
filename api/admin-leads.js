@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './hubspot.js';
+import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Distance helpers (for POST ?action=add-lead) ─────────────────────────────

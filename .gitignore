@@ -15,3 +15,5 @@ Thumbs.db
 
 # Raw source images (WebP versions are tracked instead)
 public/images/caliber-project-clayton-kitchen-*.png
+
+.vercel

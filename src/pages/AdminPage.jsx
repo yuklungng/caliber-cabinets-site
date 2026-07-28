@@ -89,6 +89,11 @@ const LOST_REASON_OPTIONS = ['Competitor', 'Pricing', 'Value', 'Other'];
 // Derived set for fast exit-stage membership checks — used in LeadsView and PerformanceView
 const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
 
+// Fully closed/exited deals — Closed Won plus every exit stage (Lost Deal,
+// Declined, Referred Out, Partnered Out). Hidden from the default Leads view;
+// click the matching stage card to bring them back into view.
+const CLOSED_STAGE_IDS = new Set(['closedwon', ...EXIT_STAGE_IDS]);
+
 // Activity checklist — tracked per lead, stored in leads.activities JSONB
 const LEAD_ACTIVITIES = [
   { key: 'appt_scheduled', label: 'Appointment Scheduled' },
@@ -3244,6 +3249,8 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     }
   }
 
+  const closedCount = leads.filter((l) => l.hs_stage_id && CLOSED_STAGE_IDS.has(l.hs_stage_id)).length;
+
   const filtered = leads
     .filter((l) => {
       if (filterType === 'all') return true;
@@ -3254,6 +3261,13 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
       if (!filterStage) return true;
       const ids = Array.isArray(filterStage) ? filterStage : [filterStage];
       return ids.includes(l.hs_stage_id);
+    })
+    .filter((l) => {
+      // Hide closed/exited deals (Won, Lost Deal, Declined, Referred Out,
+      // Partnered Out) from the default view. Click the matching stage card
+      // above — that sets filterStage explicitly, which overrides this.
+      if (filterStage) return true;
+      return !l.hs_stage_id || !CLOSED_STAGE_IDS.has(l.hs_stage_id);
     })
     .filter((l) => {
       if (!searchQuery.trim()) return true;
@@ -3631,6 +3645,9 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
         {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery || filterStage) ? ' (filtered)' : ''}
+        {!filterStage && closedCount > 0 && (
+          <span> · {closedCount} closed deal{closedCount !== 1 ? 's' : ''} hidden — click a stage above to view</span>
+        )}
       </p>
 
       {isLoading && <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading submissions…</p>}

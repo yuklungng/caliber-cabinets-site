@@ -3722,6 +3722,13 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
   const cW = W - PL - PR; const cH = H - PT - PB;
   const n = data.length;
 
+  // Thin x-axis labels on dense charts (e.g. 28 daily points) so they don't
+  // crowd into an unreadable smear. Charts with few points (12 monthly labels
+  // and under) are untouched — every label already fits comfortably there.
+  // Always keep the first and last point visible for date-range context.
+  const LABEL_DENSE_THRESHOLD = 15;
+  const labelStep = n > LABEL_DENSE_THRESHOLD ? Math.ceil(n / 7) : 1;
+
   const rendered = lines.map((line) => {
     const defined = data.map((d) => d[line.key]).filter((v) => v !== null && v !== undefined);
     if (!defined.length) return { ...line, segments: [], dots: [], pts: [] };
@@ -3796,10 +3803,13 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
               onMouseLeave={() => { setTip(null); setHoverIdx(null); }}
             />
           ))}
-          {data.map((d, i) => (
-            <text key={i} x={PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW)} y={H - 4}
-              fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
-          ))}
+          {data.map((d, i) => {
+            if (labelStep > 1 && i !== 0 && i !== n - 1 && i % labelStep !== 0) return null;
+            return (
+              <text key={i} x={PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW)} y={H - 4}
+                fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
+            );
+          })}
         </svg>
       </div>
       <ChartTooltip tip={tip} />

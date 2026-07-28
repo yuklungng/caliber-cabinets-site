@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
 import { FileDropZone } from '../components/FileDropZone.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
@@ -6,6 +7,26 @@ import { uploadFiles } from '../lib/uploadFiles.js';
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
   : null;
+
+// ─── Dark mode ──────────────────────────────────────────────────────────────
+// Per-browser preference (see AdminPage). Dark mode is a CSS filter invert
+// applied to the main content — but `position: fixed` overlays (dropdowns,
+// modals, chart tooltips) can't live inside that filtered subtree: a `filter`
+// on an ancestor becomes the containing block for fixed descendants, which
+// breaks their viewport-relative positioning the moment the page is scrolled.
+// FixedOverlay portals them to <body> instead, in their own unfiltered-by-page
+// fixed layer, and applies the same invert directly so they still look dark.
+const DarkModeContext = createContext(false);
+
+function FixedOverlay({ children }) {
+  const darkMode = useContext(DarkModeContext);
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, ...(darkMode ? { filter: 'invert(1) hue-rotate(180deg)' } : {}) }}>
+      <div style={{ pointerEvents: 'auto' }}>{children}</div>
+    </div>,
+    document.body,
+  );
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -337,6 +358,7 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
         <span style={{ fontSize: '10px', color: '#9ca3af', lineHeight: 1 }}>▾</span>
       </span>
       {open && (
+        <FixedOverlay>
         <div
           id="stage-picker-dropdown"
           style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '200px', maxHeight: `${pos.maxH}px`, overflowY: 'auto' }}
@@ -376,6 +398,7 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
             );
           })}
         </div>
+        </FixedOverlay>
       )}
       {lostReasonPrompt && (
         <LostReasonModal
@@ -408,6 +431,7 @@ function LostReasonModal({ onCancel, onConfirm }) {
   }
 
   return (
+    <FixedOverlay>
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onMouseDown={(e) => e.stopPropagation()}>
       <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <h3 style={{ margin: '0 0 6px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Why was this deal lost?</h3>
@@ -470,6 +494,7 @@ function LostReasonModal({ onCancel, onConfirm }) {
         </div>
       </div>
     </div>
+    </FixedOverlay>
   );
 }
 
@@ -617,6 +642,7 @@ function AddLeadModal({ onClose, onAdded }) {
   const req  = <span style={{ color: '#b91c1c' }}> *</span>;
 
   return (
+    <FixedOverlay>
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -829,6 +855,7 @@ function AddLeadModal({ onClose, onAdded }) {
         </div>
       </div>
     </div>
+    </FixedOverlay>
   );
 }
 
@@ -1064,6 +1091,7 @@ function SourcePicker({ lead, onSourceChange }) {
         <span style={{ fontSize: '9px', opacity: 0.6 }}>▾</span>
       </button>
       {open && (
+        <FixedOverlay>
         <div id="source-picker-dropdown" onClick={(e) => e.stopPropagation()}
           style={{ position: 'fixed', zIndex: 9999, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', minWidth: '160px',
             top: (() => { const r = triggerRef.current?.getBoundingClientRect(); return r ? r.bottom + 4 : 0; })(),
@@ -1077,6 +1105,7 @@ function SourcePicker({ lead, onSourceChange }) {
             </button>
           ))}
         </div>
+        </FixedOverlay>
       )}
     </div>
   );
@@ -2084,6 +2113,7 @@ function StatTile({ label, value, sub, accent }) {
 function ChartTooltip({ tip }) {
   if (!tip) return null;
   return (
+    <FixedOverlay>
     <div style={{
       position: 'fixed',
       left: tip.x + 14,
@@ -2102,6 +2132,7 @@ function ChartTooltip({ tip }) {
     }}>
       {tip.content}
     </div>
+    </FixedOverlay>
   );
 }
 
@@ -5439,6 +5470,7 @@ function BackupRestoreView({ isSuperAdmin }) {
 
       {/* Restore confirmation modal */}
       {confirmRestore && (
+        <FixedOverlay>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '440px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             <h3 style={{ margin: '0 0 10px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Confirm Restore</h3>
@@ -5464,6 +5496,7 @@ function BackupRestoreView({ isSuperAdmin }) {
             </div>
           </div>
         </div>
+        </FixedOverlay>
       )}
 
       {/* Spinner keyframe */}
@@ -5708,12 +5741,10 @@ export function AdminPage() {
   }
 
   return (
-    <div style={darkMode ? {
-      position: 'fixed', inset: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
-      background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif',
-      filter: 'invert(1) hue-rotate(180deg)',
-    } : {
+    <DarkModeContext.Provider value={darkMode}>
+    <div style={{
       minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif',
+      ...(darkMode ? { filter: 'invert(1) hue-rotate(180deg)' } : {}),
     }}>
       {/* Header */}
       <header style={{ background: '#78350f', padding: '0 16px', display: 'flex', alignItems: 'center', height: '52px', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -5749,5 +5780,6 @@ export function AdminPage() {
         </main>
       </div>
     </div>
+    </DarkModeContext.Provider>
   );
 }

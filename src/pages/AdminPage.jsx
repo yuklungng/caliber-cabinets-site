@@ -2958,7 +2958,7 @@ function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5
       onMouseLeave={() => setHovered(false)}
       style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: compact ? '10px 8px' : '14px 18px', cursor: 'default', textAlign: 'center' }}
     >
-      <p style={{ margin: '0 0 2px', fontSize: compact ? '10px' : '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      <p style={{ margin: '0 0 2px', fontSize: compact ? '10px' : '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={title}>
         {title}
       </p>
       <p style={{ margin: 0, fontSize: compact ? '22px' : '26px', fontWeight: '700', color: valueColor, lineHeight: 1.2 }}>
@@ -3035,7 +3035,7 @@ function MetricCards({
         )}
       />
       <KpiCard compact
-        title="New This Month"
+        title="This Month"
         value={isLoading ? dash : thisMonthCount}
         tooltip={!isLoading && (
           <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>

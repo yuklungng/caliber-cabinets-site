@@ -1544,9 +1544,9 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           {lead.hs_stage_id === 'closedlost' && lead.lost_reason && (
             <span
               title={lead.lost_reason_detail ? `Lost reason: ${lead.lost_reason} — ${lead.lost_reason_detail}` : `Lost reason: ${lead.lost_reason}`}
-              style={{ fontSize: '11px', fontWeight: '600', color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', padding: '2px 8px' }}
+              style={{ fontSize: '11px', fontWeight: '600', color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
-              Lost: {lead.lost_reason}
+              Lost: {lead.lost_reason}{lead.lost_reason_detail ? ` — ${lead.lost_reason_detail}` : ''}
             </span>
           )}
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />

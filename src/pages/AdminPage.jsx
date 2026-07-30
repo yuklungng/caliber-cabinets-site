@@ -86,6 +86,12 @@ const HS_EXIT_STAGES = [
 // Reasons captured when a deal is moved to the "Lost Deal" stage — required.
 const LOST_REASON_OPTIONS = ['Competitor', 'Pricing', 'Value', 'Other'];
 
+// Reasons captured when a deal is moved to the "Declined" stage — required.
+// Declined is not a competitive loss (see HS_EXIT_STAGES note above), so it
+// gets its own category set rather than reusing LOST_REASON_OPTIONS.
+const DECLINED_REASON_OPTIONS = ['Out of Service Area', 'Out of Scope', 'Other'];
+const DECLINED_STAGE_ID = '3945178857';
+
 // Derived set for fast exit-stage membership checks — used in LeadsView and PerformanceView
 const EXIT_STAGE_IDS = new Set(HS_EXIT_STAGES.map((s) => s.id));
 
@@ -284,7 +290,7 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0, maxH: 300, flipUp: false });
-  const [lostReasonPrompt, setLostReasonPrompt] = useState(null); // pending stage object, or null
+  const [exitReasonPrompt, setExitReasonPrompt] = useState(null); // pending stage object, or null (closedlost or Declined)
   const triggerRef = useRef(null);
   const allStages = [...(pipelineStages ?? []), ...(exitStages ?? [])];
 
@@ -305,21 +311,28 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
     return <HsBadge stageId={lead.hs_stage_id} stageLabel={lead.hs_stage_label} stageDate={lead.hs_stage_date} />;
   }
 
-  // Actually commits a stage change to the API + local state. `lostReason`/
-  // `lostReasonDetail` are only sent for the closedlost stage.
-  async function commitStageChange(stage, lostReason, lostReasonDetail) {
+  // Actually commits a stage change to the API + local state. `reason`/`detail`
+  // are only sent for the closedlost and Declined stages, which each map to
+  // their own pair of API fields and Supabase/HubSpot columns.
+  async function commitStageChange(stage, reason, detail) {
     setSaving(true);
     try {
+      const isLost     = stage.id === 'closedlost';
+      const isDeclined = stage.id === DECLINED_STAGE_ID;
       await apiCall('/api/admin-leads', {
         method: 'PATCH',
         body: {
           dealId: lead.hubspot_deal_id, stageId: stage.id, stageLabel: stage.label,
-          ...(lostReason ? { lostReason, lostReasonDetail } : {}),
+          ...(isLost && reason ? { lostReason: reason, lostReasonDetail: detail } : {}),
+          ...(isDeclined && reason ? { declinedReason: reason, declinedReasonDetail: detail } : {}),
         },
       });
-      onStageChange(lead.id ?? lead.hubspot_deal_id, stage, lostReason
-        ? { lost_reason: lostReason, lost_reason_detail: lostReasonDetail?.trim() || null }
-        : undefined);
+      const localUpdate = isLost && reason
+        ? { lost_reason: reason, lost_reason_detail: detail?.trim() || null }
+        : isDeclined && reason
+        ? { declined_reason: reason, declined_reason_detail: detail?.trim() || null }
+        : undefined;
+      onStageChange(lead.id ?? lead.hubspot_deal_id, stage, localUpdate);
     } catch { /* non-fatal */ }
     setSaving(false);
   }
@@ -327,8 +340,9 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   async function selectStage(stage) {
     if (stage.id === lead.hs_stage_id) { setOpen(false); return; }
     setOpen(false);
-    // Lost Deal requires a reason first — hold off on the API call until confirmed.
-    if (stage.id === 'closedlost') { setLostReasonPrompt(stage); return; }
+    // Lost Deal and Declined both require a reason first — hold off on the
+    // API call until confirmed.
+    if (stage.id === 'closedlost' || stage.id === DECLINED_STAGE_ID) { setExitReasonPrompt(stage); return; }
     await commitStageChange(stage);
   }
 
@@ -405,12 +419,18 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
         </div>
         </FixedOverlay>
       )}
-      {lostReasonPrompt && (
-        <LostReasonModal
-          onCancel={() => setLostReasonPrompt(null)}
+      {exitReasonPrompt && (
+        <ReasonPromptModal
+          heading={exitReasonPrompt.id === DECLINED_STAGE_ID ? 'Why was this lead declined?' : 'Why was this deal lost?'}
+          subheading={exitReasonPrompt.id === DECLINED_STAGE_ID
+            ? 'A reason is required so this shows up correctly in the declined-reason breakdown.'
+            : 'A reason is required so this shows up correctly in the lost-deal breakdown.'}
+          options={exitReasonPrompt.id === DECLINED_STAGE_ID ? DECLINED_REASON_OPTIONS : LOST_REASON_OPTIONS}
+          confirmLabel={exitReasonPrompt.id === DECLINED_STAGE_ID ? 'Confirm Declined' : 'Confirm Lost Deal'}
+          onCancel={() => setExitReasonPrompt(null)}
           onConfirm={async (reason, detail) => {
-            const stage = lostReasonPrompt;
-            setLostReasonPrompt(null);
+            const stage = exitReasonPrompt;
+            setExitReasonPrompt(null);
             await commitStageChange(stage, reason, detail);
           }}
         />
@@ -419,9 +439,10 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   );
 }
 
-// ─── Lost Reason modal — required when a deal moves to the Lost Deal stage ───
+// ─── Reason prompt modal — required when a deal moves to the Lost Deal or ───
+// ─── Declined stage. Same UX, different heading/options per stage.        ───
 
-function LostReasonModal({ onCancel, onConfirm }) {
+function ReasonPromptModal({ heading, subheading, options, confirmLabel, onCancel, onConfirm }) {
   const [reason, setReason] = useState(null);
   const [detail, setDetail] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -439,12 +460,12 @@ function LostReasonModal({ onCancel, onConfirm }) {
     <FixedOverlay>
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onMouseDown={(e) => e.stopPropagation()}>
       <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Why was this deal lost?</h3>
+        <h3 style={{ margin: '0 0 6px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>{heading}</h3>
         <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#6b7280' }}>
-          A reason is required so this shows up correctly in the lost-deal breakdown.
+          {subheading}
         </p>
         <div style={{ display: 'grid', gap: '8px', marginBottom: needsDetail ? '14px' : '22px' }}>
-          {LOST_REASON_OPTIONS.map((opt) => (
+          {options.map((opt) => (
             <label
               key={opt}
               style={{
@@ -456,7 +477,7 @@ function LostReasonModal({ onCancel, onConfirm }) {
             >
               <input
                 type="radio"
-                name="lost-reason"
+                name="exit-reason"
                 value={opt}
                 checked={reason === opt}
                 onChange={() => setReason(opt)}
@@ -494,7 +515,7 @@ function LostReasonModal({ onCancel, onConfirm }) {
             disabled={!canConfirm || submitting}
             style={{ padding: '8px 18px', border: 0, borderRadius: '6px', background: canConfirm ? '#78350f' : '#d1d5db', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: canConfirm && !submitting ? 'pointer' : 'not-allowed' }}
           >
-            {submitting ? 'Saving…' : 'Confirm Lost Deal'}
+            {submitting ? 'Saving…' : confirmLabel}
           </button>
         </div>
       </div>
@@ -1547,6 +1568,14 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
               style={{ fontSize: '11px', fontWeight: '600', color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               Lost: {lead.lost_reason}{lead.lost_reason_detail ? ` — ${lead.lost_reason_detail}` : ''}
+            </span>
+          )}
+          {lead.hs_stage_id === DECLINED_STAGE_ID && lead.declined_reason && (
+            <span
+              title={lead.declined_reason_detail ? `Declined reason: ${lead.declined_reason} — ${lead.declined_reason_detail}` : `Declined reason: ${lead.declined_reason}`}
+              style={{ fontSize: '11px', fontWeight: '600', color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              Declined: {lead.declined_reason}{lead.declined_reason_detail ? ` — ${lead.declined_reason_detail}` : ''}
             </span>
           )}
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
@@ -4191,6 +4220,15 @@ function PerformanceView() {
     else lostReasonMissing++;
   }
 
+  // Declined-Reason Distribution — Out of Service Area / Out of Scope / Other
+  const declinedLeads = leads.filter((l) => l.hs_stage_id === DECLINED_STAGE_ID);
+  const declinedByReason = {};
+  let declinedReasonMissing = 0;
+  for (const lead of declinedLeads) {
+    if (lead.declined_reason) declinedByReason[lead.declined_reason] = (declinedByReason[lead.declined_reason] ?? 0) + 1;
+    else declinedReasonMissing++;
+  }
+
   // Conversion by Lead Type
   function typeStats(type) {
     const subset = type === 'all' ? leads : leads.filter((l) => l.form_type === type);
@@ -4359,13 +4397,13 @@ function PerformanceView() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Where Deals Are Lost</span>
               <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost total</span>
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{lostLeads.length} lost · {declinedLeads.length} declined</span>
             </div>
-            {lostLeads.length === 0 ? (
-              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost deals yet.</p>
+            {lostLeads.length === 0 && declinedLeads.length === 0 ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No closed-lost or declined deals yet.</p>
             ) : (
               <div style={{ display: 'grid', gap: '10px' }}>
-                {PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
+                {lostLeads.length > 0 && PERF_STAGE_REACH_ORDER.slice().reverse().map((stageDef) => {
                   const count = lostByStage[stageDef.id] ?? 0;
                   const pct = lostLeads.length > 0 ? Math.round((count / lostLeads.length) * 100) : 0;
                   const barPct = Math.max(count > 0 ? 4 : 0, pct);
@@ -4393,6 +4431,7 @@ function PerformanceView() {
                   </p>
                 )}
                 {/* ── Lost Reason breakdown ── */}
+                {lostLeads.length > 0 && (
                 <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
                   <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>By Reason</p>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -4409,6 +4448,26 @@ function PerformanceView() {
                     )}
                   </div>
                 </div>
+                )}
+                {/* ── Declined Reason breakdown — separate from Lost Deal above, ── */}
+                {/* ── since Declined isn't a competitive loss.                   ── */}
+                {declinedLeads.length > 0 && (
+                  <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
+                    <p style={{ margin: '0 0 8px', fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Declined Reasons <span style={{ fontWeight: '500', textTransform: 'none' }}>({declinedLeads.length} declined)</span>
+                    </p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {DECLINED_REASON_OPTIONS.map((reason) => {
+                        const count = declinedByReason[reason] ?? 0;
+                        if (count === 0) return null;
+                        return <Pill key={reason} bg="#fef3c7" color="#92400e">{count} {reason}</Pill>;
+                      })}
+                      {declinedReasonMissing > 0 && (
+                        <Pill bg="#f3f4f6" color="#6b7280">{declinedReasonMissing} no reason on file</Pill>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

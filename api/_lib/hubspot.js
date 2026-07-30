@@ -306,14 +306,61 @@ export async function ensureLostReasonProperties() {
   }
 }
 
+/**
+ * Ensure the custom "declined_reason" and "declined_reason_detail" deal
+ * properties exist in this HubSpot portal. Same pattern as
+ * ensureLostReasonProperties, but for the "Declined" exit stage (not a
+ * competitive loss — customer was out of service area, out of scope, or some
+ * other reason). Safe to call repeatedly; best-effort, non-fatal on failure.
+ */
+export async function ensureDeclinedReasonProperties() {
+  const defs = [
+    {
+      name: 'declined_reason',
+      label: 'Declined Reason',
+      groupName: 'dealinformation',
+      type: 'enumeration',
+      fieldType: 'select',
+      options: [
+        { label: 'Out of Service Area', value: 'Out of Service Area', displayOrder: 0 },
+        { label: 'Out of Scope',        value: 'Out of Scope',        displayOrder: 1 },
+        { label: 'Other',               value: 'Other',               displayOrder: 2 },
+      ],
+    },
+    {
+      name: 'declined_reason_detail',
+      label: 'Declined Reason Detail',
+      groupName: 'dealinformation',
+      type: 'string',
+      fieldType: 'textarea',
+    },
+  ];
+  for (const def of defs) {
+    try {
+      const check = await hs(`/crm/v3/properties/deals/${def.name}`, 'GET');
+      if (check.ok) continue; // already exists
+    } catch { /* fall through to create attempt */ }
+    try {
+      const createRes = await hs('/crm/v3/properties/deals', 'POST', def);
+      if (!createRes.ok && createRes.status !== 409) {
+        console.error(`[hubspot] Failed to create property "${def.name}": ${createRes.status} ${await createRes.text()}`);
+      }
+    } catch (err) {
+      console.error(`[hubspot] Error creating property "${def.name}":`, err.message);
+    }
+  }
+}
+
 export async function getAllPipelineDeals() {
   const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? 'default';
   const portalId   = process.env.HUBSPOT_PORTAL_ID;
 
-  // Make sure the lost-reason properties exist before requesting them below —
-  // cheap no-op once created (two GET checks), but guards against the search
-  // API rejecting unknown property names on a fresh portal.
+  // Make sure the lost-reason / declined-reason properties exist before
+  // requesting them below — cheap no-op once created (two GET checks each),
+  // but guards against the search API rejecting unknown property names on a
+  // fresh portal.
   try { await ensureLostReasonProperties(); } catch { /* non-fatal */ }
+  try { await ensureDeclinedReasonProperties(); } catch { /* non-fatal */ }
 
   // Resolve stage labels for this pipeline
   let stageLabels = { ...DEFAULT_STAGE_LABELS };
@@ -332,7 +379,7 @@ export async function getAllPipelineDeals() {
   do {
     const res = await hs('/crm/v3/objects/deals/search', 'POST', {
       filterGroups: [{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }] }],
-      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate', 'amount', 'lost_reason', 'lost_reason_detail'],
+      properties: ['dealname', 'dealstage', 'createdate', 'hs_lastmodifieddate', 'amount', 'lost_reason', 'lost_reason_detail', 'declined_reason', 'declined_reason_detail'],
       limit: 100,
       ...(after ? { after } : {}),
     });
@@ -435,6 +482,9 @@ export async function getAllPipelineDeals() {
       // deals (no Supabase row) rely on this since Supabase can't store it for them.
       lost_reason:        p.lost_reason ?? null,
       lost_reason_detail: p.lost_reason_detail ?? null,
+      // Declined-reason — only ever set for deals in the Declined exit stage.
+      declined_reason:        p.declined_reason ?? null,
+      declined_reason_detail: p.declined_reason_detail ?? null,
     };
   });
 }

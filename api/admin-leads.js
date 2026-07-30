@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, ensureLostReasonProperties, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './_lib/hubspot.js';
+import { batchGetContactIdsByDealIds, batchGetContactProperties, batchGetDealStages, buildHubSpotObjects, createDeal, createDealNote, ensureDeclinedReasonProperties, ensureLostReasonProperties, getAllPipelineDeals, getPipelineStages, updateDealProperties, updateDealStage, upsertContact } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Distance helpers (for POST ?action=add-lead) ─────────────────────────────
@@ -273,8 +273,10 @@ export default async function handler(req, res) {
 
   // PATCH — update deal stage in HubSpot and persist to Supabase
   if (req.method === 'PATCH') {
-    const { dealId, stageId, stageLabel, lostReason, lostReasonDetail } = req.body ?? {};
+    const { dealId, stageId, stageLabel, lostReason, lostReasonDetail, declinedReason, declinedReasonDetail } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
+
+    const DECLINED_STAGE_ID = '3945178857';
 
     // Lost Deal requires a reason — Competitor / Pricing / Value / Other.
     // "Other" requires the free-text detail to actually say something.
@@ -284,6 +286,19 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'A lost reason (Competitor, Pricing, Value, or Other) is required to close a deal as lost.' });
       }
       if (lostReason === 'Other' && !lostReasonDetail?.trim()) {
+        return res.status(400).json({ error: 'Please describe the reason when selecting "Other".' });
+      }
+    }
+
+    // Declined requires a reason too — Out of Service Area / Out of Scope / Other.
+    // Same "Other" free-text requirement as Lost Deal, but a different category
+    // set since Declined is not a competitive loss.
+    const DECLINED_REASONS = new Set(['Out of Service Area', 'Out of Scope', 'Other']);
+    if (stageId === DECLINED_STAGE_ID) {
+      if (!declinedReason || !DECLINED_REASONS.has(declinedReason)) {
+        return res.status(400).json({ error: 'A decline reason (Out of Service Area, Out of Scope, or Other) is required to decline a deal.' });
+      }
+      if (declinedReason === 'Other' && !declinedReasonDetail?.trim()) {
         return res.status(400).json({ error: 'Please describe the reason when selecting "Other".' });
       }
     }
@@ -306,10 +321,25 @@ export default async function handler(req, res) {
         }
       }
 
+      // Declined — same idea, different property pair.
+      if (stageId === DECLINED_STAGE_ID && declinedReason) {
+        try {
+          await ensureDeclinedReasonProperties();
+          await updateDealProperties(dealId, {
+            declined_reason: declinedReason,
+            ...(declinedReasonDetail?.trim() ? { declined_reason_detail: declinedReasonDetail.trim() } : {}),
+          });
+        } catch (declinedErr) {
+          console.error('[admin-leads] HubSpot declined-reason property error (non-fatal):', declinedErr.message);
+        }
+      }
+
       // Add a HubSpot note recording who made the stage change
       try {
         const reasonNote = stageId === 'closedlost' && lostReason
           ? ` — Reason: ${lostReason}${lostReasonDetail?.trim() ? ` (${lostReasonDetail.trim()})` : ''}`
+          : stageId === DECLINED_STAGE_ID && declinedReason
+          ? ` — Reason: ${declinedReason}${declinedReasonDetail?.trim() ? ` (${declinedReasonDetail.trim()})` : ''}`
           : '';
         await createDealNote(dealId,
           `Stage changed to "${stageLabel ?? stageId}" by ${actor}${reasonNote}`);
@@ -327,6 +357,10 @@ export default async function handler(req, res) {
       if (stageId === 'closedlost' && lostReason) {
         stageUpdate.lost_reason = lostReason;
         stageUpdate.lost_reason_detail = lostReasonDetail?.trim() || null;
+      }
+      if (stageId === DECLINED_STAGE_ID && declinedReason) {
+        stageUpdate.declined_reason = declinedReason;
+        stageUpdate.declined_reason_detail = declinedReasonDetail?.trim() || null;
       }
       const { error: stageErr } = await supabase
         .from('leads')

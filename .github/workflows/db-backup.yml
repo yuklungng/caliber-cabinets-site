@@ -5,12 +5,15 @@ on:
     - cron: '0 10 * * *'  # 10 AM UTC = 2 AM Pacific (after the previous day's work ends)
   workflow_dispatch:        # allows manual trigger from GitHub Actions tab
 
+permissions:
+  contents: write   # GITHUB_TOKEN defaults to read-only on new repos — this job needs to git push
+
 jobs:
   backup:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install postgresql-client
         run: sudo apt-get install -y postgresql-client

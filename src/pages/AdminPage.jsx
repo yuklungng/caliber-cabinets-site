@@ -5315,13 +5315,10 @@ function BackupRestoreView({ isSuperAdmin }) {
   const [backups, setBackups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [gitBackups, setGitBackups] = useState([]);
-  const [gitLoading, setGitLoading] = useState(true);
-  const [gitError, setGitError] = useState('');
   const [actionState, setActionState] = useState('idle'); // idle | working | done | error
   const [actionMsg, setActionMsg]   = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // filename to confirm
-  const [restoreHelpFor, setRestoreHelpFor] = useState(null); // git backup filename, or null
+  const [restoreHelpFor, setRestoreHelpFor] = useState(null); // SQL backup filename, or null
 
   async function loadBackups() {
     setIsLoading(true);
@@ -5338,22 +5335,7 @@ function BackupRestoreView({ isSuperAdmin }) {
     }
   }
 
-  async function loadGitBackups() {
-    setGitLoading(true);
-    setGitError('');
-    try {
-      const r = await apiCall('/api/admin-backup?action=list-git');
-      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
-      const d = await r.json();
-      setGitBackups(d.files ?? []);
-    } catch (err) {
-      setGitError(err.message);
-    } finally {
-      setGitLoading(false);
-    }
-  }
-
-  useEffect(() => { loadBackups(); loadGitBackups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadBackups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCreate() {
     setActionState('working');
@@ -5411,9 +5393,12 @@ function BackupRestoreView({ isSuperAdmin }) {
 
   const isSafetyFile = (name) => name?.startsWith('pre-restore-');
   const isBackupFile  = (name) => name?.startsWith('backup-');
+  const isSqlDumpFile = (name) => name?.endsWith('.sql.gz');
 
   const regularBackups = backups.filter((f) => isBackupFile(f.name));
   const safetyBackups  = backups.filter((f) => isSafetyFile(f.name));
+  const sqlBackups     = backups.filter((f) => isSqlDumpFile(f.name))
+    .sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
 
   const statusColor = { idle: '#374151', working: '#d97706', done: '#16a34a', error: '#dc2626' };
   const statusBg    = { idle: '#f9fafb', working: '#fffbeb', done: '#f0fdf4', error: '#fef2f2' };
@@ -5571,39 +5556,33 @@ function BackupRestoreView({ isSuperAdmin }) {
             </div>
           )}
 
-          {/* ── Full database SQL dumps (GitHub Actions, separate system) ── */}
+          {/* ── Full database SQL dumps (Daily DB Backup GitHub Action → private Storage) ── */}
           <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <p style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Database Snapshots (GitHub) {gitBackups.length > 0 && `(${gitBackups.length})`}
+                Full Database Snapshots (SQL) {sqlBackups.length > 0 && `(${sqlBackups.length})`}
               </p>
-              <WithTip tip="Full pg_dump SQL dumps, committed daily to the repo's backups/ folder by the Daily DB Backup GitHub Action. These are disaster-recovery snapshots of the whole database — not the same as the JSON snapshots above. Restoring one means running it manually with psql against the target database (see the team runbook), since a full SQL replay isn't safe to upsert automatically. Download here, then restore from your machine.">
+              <WithTip tip="Full pg_dump SQL dumps, uploaded daily to this same private Storage bucket by the Daily DB Backup GitHub Action. Disaster-recovery snapshots of the whole database — not the same as the JSON snapshots above. Restoring one means running it manually with psql against the target database (see 'How to restore'), since a full SQL replay isn't safe to upsert automatically.">
                 <span style={{ fontSize: '11px', color: '#9ca3af', cursor: 'default', borderBottom: '1px dotted #d1d5db' }}>what's this?</span>
               </WithTip>
             </div>
             <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#9ca3af' }}>
               Full-database SQL dumps. Download only — restoring requires running the file manually via <code>psql</code>.
             </p>
-            {gitError ? (
-              <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
-                {gitError} — <button onClick={loadGitBackups} style={{ background: 'none', border: 0, color: '#b91c1c', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Retry</button>
-              </div>
-            ) : gitLoading ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>Loading…</div>
-            ) : gitBackups.length === 0 ? (
+            {sqlBackups.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
-                No SQL dumps found yet — the Daily DB Backup workflow hasn't committed one, or hasn't run since it was fixed.
+                No SQL dumps found yet — the Daily DB Backup workflow hasn't run since it started uploading here, or hasn't run at all yet.
               </div>
             ) : (
               <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
                 {!isMobile && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 110px 190px', gap: '8px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
-                    {['File', 'Size', 'Date', ''].map((h) => (
+                    {['File', 'Size', 'Created', ''].map((h) => (
                       <span key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === '' ? 'right' : 'left' }}>{h}</span>
                     ))}
                   </div>
                 )}
-                {gitBackups.map((f, idx) => (
+                {sqlBackups.map((f, idx) => (
                   <div key={f.name} style={{
                     display: 'grid',
                     gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 110px 190px',
@@ -5617,14 +5596,14 @@ function BackupRestoreView({ isSuperAdmin }) {
                       <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#111827', wordBreak: 'break-all' }}>{f.name}</p>
                       {isMobile && (
                         <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
-                          {formatBytes(f.size)} · {f.date ?? '—'}
+                          {formatBytes(f.metadata?.size)} · {formatDate(f.created_at)}
                         </p>
                       )}
                     </div>
                     {!isMobile && (
                       <>
-                        <span style={{ fontSize: '13px', color: '#6b7280' }}>{formatBytes(f.size)}</span>
-                        <span style={{ fontSize: '12px', color: '#6b7280' }}>{f.date ?? '—'}</span>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>{formatBytes(f.metadata?.size)}</span>
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>{formatDate(f.created_at)}</span>
                       </>
                     )}
                     <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', gap: '6px', justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
@@ -5636,7 +5615,7 @@ function BackupRestoreView({ isSuperAdmin }) {
                       </button>
                       <button
                         onClick={() => {
-                          apiCall(`/api/admin-backup?action=download-git&filename=${encodeURIComponent(f.name)}`)
+                          apiCall(`/api/admin-backup?action=download&filename=${encodeURIComponent(f.name)}`)
                             .then((r) => { if (!r.ok) throw new Error('Download failed'); return r.blob(); })
                             .then((blob) => {
                               const url = URL.createObjectURL(blob);
@@ -5709,7 +5688,7 @@ function BackupRestoreView({ isSuperAdmin }) {
 
 function RestoreHelpModal({ filename, onClose }) {
   const [copied, setCopied] = useState(false);
-  const cmd = `gunzip -c backups\\${filename} | psql "<SUPABASE_DB_URL>"`;
+  const cmd = `gunzip -c ${filename} | psql "<SUPABASE_DB_URL>"`;
 
   function handleCopy() {
     navigator.clipboard?.writeText(cmd).then(() => {
@@ -5735,11 +5714,11 @@ function RestoreHelpModal({ filename, onClose }) {
 
         <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: '700', color: '#111827' }}>Disaster recovery (database is empty or gone)</p>
         <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#6b7280' }}>
-          Get the file locally, then replay it straight into the target database. Needs <code>psql</code> installed. Use the direct connection string from Supabase (Project Settings → Database → Connection string → URI, port 5432), not the pooler.
+          Click "Download" above first, so the file is in your Downloads folder. Then replay it straight into the target database from a terminal in that folder. Needs <code>psql</code> installed. Use the direct connection string from Supabase (Project Settings → Database → Connection string → URI, port 5432), not the pooler.
         </p>
         <div style={{ position: 'relative', marginBottom: '18px' }}>
           <pre style={{ margin: 0, padding: '12px 14px', background: '#111827', color: '#e5e7eb', borderRadius: '8px', fontSize: '12px', fontFamily: 'ui-monospace, Menlo, monospace', overflowX: 'auto' }}>
-{`cd D:\\dev\\caliber-cabinets\ngit pull\n${cmd}`}
+{cmd}
           </pre>
           <button
             onClick={handleCopy}

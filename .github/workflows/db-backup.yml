@@ -5,8 +5,10 @@ on:
     - cron: '0 10 * * *'  # 10 AM UTC = 2 AM Pacific (after the previous day's work ends)
   workflow_dispatch:        # allows manual trigger from GitHub Actions tab
 
-permissions:
-  contents: write   # GITHUB_TOKEN defaults to read-only on new repos — this job needs to git push
+# NOTE: backups are uploaded to a private Supabase Storage bucket, never
+# committed to git. This repo is public (Vercel Hobby-tier collaboration
+# limitation across two separate Hobby accounts sharing one GitHub login),
+# so real customer data must never land in git history here.
 
 jobs:
   backup:
@@ -25,7 +27,8 @@ jobs:
           set -euo pipefail
           mkdir -p backups
           TIMESTAMP=$(date +%Y-%m-%d)
-          FILE="backups/caliber-$TIMESTAMP.sql.gz"
+          FILENAME="caliber-$TIMESTAMP.sql.gz"
+          FILE="backups/$FILENAME"
 
           if [ -z "${SUPABASE_DB_URL:-}" ]; then
             echo "::error::SUPABASE_DB_URL secret is not set."
@@ -37,21 +40,55 @@ jobs:
           # With pipefail above, a pg_dump failure already aborts this step —
           # but also guard against a "successful" dump that's suspiciously
           # small (e.g. connected to the wrong/empty database), so a bad file
-          # never gets committed silently.
+          # never gets uploaded silently.
           SIZE=$(stat -c%s "$FILE")
           echo "Dump size: $SIZE bytes"
           if [ "$SIZE" -lt 2048 ]; then
-            echo "::error::pg_dump output is only $SIZE bytes — looks empty/broken. Not committing."
+            echo "::error::pg_dump output is only $SIZE bytes — looks empty/broken. Not uploading."
             exit 1
           fi
 
-          # Keep only the 30 most recent snapshots (~1 month)
-          ls -t backups/*.sql.gz | tail -n +31 | xargs -r rm --
+          echo "FILENAME=$FILENAME" >> "$GITHUB_ENV"
+          echo "FILEPATH=$FILE" >> "$GITHUB_ENV"
 
-      - name: Commit backup
+      - name: Upload to Supabase Storage (private bucket — never touches git)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add backups/
-          git diff --staged --quiet || git commit -m "chore: db backup $(date +%Y-%m-%d)"
-          git push origin main
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::error::SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY secrets are not set."
+            exit 1
+          fi
+          curl -sS --fail-with-body -X POST \
+            "$SUPABASE_URL/storage/v1/object/db-backups/$FILENAME" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/gzip" \
+            -H "x-upsert: true" \
+            --data-binary "@$FILEPATH"
+          echo "Uploaded $FILENAME to Supabase Storage (db-backups bucket)."
+
+      - name: Prune old SQL backups (keep newest 30)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          ALL=$(curl -sS --fail-with-body -X POST \
+            "$SUPABASE_URL/storage/v1/object/list/db-backups" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix": "caliber-", "limit": 1000, "sortBy": {"column":"name","order":"desc"}}')
+          TO_DELETE=$(echo "$ALL" | jq -c '[.[] | select(.name != null)] | .[30:] | map(.name)')
+          COUNT=$(echo "$TO_DELETE" | jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            curl -sS --fail-with-body -X DELETE \
+              "$SUPABASE_URL/storage/v1/object/db-backups" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"prefixes\": $TO_DELETE}"
+            echo "Pruned $COUNT old backup(s): $TO_DELETE"
+          else
+            echo "Nothing to prune ($COUNT files beyond retention)."
+          fi

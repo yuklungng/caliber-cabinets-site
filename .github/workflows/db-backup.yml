@@ -22,11 +22,29 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
+          set -euo pipefail
           mkdir -p backups
           TIMESTAMP=$(date +%Y-%m-%d)
-          pg_dump "$SUPABASE_DB_URL" \
-            --no-owner --no-acl \
-            | gzip > backups/caliber-$TIMESTAMP.sql.gz
+          FILE="backups/caliber-$TIMESTAMP.sql.gz"
+
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set."
+            exit 1
+          fi
+
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl | gzip > "$FILE"
+
+          # With pipefail above, a pg_dump failure already aborts this step —
+          # but also guard against a "successful" dump that's suspiciously
+          # small (e.g. connected to the wrong/empty database), so a bad file
+          # never gets committed silently.
+          SIZE=$(stat -c%s "$FILE")
+          echo "Dump size: $SIZE bytes"
+          if [ "$SIZE" -lt 2048 ]; then
+            echo "::error::pg_dump output is only $SIZE bytes — looks empty/broken. Not committing."
+            exit 1
+          fi
+
           # Keep only the 30 most recent snapshots (~1 month)
           ls -t backups/*.sql.gz | tail -n +31 | xargs -r rm --
 

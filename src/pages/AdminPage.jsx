@@ -5321,6 +5321,7 @@ function BackupRestoreView({ isSuperAdmin }) {
   const [actionState, setActionState] = useState('idle'); // idle | working | done | error
   const [actionMsg, setActionMsg]   = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // filename to confirm
+  const [restoreHelpFor, setRestoreHelpFor] = useState(null); // git backup filename, or null
 
   async function loadBackups() {
     setIsLoading(true);
@@ -5596,7 +5597,7 @@ function BackupRestoreView({ isSuperAdmin }) {
             ) : (
               <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
                 {!isMobile && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 110px 100px', gap: '8px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 110px 190px', gap: '8px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
                     {['File', 'Size', 'Date', ''].map((h) => (
                       <span key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === '' ? 'right' : 'left' }}>{h}</span>
                     ))}
@@ -5605,7 +5606,7 @@ function BackupRestoreView({ isSuperAdmin }) {
                 {gitBackups.map((f, idx) => (
                   <div key={f.name} style={{
                     display: 'grid',
-                    gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 110px 100px',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 110px 190px',
                     gap: isMobile ? '6px' : '8px',
                     padding: '12px 16px',
                     alignItems: 'center',
@@ -5626,7 +5627,13 @@ function BackupRestoreView({ isSuperAdmin }) {
                         <span style={{ fontSize: '12px', color: '#6b7280' }}>{f.date ?? '—'}</span>
                       </>
                     )}
-                    <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                    <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', gap: '6px', justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+                      <button
+                        onClick={() => setRestoreHelpFor(f.name)}
+                        style={{ padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: '5px', background: '#fff', color: '#6b7280', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        How to restore
+                      </button>
                       <button
                         onClick={() => {
                           apiCall(`/api/admin-backup?action=download-git&filename=${encodeURIComponent(f.name)}`)
@@ -5687,9 +5694,77 @@ function BackupRestoreView({ isSuperAdmin }) {
         </FixedOverlay>
       )}
 
+      {/* Restore-instructions modal (git SQL backups — no in-app restore, just the runbook) */}
+      {restoreHelpFor && (
+        <RestoreHelpModal filename={restoreHelpFor} onClose={() => setRestoreHelpFor(null)} />
+      )}
+
       {/* Spinner keyframe */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  );
+}
+
+// ─── RestoreHelpModal — copy-paste runbook for restoring a git SQL dump ────────
+
+function RestoreHelpModal({ filename, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const cmd = `gunzip -c backups\\${filename} | psql "<SUPABASE_DB_URL>"`;
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(cmd).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <FixedOverlay>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onMouseDown={onClose}>
+      <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '520px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onMouseDown={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 4px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Restoring {filename}</h3>
+        <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#6b7280' }}>
+          This is a full database SQL dump — there's no one-click restore button on purpose. Which path applies depends on whether the live database still has data in it.
+        </p>
+
+        <div style={{ padding: '12px 14px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', marginBottom: '16px' }}>
+          <p style={{ margin: 0, fontSize: '12px', color: '#991b1b', lineHeight: 1.5 }}>
+            This file has no DROP statements. Running it against a database that still has the same tables will throw "already exists" / duplicate-key errors instead of cleanly restoring — it will not silently overwrite anything, but it also won't do what you want.
+          </p>
+        </div>
+
+        <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: '700', color: '#111827' }}>Disaster recovery (database is empty or gone)</p>
+        <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#6b7280' }}>
+          Get the file locally, then replay it straight into the target database. Needs <code>psql</code> installed. Use the direct connection string from Supabase (Project Settings → Database → Connection string → URI, port 5432), not the pooler.
+        </p>
+        <div style={{ position: 'relative', marginBottom: '18px' }}>
+          <pre style={{ margin: 0, padding: '12px 14px', background: '#111827', color: '#e5e7eb', borderRadius: '8px', fontSize: '12px', fontFamily: 'ui-monospace, Menlo, monospace', overflowX: 'auto' }}>
+{`cd D:\\dev\\caliber-cabinets\ngit pull\n${cmd}`}
+          </pre>
+          <button
+            onClick={handleCopy}
+            style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px 10px', border: '1px solid #4b5563', borderRadius: '5px', background: '#1f2937', color: '#e5e7eb', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+
+        <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: '700', color: '#111827' }}>Recovering specific data (production is alive)</p>
+        <p style={{ margin: '0 0 20px', fontSize: '12px', color: '#6b7280', lineHeight: 1.6 }}>
+          Don't replay this file into production. Restore it into a temporary Supabase branch instead, pull just the rows you need from there, and upsert those into production (the admin panel's JSON Backup &amp; Restore above does safe upserts if you export the recovered rows in that format). Ask Claude to run this end-to-end if you'd rather not do it by hand.
+        </p>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+    </FixedOverlay>
   );
 }
 

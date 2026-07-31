@@ -1,4 +1,4 @@
-name: Weekly DB Backup
+name: Daily DB Backup
 
 on:
   schedule:

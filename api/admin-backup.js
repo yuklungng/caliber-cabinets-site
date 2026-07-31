@@ -124,6 +124,77 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── GET ?action=list-git — list SQL dump backups committed to the GitHub repo ──
+  // These come from the "Daily DB Backup" GitHub Actions workflow (pg_dump ->
+  // gzip -> git commit to backups/). Separate system from the JSON snapshots
+  // above: full raw SQL dumps, not upsert-safe, so this is list/download only —
+  // no restore action here. See the runbook note in the UI for manual restore.
+  //
+  // The repo is private, so every call here needs GITHUB_TOKEN (a PAT or
+  // fine-grained token with read access to contents on this repo). We do NOT
+  // hand back GitHub's own download_url — that requires a signed-in GitHub
+  // session on a private repo, which admin users won't have. Instead the
+  // frontend downloads through the `download-git` action below, which proxies
+  // the file server-side using the token.
+  if (req.method === 'GET' && action === 'list-git') {
+    try {
+      const repo   = process.env.GITHUB_BACKUP_REPO ?? 'yuklungng/caliber-cabinets-site';
+      const branch = process.env.GITHUB_BACKUP_BRANCH ?? 'main';
+      if (!process.env.GITHUB_TOKEN) {
+        return res.status(500).json({ error: 'GITHUB_TOKEN is not configured. This repo is private, so a token with repo-contents read access is required to list/download SQL backups.' });
+      }
+      const headers = { Accept: 'application/vnd.github+json', Authorization: `Bearer ${process.env.GITHUB_TOKEN}` };
+
+      const ghRes = await fetch(`https://api.github.com/repos/${repo}/contents/backups?ref=${branch}`, { headers });
+      if (ghRes.status === 404) {
+        // backups/ folder doesn't exist yet — no successful workflow run committed one
+        return res.status(200).json({ files: [] });
+      }
+      if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}: ${await ghRes.text()}`);
+
+      const entries = await ghRes.json();
+      const files = (Array.isArray(entries) ? entries : [])
+        .filter((e) => e.type === 'file' && e.name.endsWith('.sql.gz'))
+        .map((e) => {
+          const m = e.name.match(/(\d{4}-\d{2}-\d{2})/);
+          return { name: e.name, size: e.size, date: m ? m[1] : null };
+        })
+        .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+
+      return res.status(200).json({ files, repo, branch });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── GET ?action=download-git — proxy-download one SQL dump from GitHub ─────
+  // Fetches the raw file server-side (authenticated) and streams it back, so
+  // the admin's browser never needs its own GitHub credentials for a private repo.
+  if (req.method === 'GET' && action === 'download-git') {
+    const { filename } = req.query;
+    if (!filename || !/^[\w.-]+\.sql\.gz$/.test(filename)) {
+      return res.status(400).json({ error: 'Missing or invalid filename' });
+    }
+    try {
+      const repo   = process.env.GITHUB_BACKUP_REPO ?? 'yuklungng/caliber-cabinets-site';
+      const branch = process.env.GITHUB_BACKUP_BRANCH ?? 'main';
+      if (!process.env.GITHUB_TOKEN) {
+        return res.status(500).json({ error: 'GITHUB_TOKEN is not configured. This repo is private, so a token with repo-contents read access is required to download SQL backups.' });
+      }
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${repo}/contents/backups/${encodeURIComponent(filename)}?ref=${branch}`,
+        { headers: { Accept: 'application/vnd.github.raw', Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } },
+      );
+      if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}: ${await ghRes.text()}`);
+      const buf = Buffer.from(await ghRes.arrayBuffer());
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.status(200).send(buf);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── POST ?action=create — snapshot tables to JSON in Storage ───────────────
   if (req.method === 'POST' && action === 'create') {
     try {

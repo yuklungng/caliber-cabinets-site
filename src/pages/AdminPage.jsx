@@ -5315,6 +5315,9 @@ function BackupRestoreView({ isSuperAdmin }) {
   const [backups, setBackups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [gitBackups, setGitBackups] = useState([]);
+  const [gitLoading, setGitLoading] = useState(true);
+  const [gitError, setGitError] = useState('');
   const [actionState, setActionState] = useState('idle'); // idle | working | done | error
   const [actionMsg, setActionMsg]   = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // filename to confirm
@@ -5334,7 +5337,22 @@ function BackupRestoreView({ isSuperAdmin }) {
     }
   }
 
-  useEffect(() => { loadBackups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function loadGitBackups() {
+    setGitLoading(true);
+    setGitError('');
+    try {
+      const r = await apiCall('/api/admin-backup?action=list-git');
+      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
+      const d = await r.json();
+      setGitBackups(d.files ?? []);
+    } catch (err) {
+      setGitError(err.message);
+    } finally {
+      setGitLoading(false);
+    }
+  }
+
+  useEffect(() => { loadBackups(); loadGitBackups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCreate() {
     setActionState('working');
@@ -5551,6 +5569,90 @@ function BackupRestoreView({ isSuperAdmin }) {
               </div>
             </div>
           )}
+
+          {/* ── Full database SQL dumps (GitHub Actions, separate system) ── */}
+          <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Database Snapshots (GitHub) {gitBackups.length > 0 && `(${gitBackups.length})`}
+              </p>
+              <WithTip tip="Full pg_dump SQL dumps, committed daily to the repo's backups/ folder by the Daily DB Backup GitHub Action. These are disaster-recovery snapshots of the whole database — not the same as the JSON snapshots above. Restoring one means running it manually with psql against the target database (see the team runbook), since a full SQL replay isn't safe to upsert automatically. Download here, then restore from your machine.">
+                <span style={{ fontSize: '11px', color: '#9ca3af', cursor: 'default', borderBottom: '1px dotted #d1d5db' }}>what's this?</span>
+              </WithTip>
+            </div>
+            <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#9ca3af' }}>
+              Full-database SQL dumps. Download only — restoring requires running the file manually via <code>psql</code>.
+            </p>
+            {gitError ? (
+              <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
+                {gitError} — <button onClick={loadGitBackups} style={{ background: 'none', border: 0, color: '#b91c1c', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Retry</button>
+              </div>
+            ) : gitLoading ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>Loading…</div>
+            ) : gitBackups.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+                No SQL dumps found yet — the Daily DB Backup workflow hasn't committed one, or hasn't run since it was fixed.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                {!isMobile && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 110px 100px', gap: '8px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                    {['File', 'Size', 'Date', ''].map((h) => (
+                      <span key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === '' ? 'right' : 'left' }}>{h}</span>
+                    ))}
+                  </div>
+                )}
+                {gitBackups.map((f, idx) => (
+                  <div key={f.name} style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 90px 110px 100px',
+                    gap: isMobile ? '6px' : '8px',
+                    padding: '12px 16px',
+                    alignItems: 'center',
+                    borderTop: idx > 0 ? '1px solid #f3f4f6' : 'none',
+                    background: '#fff',
+                  }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#111827', wordBreak: 'break-all' }}>{f.name}</p>
+                      {isMobile && (
+                        <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          {formatBytes(f.size)} · {f.date ?? '—'}
+                        </p>
+                      )}
+                    </div>
+                    {!isMobile && (
+                      <>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>{formatBytes(f.size)}</span>
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>{f.date ?? '—'}</span>
+                      </>
+                    )}
+                    <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                      <button
+                        onClick={() => {
+                          apiCall(`/api/admin-backup?action=download-git&filename=${encodeURIComponent(f.name)}`)
+                            .then((r) => { if (!r.ok) throw new Error('Download failed'); return r.blob(); })
+                            .then((blob) => {
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = f.name;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                            })
+                            .catch(() => alert('Download failed. Please try again.'));
+                        }}
+                        style={{ padding: '5px 14px', border: '1px solid #d1d5db', borderRadius: '5px', background: '#fff', color: '#374151', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
 

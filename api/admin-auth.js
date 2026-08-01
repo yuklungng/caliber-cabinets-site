@@ -46,6 +46,7 @@ export default async function handler(req, res) {
       email: email.toLowerCase().trim(),
       password_hash,
       is_super_admin: true,
+      role: 'staff',
     });
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true });
@@ -71,7 +72,7 @@ export default async function handler(req, res) {
     } else if (process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
       // Env var backdoor — grants access regardless of email
       authenticated = true;
-      authUser = { id: null, name: 'Admin', email, is_super_admin: true };
+      authUser = { id: null, name: 'Admin', email, is_super_admin: true, role: 'staff' };
     }
 
     if (!authenticated) {
@@ -93,6 +94,7 @@ export default async function handler(req, res) {
         name: authUser?.name ?? 'Admin',
         email: authUser?.email ?? email,
         is_super_admin: authUser?.is_super_admin ?? false,
+        role: authUser?.role ?? 'staff',
       },
     });
   }

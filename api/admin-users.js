@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('admin_users')
-      .select('id, name, email, is_super_admin, created_at')
+      .select('id, name, email, is_super_admin, role, created_at')
       .order('created_at');
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ users: data ?? [] });
@@ -25,28 +25,37 @@ export default async function handler(req, res) {
 
   // POST — create a new user
   if (req.method === 'POST') {
-    const { name, email, password, is_super_admin = false } = req.body ?? {};
+    const { name, email, password, is_super_admin = false, role = 'staff' } = req.body ?? {};
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+    if (!['staff', 'bookkeeper'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
     }
     const password_hash = await bcrypt.hash(password, 12);
     const { data, error } = await supabase
       .from('admin_users')
-      .insert({ name, email: email.toLowerCase().trim(), password_hash, is_super_admin })
-      .select('id, name, email, is_super_admin, created_at')
+      .insert({ name, email: email.toLowerCase().trim(), password_hash, is_super_admin, role })
+      .select('id, name, email, is_super_admin, role, created_at')
       .single();
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ user: data });
   }
 
-  // PATCH — reset a user's password
+  // PATCH — reset a user's password, and/or change their role
   if (req.method === 'PATCH') {
-    const { id, password } = req.body ?? {};
-    if (!id || !password) return res.status(400).json({ error: 'id and password required' });
-    const password_hash = await bcrypt.hash(password, 12);
+    const { id, password, role } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (!password && !role) return res.status(400).json({ error: 'Nothing to update — provide password and/or role' });
+    if (role && !['staff', 'bookkeeper'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    const update = {};
+    if (password) update.password_hash = await bcrypt.hash(password, 12);
+    if (role) update.role = role;
     const { error } = await supabase
       .from('admin_users')
-      .update({ password_hash })
+      .update(update)
       .eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true });

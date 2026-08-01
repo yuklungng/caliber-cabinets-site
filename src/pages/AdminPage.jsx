@@ -1983,7 +1983,7 @@ function ConfirmationsPanel() {
 function UsersPanel({ currentUser }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: '', email: '', password: '', is_super_admin: false });
+  const [form, setForm] = useState({ name: '', email: '', password: '', is_super_admin: false, role: 'staff' });
   const [adding, setAdding] = useState(false);
   const [formError, setFormError] = useState('');
   const [resetId, setResetId] = useState(null);
@@ -2007,8 +2007,14 @@ function UsersPanel({ currentUser }) {
     const d = await r.json();
     if (!r.ok) { setFormError(d.error ?? 'Failed to add user'); setAdding(false); return; }
     setUsers((prev) => [...prev, d.user]);
-    setForm({ name: '', email: '', password: '', is_super_admin: false });
+    setForm({ name: '', email: '', password: '', is_super_admin: false, role: 'staff' });
     setAdding(false);
+  }
+
+  async function changeRole(id, role) {
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u))); // optimistic
+    const r = await apiCall('/api/admin-users', { method: 'PATCH', body: { id, role } });
+    if (!r.ok) loadUsers(); // revert on failure by re-fetching truth
   }
 
   async function deleteUser(id, name) {
@@ -2051,10 +2057,24 @@ function UsersPanel({ currentUser }) {
                       {u.is_super_admin && (
                         <span style={{ fontSize: '11px', fontWeight: '700', padding: '1px 8px', borderRadius: '999px', background: '#fef3c7', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Super Admin</span>
                       )}
+                      {!u.is_super_admin && u.role === 'bookkeeper' && (
+                        <span style={{ fontSize: '11px', fontWeight: '700', padding: '1px 8px', borderRadius: '999px', background: '#e0f2fe', color: '#075985', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bookkeeper</span>
+                      )}
                     </div>
                     <span style={{ fontSize: '13px', color: '#6b7280' }}>{u.email}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {!u.is_super_admin && (
+                      <select
+                        value={u.role ?? 'staff'}
+                        onChange={(e) => changeRole(u.id, e.target.value)}
+                        title="Role controls what this user sees in the sidebar"
+                        style={{ fontSize: '13px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', cursor: 'pointer' }}
+                      >
+                        <option value="staff">Staff (full access)</option>
+                        <option value="bookkeeper">Bookkeeper (Cashflow only)</option>
+                      </select>
+                    )}
                     <button
                       onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPassword(''); }}
                       style={{ fontSize: '13px', padding: '4px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', cursor: 'pointer' }}
@@ -2110,6 +2130,19 @@ function UsersPanel({ currentUser }) {
                 <input type="checkbox" checked={form.is_super_admin} onChange={(e) => setForm({ ...form, is_super_admin: e.target.checked })} />
                 Super admin (can manage users and settings)
               </label>
+              {!form.is_super_admin && (
+                <div style={{ display: 'grid', gap: '5px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Role</label>
+                  <select
+                    value={form.role}
+                    onChange={(e) => setForm({ ...form, role: e.target.value })}
+                    style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none', background: '#fff', color: '#374151' }}
+                  >
+                    <option value="staff">Staff (full access)</option>
+                    <option value="bookkeeper">Bookkeeper (Cashflow only)</option>
+                  </select>
+                </div>
+              )}
               {formError && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{formError}</p>}
               <div>
                 <button type="submit" disabled={adding} style={{ padding: '8px 20px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', opacity: adding ? 0.6 : 1 }}>
@@ -5747,25 +5780,311 @@ function RestoreHelpModal({ filename, onClose }) {
   );
 }
 
+// ─── CashflowView ─────────────────────────────────────────────────────────────
+// Independent of the Leads pipeline on purpose: reads Closed Won deals
+// read-only (name, contract amount, close date) and stores payments in their
+// own table. Nothing here writes to `leads`, changes a stage, or touches
+// HubSpot. This is the only view the Bookkeeper role can see.
+
+const PAYMENT_METHOD_OPTIONS = ['Check', 'ACH / Bank Transfer', 'Credit Card', 'Cash', 'Other'];
+
+function formatMoney(n) {
+  return (Number(n) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function CashflowView() {
+  const isMobile = useIsMobile();
+  const [deals, setDeals] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [expandedId, setExpandedId] = useState(null);
+  const [paymentModalFor, setPaymentModalFor] = useState(null); // deal object, or null
+  const [confirmDeletePayment, setConfirmDeletePayment] = useState(null); // { id, label } or null
+
+  async function loadDeals() {
+    setIsLoading(true);
+    setLoadError('');
+    try {
+      const r = await apiCall('/api/admin-cashflow');
+      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
+      const d = await r.json();
+      setDeals(d.deals ?? []);
+    } catch (err) {
+      setLoadError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => { loadDeals(); }, []);
+
+  async function handleDeletePayment(id) {
+    setConfirmDeletePayment(null);
+    try {
+      const r = await apiCall('/api/admin-cashflow', { method: 'DELETE', body: { id } });
+      if (!r.ok) throw new Error('Failed to delete');
+      loadDeals();
+    } catch {
+      alert('Failed to delete payment. Please try again.');
+    }
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  const totals = deals.reduce((acc, d) => ({
+    contract: acc.contract + d.contract_amount,
+    received: acc.received + d.received,
+    balance: acc.balance + d.balance,
+  }), { contract: 0, received: 0, balance: 0 });
+
+  if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading cashflow…</p>;
+  if (loadError) return (
+    <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
+      {loadError} — <button onClick={loadDeals} style={{ background: 'none', border: 0, color: '#b91c1c', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Retry</button>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom: '20px' }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Cashflow</h2>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
+          Payments against Closed Won deals. Deals appear here automatically once won — logging a payment never changes a deal's stage or any HubSpot data.
+        </p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
+        {[
+          { label: 'Total Contract Value', value: totals.contract, color: '#111827' },
+          { label: 'Total Received', value: totals.received, color: '#15803d' },
+          { label: 'Total Outstanding', value: totals.balance, color: totals.balance > 0 ? '#b45309' : '#6b7280' },
+        ].map((k) => (
+          <div key={k.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{k.label}</p>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: k.color }}>{formatMoney(k.value)}</p>
+          </div>
+        ))}
+      </div>
+
+      {deals.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+          No Closed Won deals yet. They'll show up here automatically as they close.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: '10px' }}>
+          {deals.map((d) => {
+            const isExpanded = expandedId === d.hubspot_deal_id;
+            const isPaid = d.balance <= 0 && d.contract_amount > 0;
+            return (
+              <div key={d.hubspot_deal_id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                <div
+                  onClick={() => setExpandedId(isExpanded ? null : d.hubspot_deal_id)}
+                  style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr 1fr 1fr 90px', gap: '10px', alignItems: 'center' }}
+                >
+                  <div>
+                    <p style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#111827' }}>{d.name}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>Closed {formatDate(d.closed_at)}</p>
+                  </div>
+                  {!isMobile && (
+                    <>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: '700' }}>Contract</p>
+                        <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#111827' }}>{formatMoney(d.contract_amount)}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: '700' }}>Received</p>
+                        <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#15803d' }}>{formatMoney(d.received)}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: '700' }}>Balance</p>
+                        <p style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: isPaid ? '#15803d' : '#b45309' }}>
+                          {isPaid ? 'Paid in full' : formatMoney(d.balance)}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>{isExpanded ? '▴ Hide' : '▾ Details'}</span>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ padding: '0 20px 20px', borderTop: '1px solid #f3f4f6' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 10px' }}>
+                      <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Payment History ({d.payments.length})
+                      </p>
+                      <button
+                        onClick={() => setPaymentModalFor(d)}
+                        style={{ padding: '6px 14px', border: 0, borderRadius: '6px', background: '#78350f', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                      >
+                        + Log Payment
+                      </button>
+                    </div>
+                    {d.payments.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No payments logged yet.</p>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        {d.payments.map((p) => (
+                          <div key={p.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', padding: '8px 12px', background: '#f9fafb', borderRadius: '6px' }}>
+                            <span style={{ fontSize: '13px', fontWeight: '700', color: '#15803d', minWidth: '90px' }}>{formatMoney(p.amount)}</span>
+                            <span style={{ fontSize: '12px', color: '#6b7280', minWidth: '90px' }}>{formatDate(p.payment_date)}</span>
+                            <span style={{ fontSize: '12px', color: '#6b7280', minWidth: '120px' }}>{p.method ?? '—'}</span>
+                            <span style={{ fontSize: '12px', color: '#9ca3af', flex: 1 }}>{p.note ?? ''}</span>
+                            <span style={{ fontSize: '11px', color: '#d1d5db' }}>{p.created_by}</span>
+                            <button
+                              onClick={() => setConfirmDeletePayment({ id: p.id, label: `${formatMoney(p.amount)} on ${formatDate(p.payment_date)}` })}
+                              style={{ background: 'none', border: 0, color: '#d1d5db', cursor: 'pointer', fontSize: '15px', padding: '0 4px', lineHeight: 1 }}
+                              title="Delete this payment entry"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {paymentModalFor && (
+        <LogPaymentModal
+          deal={paymentModalFor}
+          onClose={() => setPaymentModalFor(null)}
+          onSaved={() => { setPaymentModalFor(null); loadDeals(); }}
+        />
+      )}
+
+      {confirmDeletePayment && (
+        <FixedOverlay>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '400px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>Delete this payment?</h3>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#6b7280' }}>{confirmDeletePayment.label}. This can't be undone.</p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmDeletePayment(null)} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => handleDeletePayment(confirmDeletePayment.id)} style={{ padding: '8px 16px', border: 0, borderRadius: '6px', background: '#b91c1c', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+        </FixedOverlay>
+      )}
+    </div>
+  );
+}
+
+function LogPaymentModal({ deal, onClose, onSaved }) {
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [method, setMethod] = useState(PAYMENT_METHOD_OPTIONS[0]);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const canSave = Number(amount) > 0 && !!date;
+
+  async function handleSave() {
+    if (!canSave || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const r = await apiCall('/api/admin-cashflow', {
+        method: 'POST',
+        body: { hubspot_deal_id: deal.hubspot_deal_id, amount: Number(amount), payment_date: date, method, note },
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to save');
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <FixedOverlay>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onMouseDown={onClose}>
+      <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onMouseDown={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 4px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Log a Payment</h3>
+        <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#6b7280' }}>{deal.name}</p>
+
+        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Amount</label>
+        <input
+          type="number" min="0.01" step="0.01" autoFocus
+          value={amount} onChange={(e) => setAmount(e.target.value)}
+          placeholder="0.00"
+          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box' }}
+        />
+
+        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Date</label>
+        <input
+          type="date" value={date} onChange={(e) => setDate(e.target.value)}
+          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box' }}
+        />
+
+        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Method</label>
+        <select
+          value={method} onChange={(e) => setMethod(e.target.value)}
+          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box', background: '#fff' }}
+        >
+          {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Note (optional)</label>
+        <textarea
+          value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+          placeholder="e.g. Deposit, final payment, check #1234"
+          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', marginBottom: '18px', boxSizing: 'border-box' }}
+        />
+
+        {error && <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#b91c1c' }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: saving ? 'not-allowed' : 'pointer' }}>Cancel</button>
+          <button onClick={handleSave} disabled={!canSave || saving} style={{ padding: '8px 18px', border: 0, borderRadius: '6px', background: canSave ? '#78350f' : '#d1d5db', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: canSave && !saving ? 'pointer' : 'not-allowed' }}>
+            {saving ? 'Saving…' : 'Save Payment'}
+          </button>
+        </div>
+      </div>
+    </div>
+    </FixedOverlay>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
+// `bookkeeperHidden: true` items are hidden from the restricted Bookkeeper
+// role (Brianna's account) — she only sees Cashflow. Super admins and regular
+// staff are unaffected by that flag; it's purely for the bookkeeper persona.
 const NAV_ITEMS = [
-  { key: 'leads', label: 'Leads', section: null },
-  { key: 'performance', label: 'Performance', section: null },
-  { key: 'site-stats', label: 'Site Stats', section: null },
-  { key: 'projects', label: 'Projects', section: 'Content' },
-  { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true },
-  { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true },
-  { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true },
-  { key: 'forecast-settings', label: 'Forecast', section: 'Settings', superAdminOnly: true },
-  { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true },
+  { key: 'leads', label: 'Leads', section: null, bookkeeperHidden: true },
+  { key: 'performance', label: 'Performance', section: null, bookkeeperHidden: true },
+  { key: 'site-stats', label: 'Site Stats', section: null, bookkeeperHidden: true },
+  { key: 'cashflow', label: 'Cashflow', section: null },
+  { key: 'projects', label: 'Projects', section: 'Content', bookkeeperHidden: true },
+  { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
+  { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
+  { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
+  { key: 'forecast-settings', label: 'Forecast', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
+  { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
 ];
 
 function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   const isMobile = useIsMobile();
   const [winTipOpen, setWinTipOpen] = useState(false);
   const isSuperAdmin = currentUser?.is_super_admin;
-  const visibleItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const isBookkeeper = !isSuperAdmin && currentUser?.role === 'bookkeeper';
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.superAdminOnly && !isSuperAdmin) return false;
+    if (isBookkeeper && item.bookkeeperHidden) return false;
+    return true;
+  });
 
   const sections = [];
   let lastSection = null;
@@ -5788,7 +6107,8 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   if (isMobile) {
     return (
       <nav style={{ width: '100%' }}>
-        {/* Compact Win Rate banner */}
+        {/* Compact Win Rate banner — not relevant to the Bookkeeper role */}
+        {!isBookkeeper && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           padding: '8px 12px', marginBottom: '8px',
@@ -5800,6 +6120,7 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
           </span>
           <span style={{ fontSize: '11px', color: winColor, opacity: 0.75, fontWeight: '500' }}>{winStatus}</span>
         </div>
+        )}
         {/* Horizontal scrollable tab strip */}
         <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '2px' }}>
           {visibleItems.map((item) => {
@@ -5828,7 +6149,8 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   // ── Desktop: 200px left sidebar ───────────────────────────────────────────
   return (
     <nav style={{ width: '200px', flexShrink: 0, paddingTop: '8px' }}>
-      {/* ── Win Rate — north star metric, always visible ── */}
+      {/* ── Win Rate — north star metric for everyone except the Bookkeeper role ── */}
+      {!isBookkeeper && (
       <div
         style={{ position: 'relative', margin: '0 0 20px', padding: '14px 16px', background: winBg, border: `1.5px solid ${winBorder}`, borderRadius: '10px', cursor: 'default', textAlign: 'center' }}
         onMouseEnter={() => setWinTipOpen(true)}
@@ -5869,6 +6191,7 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
           </div>
         )}
       </div>
+      )}
       {/* ── Nav items ── */}
       {sections.map((entry, i) => {
         if (entry.type === 'heading') {
@@ -5965,11 +6288,19 @@ export function AdminPage() {
   if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;
 
   const isSuperAdmin = currentUser?.is_super_admin;
+  const isBookkeeper = !isSuperAdmin && currentUser?.role === 'bookkeeper';
 
   function renderView() {
     const settingsViews = ['notifications', 'confirmations', 'forecast-settings', 'users', 'backup'];
-    if (settingsViews.includes(activeView) && !isSuperAdmin) return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+    if (settingsViews.includes(activeView) && !isSuperAdmin) {
+      return isBookkeeper ? <CashflowView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+    }
+    // Bookkeeper role only ever sees Cashflow — redirect away from anything else,
+    // regardless of how activeView got set (e.g. a stale nav state).
+    const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects'];
+    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <CashflowView />;
     switch (activeView) {
+      case 'cashflow': return <CashflowView />;
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
@@ -5978,7 +6309,7 @@ export function AdminPage() {
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
       case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
-      default: return <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      default: return isBookkeeper ? <CashflowView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }
 

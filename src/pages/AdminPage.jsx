@@ -3947,29 +3947,17 @@ const FORECAST_STAGE_LABELS = {
   final_payment: 'Final Payment',
 };
 
-function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) {
+// Reusable cash-inflow bar chart — used on the Performance page (alongside the
+// weighted pipeline table) and directly in Financial Management (where Brianna,
+// the bookkeeper, actually lives — she has no access to Performance).
+function CashInflowChart({
+  deals,
+  title = 'Cash Inflow · Won Deals',
+  subtitle = 'Initial Deposit · Production Payment · Final Payment — per deal\'s own schedule',
+}) {
   const [cashTip, setCashTip] = useState(null);
-  const wonDeals = financialDeals ?? [];
+  const wonDeals = deals ?? [];
 
-  // ── Weighted pipeline table (active pipeline deals with quote amounts) ──────
-  const pipelineRows = DEFAULT_STAGE_FORECAST.map((stageDef) => {
-    const stageLeads = leads.filter(
-      (l) => l.hs_stage_id === stageDef.id && l.fields?.quote_amount > 0
-    );
-    const totalQuoted = stageLeads.reduce((s, l) => s + (l.fields?.quote_amount ?? 0), 0);
-    const expectedValue = stageLeads.reduce((s, l) => {
-      const p = l.fields?.probability != null ? l.fields.probability / 100
-        : ((stageProbabilities?.[stageDef.id] ?? stageDef.probability) / 100);
-      return s + (l.fields?.quote_amount ?? 0) * p;
-    }, 0);
-    const prob = stageProbabilities?.[stageDef.id] ?? stageDef.probability;
-    return { ...stageDef, prob, count: stageLeads.length, totalQuoted, expectedValue };
-  }).filter((r) => r.count > 0);
-
-  const totalExpected = pipelineRows.reduce((s, r) => s + r.expectedValue, 0);
-  const totalQuotedAll = pipelineRows.reduce((s, r) => s + r.totalQuoted, 0);
-
-  // ── Cash inflow — won deals only, from each deal's real payment schedule ───
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -4022,16 +4010,111 @@ function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) 
     }
   }
 
-  const totalCommitted = wonDeals.reduce((s, d) => s + (d.contract_amount ?? 0), 0);
-  const depositsDue    = wonDeals.reduce((s, d) => s + Math.max(0, d.balance ?? 0), 0);
-
   const maxBarAmt = Math.max(...monthBuckets.map((b) => b.received + b.expected), 1);
   const fmtCurrency = (n) => n >= 1000
     ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
     : `$${Math.round(n).toLocaleString()}`;
   const fmtFull = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
-
   const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
+        {subtitle && <span style={{ fontSize: '11px', color: '#9ca3af' }}>{subtitle}</span>}
+        <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+      </div>
+      {wonDeals.length === 0 ? (
+        <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No won deals with a payment schedule yet.</p>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '140px' }}>
+          {monthBuckets.map((b) => {
+            const total   = b.received + b.expected;
+            const barH    = total > 0 ? Math.max(4, Math.round((total / maxBarAmt) * 120)) : 0;
+            const recH    = total > 0 ? Math.round((b.received / total) * barH) : 0;
+            const expH    = barH - recH;
+            const isCur   = b.key === currentMonthKey;
+            const isPast  = new Date(b.year, b.month + 1, 0) < today;
+            const itemsText = b.items
+              .slice(0, 6)
+              .map((it) => `${it.label} (${it.dealName}): ${fmtFull(it.amount)} — ${it.status}`)
+              .join('\n') + (b.items.length > 6 ? `\n+${b.items.length - 6} more` : '');
+            return (
+              <div
+                key={b.key}
+                onMouseEnter={(e) => total > 0 && setCashTip({ x: e.clientX, y: e.clientY, content: `${b.label}\nTotal: ${fmtFull(total)}${b.received > 0 ? `\nReceived: ${fmtFull(b.received)}` : ''}${b.expected > 0 ? `\nExpected: ${fmtFull(b.expected)}` : ''}${itemsText ? `\n\n${itemsText}` : ''}` })}
+                onMouseMove={(e) => setCashTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+                onMouseLeave={() => setCashTip(null)}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: total > 0 ? 'crosshair' : 'default' }}
+              >
+                {total > 0 && (
+                  <span style={{ fontSize: '9px', color: '#6b7280', fontWeight: '600', whiteSpace: 'nowrap' }}>
+                    {fmtCurrency(total)}
+                  </span>
+                )}
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '120px' }}>
+                  {total > 0 && (
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '3px 3px 0 0', overflow: 'hidden' }}>
+                      {expH > 0 && (
+                        <div style={{ height: `${expH}px`, background: isPast ? '#d1d5db' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} />
+                      )}
+                      {recH > 0 && (
+                        <div style={{ height: `${recH}px`, background: isPast ? '#9ca3af' : '#15803d', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} />
+                      )}
+                    </div>
+                  )}
+                  {total === 0 && (
+                    <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }} />
+                  )}
+                </div>
+                <span style={{ fontSize: '9px', color: isCur ? '#78350f' : '#9ca3af', fontWeight: isCur ? '800' : '500', whiteSpace: 'nowrap' }}>
+                  {b.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {wonDeals.length > 0 && (
+        <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#15803d', display: 'inline-block' }} />Received
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#d97706', display: 'inline-block' }} />Expected (est. date)
+          </span>
+        </div>
+      )}
+      <ChartTooltip tip={cashTip} />
+    </div>
+  );
+}
+
+function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) {
+  const wonDeals = financialDeals ?? [];
+
+  // ── Weighted pipeline table (active pipeline deals with quote amounts) ──────
+  const pipelineRows = DEFAULT_STAGE_FORECAST.map((stageDef) => {
+    const stageLeads = leads.filter(
+      (l) => l.hs_stage_id === stageDef.id && l.fields?.quote_amount > 0
+    );
+    const totalQuoted = stageLeads.reduce((s, l) => s + (l.fields?.quote_amount ?? 0), 0);
+    const expectedValue = stageLeads.reduce((s, l) => {
+      const p = l.fields?.probability != null ? l.fields.probability / 100
+        : ((stageProbabilities?.[stageDef.id] ?? stageDef.probability) / 100);
+      return s + (l.fields?.quote_amount ?? 0) * p;
+    }, 0);
+    const prob = stageProbabilities?.[stageDef.id] ?? stageDef.probability;
+    return { ...stageDef, prob, count: stageLeads.length, totalQuoted, expectedValue };
+  }).filter((r) => r.count > 0);
+
+  const totalExpected = pipelineRows.reduce((s, r) => s + r.expectedValue, 0);
+  const totalQuotedAll = pipelineRows.reduce((s, r) => s + r.totalQuoted, 0);
+
+  // ── Cash inflow totals — won deals only (the chart itself is <CashInflowChart>) ──
+  const totalCommitted = wonDeals.reduce((s, d) => s + (d.contract_amount ?? 0), 0);
+  const depositsDue    = wonDeals.reduce((s, d) => s + Math.max(0, d.balance ?? 0), 0);
+  const fmtFull = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 
   const sectionLabel = (text, sub) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
@@ -4064,71 +4147,7 @@ function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) 
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
 
-        {/* ── Cash inflow chart — won deals ── */}
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-          {sectionLabel('Cash Inflow · Won Deals', 'Initial Deposit · Production Payment · Final Payment — per deal\'s own schedule')}
-          {wonDeals.length === 0 ? (
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No won deals with a payment schedule yet.</p>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '140px' }}>
-              {monthBuckets.map((b) => {
-                const total   = b.received + b.expected;
-                const barH    = total > 0 ? Math.max(4, Math.round((total / maxBarAmt) * 120)) : 0;
-                const recH    = total > 0 ? Math.round((b.received / total) * barH) : 0;
-                const expH    = barH - recH;
-                const isCur   = b.key === currentMonthKey;
-                const isPast  = new Date(b.year, b.month + 1, 0) < today;
-                const itemsText = b.items
-                  .slice(0, 6)
-                  .map((it) => `${it.label} (${it.dealName}): ${fmtFull(it.amount)} — ${it.status}`)
-                  .join('\n') + (b.items.length > 6 ? `\n+${b.items.length - 6} more` : '');
-                return (
-                  <div
-                    key={b.key}
-                    onMouseEnter={(e) => total > 0 && setCashTip({ x: e.clientX, y: e.clientY, content: `${b.label}\nTotal: ${fmtFull(total)}${b.received > 0 ? `\nReceived: ${fmtFull(b.received)}` : ''}${b.expected > 0 ? `\nExpected: ${fmtFull(b.expected)}` : ''}${itemsText ? `\n\n${itemsText}` : ''}` })}
-                    onMouseMove={(e) => setCashTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
-                    onMouseLeave={() => setCashTip(null)}
-                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: total > 0 ? 'crosshair' : 'default' }}
-                  >
-                    {total > 0 && (
-                      <span style={{ fontSize: '9px', color: '#6b7280', fontWeight: '600', whiteSpace: 'nowrap' }}>
-                        {fmtCurrency(total)}
-                      </span>
-                    )}
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '120px' }}>
-                      {total > 0 && (
-                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '3px 3px 0 0', overflow: 'hidden' }}>
-                          {expH > 0 && (
-                            <div style={{ height: `${expH}px`, background: isPast ? '#d1d5db' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} />
-                          )}
-                          {recH > 0 && (
-                            <div style={{ height: `${recH}px`, background: isPast ? '#9ca3af' : '#15803d', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} />
-                          )}
-                        </div>
-                      )}
-                      {total === 0 && (
-                        <div style={{ height: '3px', background: '#f3f4f6', borderRadius: '2px' }} />
-                      )}
-                    </div>
-                    <span style={{ fontSize: '9px', color: isCur ? '#78350f' : '#9ca3af', fontWeight: isCur ? '800' : '500', whiteSpace: 'nowrap' }}>
-                      {b.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {wonDeals.length > 0 && (
-            <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#15803d', display: 'inline-block' }} />Received
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#d97706', display: 'inline-block' }} />Expected (est. date)
-              </span>
-            </div>
-          )}
-        </div>
+        <CashInflowChart deals={wonDeals} />
 
         {/* ── Weighted pipeline table ── */}
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
@@ -4172,7 +4191,6 @@ function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) 
           )}
         </div>
       </div>
-      <ChartTooltip tip={cashTip} />
     </section>
   );
 }
@@ -6046,6 +6064,122 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved }) {
   );
 }
 
+// ─── Action Items — reminders for Brianna, color-coded by urgency ─────────────
+// One item per unpaid stage: "Send invoice" if it hasn't been invoiced yet
+// (anchored on est_date), or "Follow up on payment" if it has (anchored on
+// invoice_date, since that's the real event — est_date is just the original
+// guess). Paid stages never appear here; there's nothing left to do.
+function parseLocalDateAM(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  if (!y) return null;
+  return new Date(y, m - 1, d);
+}
+
+function computeActionItems(deals) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const items = [];
+
+  for (const deal of deals ?? []) {
+    for (const stage of deal.stages ?? []) {
+      if (stage.paid_date) continue; // done — nothing to act on
+
+      if (!stage.invoice_date) {
+        const est = parseLocalDateAM(stage.est_date);
+        if (!est) continue;
+        const days = Math.round((est - today) / 86400000);
+        const urgency = days < 0 ? 'overdue' : days <= 7 ? 'dueSoon' : 'upcoming';
+        items.push({
+          key: `${stage.id ?? `${deal.hubspot_deal_id}-${stage.stage}`}-invoice`,
+          dealName: deal.name,
+          stageLabel: stage.label,
+          amount: stage.amount,
+          urgency,
+          action: 'Send invoice',
+          message: days < 0
+            ? `Invoice was due ${Math.abs(days)} day${Math.abs(days) !== 1 ? 's' : ''} ago`
+            : days === 0
+              ? 'Invoice due today'
+              : `Invoice due in ${days} day${days !== 1 ? 's' : ''}`,
+          sortDate: est,
+        });
+      } else {
+        const inv = parseLocalDateAM(stage.invoice_date);
+        if (!inv) continue;
+        const daysSince = Math.round((today - inv) / 86400000);
+        const urgency = daysSince > 14 ? 'overdue' : daysSince > 7 ? 'dueSoon' : 'upcoming';
+        items.push({
+          key: `${stage.id ?? `${deal.hubspot_deal_id}-${stage.stage}`}-followup`,
+          dealName: deal.name,
+          stageLabel: stage.label,
+          amount: stage.amount,
+          urgency,
+          action: 'Follow up on payment',
+          message: daysSince <= 0
+            ? 'Invoiced today — awaiting payment'
+            : `Invoiced ${daysSince} day${daysSince !== 1 ? 's' : ''} ago — awaiting payment`,
+          sortDate: inv,
+        });
+      }
+    }
+  }
+
+  const order = { overdue: 0, dueSoon: 1, upcoming: 2 };
+  items.sort((a, b) => order[a.urgency] - order[b.urgency] || a.sortDate - b.sortDate);
+  return items;
+}
+
+const URGENCY_STYLE = {
+  overdue:  { bg: '#fef2f2', border: '#fca5a5', text: '#b91c1c', dot: '#dc2626', tag: 'Overdue' },
+  dueSoon:  { bg: '#fffbeb', border: '#fde68a', text: '#92400e', dot: '#d97706', tag: 'Due Soon' },
+  upcoming: { bg: '#f9fafb', border: '#e5e7eb', text: '#374151', dot: '#9ca3af', tag: 'Upcoming' },
+};
+
+function ActionItemsList({ deals }) {
+  const items = computeActionItems(deals);
+  const overdueCount = items.filter((i) => i.urgency === 'overdue').length;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Action Items</span>
+        {overdueCount > 0 && (
+          <span style={{ fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '999px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5' }}>
+            {overdueCount} overdue
+          </span>
+        )}
+        <div style={{ flex: 1, height: '1px', background: '#f3e8d0' }} />
+      </div>
+      {items.length === 0 ? (
+        <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Nothing needs attention — every stage is either paid or not due yet.</p>
+      ) : (
+        <div style={{ display: 'grid', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+          {items.map((item) => {
+            const s = URGENCY_STYLE[item.urgency];
+            return (
+              <div key={item.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.dot, marginTop: '5px', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '700', color: '#111827' }}>
+                    {item.action} — {item.dealName}
+                  </p>
+                  <p style={{ margin: 0, fontSize: '12px', color: s.text }}>
+                    {item.stageLabel} ({formatMoney(item.amount)}) · {item.message}
+                  </p>
+                </div>
+                <span style={{ fontSize: '9px', fontWeight: '800', color: s.text, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', marginTop: '3px' }}>
+                  {s.tag}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FinancialView() {
   const isMobile = useIsMobile();
   const [deals, setDeals] = useState([]);
@@ -6172,6 +6306,13 @@ function FinancialView() {
           </div>
         ))}
       </div>
+
+      {deals.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '24px' }}>
+          <CashInflowChart deals={deals} />
+          <ActionItemsList deals={deals} />
+        </div>
+      )}
 
       {deals.length > 0 && (
         <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>

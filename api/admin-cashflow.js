@@ -79,16 +79,19 @@ function dealDisplayName(lead) {
   return contactName || f.dealName || '(no name)';
 }
 
-/** Compute the 3 default stage rows for a deal given its close date, contract amount, and settings. */
+/** Compute the 3 default stage rows for a deal given its close date, contract amount, and settings.
+ *  Initial Deposit is always invoiced the day the deal closes — Caliber sends that invoice
+ *  immediately on signing, there's no separate "send invoice" step for it like the other two stages. */
 function computeDefaultStages(closedAt, contractAmount, s) {
+  const closedDateStr  = addDays(closedAt, 0); // normalize whatever closedAt format to YYYY-MM-DD
   const depositDate    = addDays(closedAt, s.initialDepositDaysAfterClose);
   const productionDate = addDays(depositDate, (Number(s.productionPaymentWeeksAfterDeposit) || 0) * 7);
   const finalDate      = addDays(productionDate, (Number(s.finalPaymentWeeksAfterProduction) || 0) * 7);
   const pctAmount = (pct) => Math.round((Number(contractAmount) || 0) * (Number(pct) || 0)) / 100;
   return {
-    initial_deposit:    { est_date: depositDate,    amount: pctAmount(s.initialDepositPct) },
-    production_payment: { est_date: productionDate, amount: pctAmount(s.productionPaymentPct) },
-    final_payment:      { est_date: finalDate,      amount: pctAmount(s.finalPaymentPct) },
+    initial_deposit:    { est_date: depositDate,    amount: pctAmount(s.initialDepositPct),    invoice_date: closedDateStr },
+    production_payment: { est_date: productionDate, amount: pctAmount(s.productionPaymentPct), invoice_date: null },
+    final_payment:      { est_date: finalDate,      amount: pctAmount(s.finalPaymentPct),      invoice_date: null },
   };
 }
 
@@ -202,6 +205,7 @@ async function getDealsWithSchedule(supabase) {
           stage,
           amount: defaults[stage].amount,
           est_date: defaults[stage].est_date,
+          invoice_date: defaults[stage].invoice_date,
         });
       }
     }
@@ -218,6 +222,29 @@ async function getDealsWithSchedule(supabase) {
         (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
       }
     }
+  }
+
+  // 6.5. Backfill invoice_date on Initial Deposit rows created before this rule
+  //      existed — the deposit is always invoiced the day the deal closes.
+  //      Never touches production_payment/final_payment (those really are
+  //      invoiced manually) or any row that already has an invoice_date.
+  const depositFixes = [];
+  for (const d of deals) {
+    const depositRow = rowsByDeal[d.hubspot_deal_id]?.initial_deposit;
+    if (depositRow && !depositRow.invoice_date) {
+      const invoiceDate = addDays(d.closed_at, 0);
+      depositFixes.push({ id: depositRow.id, invoice_date: invoiceDate });
+      depositRow.invoice_date = invoiceDate; // keep in-memory copy in sync for step 7
+    }
+  }
+  if (depositFixes.length > 0) {
+    const results = await Promise.allSettled(
+      depositFixes.map((fix) =>
+        supabase.from('payment_schedule').update({ invoice_date: fix.invoice_date }).eq('id', fix.id)
+      )
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) console.error(`[admin-cashflow] ${failed} deposit invoice_date backfill(s) failed (non-fatal)`);
   }
 
   // 7. Assemble result

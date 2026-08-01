@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { batchGetDealStages, getAllPipelineDeals } from './_lib/hubspot.js';
+import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Financial Management: 3-stage payment schedule for Closed Won deals ──────
@@ -44,6 +44,31 @@ function addDays(dateInput, days) {
   if (Number.isNaN(d.getTime())) d.setTime(Date.now());
   d.setDate(d.getDate() + (Number(days) || 0));
   return d.toISOString().slice(0, 10);
+}
+
+function formatNoteDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  if (!y) return null;
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Build a HubSpot deal note summarizing an invoice_date/paid_date change on a schedule row. Returns null if neither changed. */
+function buildScheduleActivityNote(oldRow, newRow) {
+  const lines = [];
+  const label = STAGE_LABELS[newRow.stage] ?? newRow.stage;
+  const amountStr = `$${(Number(newRow.amount) || 0).toLocaleString('en-US')}`;
+  if (oldRow.invoice_date !== newRow.invoice_date) {
+    lines.push(newRow.invoice_date
+      ? `🧾 ${label} (${amountStr}) invoiced on ${formatNoteDate(newRow.invoice_date)}.`
+      : `🧾 ${label} invoice date cleared.`);
+  }
+  if (oldRow.paid_date !== newRow.paid_date) {
+    lines.push(newRow.paid_date
+      ? `✅ ${label} (${amountStr}) marked paid on ${formatNoteDate(newRow.paid_date)}.`
+      : `✅ ${label} paid date cleared.`);
+  }
+  return lines.length > 0 ? `Financial Management update:\n${lines.join('\n')}` : null;
 }
 
 function dealDisplayName(lead) {
@@ -241,6 +266,14 @@ export default async function handler(req, res) {
     if (paid_date !== undefined)    update.paid_date    = paid_date || null;
     if (note !== undefined)         update.note         = note || null;
     try {
+      // Fetch the pre-update row so we can tell whether invoice_date/paid_date
+      // actually changed (not just resubmitted) before logging a HubSpot note.
+      const { data: before } = await supabase
+        .from('payment_schedule')
+        .select('*')
+        .eq('id', id)
+        .single();
+
       const { data, error } = await supabase
         .from('payment_schedule')
         .update(update)
@@ -248,6 +281,21 @@ export default async function handler(req, res) {
         .select()
         .single();
       if (error) throw error;
+
+      // Log a note on the HubSpot deal when invoice/paid date changed — this is
+      // the one thing in Financial Management that's worth surfacing on the deal
+      // itself, so sales/ops can see payment status without opening this panel.
+      if (before && process.env.HUBSPOT_ACCESS_TOKEN && data.hubspot_deal_id) {
+        const noteBody = buildScheduleActivityNote(before, data);
+        if (noteBody) {
+          try {
+            await createDealNote(data.hubspot_deal_id, noteBody);
+          } catch (noteErr) {
+            console.error('[admin-cashflow] createDealNote error (non-fatal):', noteErr.message);
+          }
+        }
+      }
+
       return res.status(200).json({ row: data });
     } catch (err) {
       return res.status(500).json({ error: err.message });

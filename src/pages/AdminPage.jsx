@@ -3926,17 +3926,19 @@ function MonthlyLineChart({ data, lines, height = 120, formatTip }) {
 // Won deals only in the cash timeline (no speculative projection from pipeline dates).
 // Pipeline deals appear in the weighted table — probability × quote amount — but
 // are not placed in any calendar month.
-function CashflowForecastSection({ leads, stageProbabilities }) {
-  const [cashTip, setCashTip] = useState(null);
-  const BALANCE_DAYS = 63; // 9 weeks = deposit-to-balance gap
+//
+// The cash timeline is built from each deal's real 3-stage payment schedule
+// (Financial Management), not a hardcoded split — a stage lands in the month of
+// its paid_date if it's been paid, otherwise its est_date (still forecasted).
+const FORECAST_STAGE_LABELS = {
+  initial_deposit: 'Initial Deposit',
+  production_payment: 'Production Payment',
+  final_payment: 'Final Payment',
+};
 
-  // Resolve effective probability for a lead
-  function effectiveProb(lead) {
-    if (lead.fields?.probability != null) return lead.fields.probability / 100;
-    const def = DEFAULT_STAGE_FORECAST.find((s) => s.id === lead.hs_stage_id);
-    const override = stageProbabilities?.[lead.hs_stage_id];
-    return ((override ?? def?.probability) ?? 0) / 100;
-  }
+function CashflowForecastSection({ leads, stageProbabilities, financialDeals }) {
+  const [cashTip, setCashTip] = useState(null);
+  const wonDeals = financialDeals ?? [];
 
   // ── Weighted pipeline table (active pipeline deals with quote amounts) ──────
   const pipelineRows = DEFAULT_STAGE_FORECAST.map((stageDef) => {
@@ -3956,7 +3958,7 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
   const totalExpected = pipelineRows.reduce((s, r) => s + r.expectedValue, 0);
   const totalQuotedAll = pipelineRows.reduce((s, r) => s + r.totalQuoted, 0);
 
-  // ── Cash inflow — won deals only ─────────────────────────────────────────
+  // ── Cash inflow — won deals only, from each deal's real payment schedule ───
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -3971,36 +3973,48 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
       label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
       year: d.getFullYear(),
       month: d.getMonth(),
-      deposit: 0,
-      balance: 0,
+      received: 0,   // stages already paid
+      expected: 0,   // stages scheduled (est. date) but not yet paid
+      items: [],     // per-stage detail for the hover tooltip
     });
   }
   const bucketMap = Object.fromEntries(monthBuckets.map((b) => [b.key, b]));
 
-  function addToBucket(dateObj, field, amount) {
+  // Parse a plain "YYYY-MM-DD" as a local calendar date, not UTC midnight —
+  // otherwise it can land in the wrong month in US timezones.
+  function parseLocalDate(dateStr) {
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+    if (!y) return null;
+    return new Date(y, m - 1, d);
+  }
+
+  function addToBucket(dateObj, field, amount, item) {
     const key = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-    if (bucketMap[key]) bucketMap[key][field] += amount;
+    if (!bucketMap[key]) return;
+    bucketMap[key][field] += amount;
+    if (item) bucketMap[key].items.push(item);
   }
 
-  const wonDeals = leads.filter(
-    (l) => l.hs_stage_id === 'closedwon' && l.fields?.quote_amount > 0
-  );
   for (const deal of wonDeals) {
-    const wonDate = deal.hs_date_entered_closed_won
-      ? new Date(deal.hs_date_entered_closed_won)
-      : new Date(deal.created_at);
-    const amt = deal.fields.quote_amount;
-    addToBucket(wonDate, 'deposit', amt * 0.5);
-    addToBucket(new Date(wonDate.getTime() + BALANCE_DAYS * 86400000), 'balance', amt * 0.5);
+    for (const stage of deal.stages ?? []) {
+      const effectiveDateStr = stage.paid_date ?? stage.est_date;
+      if (!effectiveDateStr) continue;
+      const dateObj = parseLocalDate(effectiveDateStr);
+      if (!dateObj) continue;
+      const isPaid = !!stage.paid_date;
+      addToBucket(dateObj, isPaid ? 'received' : 'expected', stage.amount, {
+        label: FORECAST_STAGE_LABELS[stage.stage] ?? stage.stage,
+        dealName: deal.name,
+        amount: stage.amount,
+        status: isPaid ? 'Paid' : (stage.invoice_date ? 'Invoiced' : 'Estimated'),
+      });
+    }
   }
 
-  const totalCommitted = wonDeals.reduce((s, l) => s + (l.fields?.quote_amount ?? 0), 0);
-  const depositsDue    = monthBuckets.filter((b) => {
-    const bDate = new Date(b.year, b.month, 1);
-    return bDate >= new Date(today.getFullYear(), today.getMonth(), 1);
-  }).reduce((s, b) => s + b.deposit + b.balance, 0);
+  const totalCommitted = wonDeals.reduce((s, d) => s + (d.contract_amount ?? 0), 0);
+  const depositsDue    = wonDeals.reduce((s, d) => s + Math.max(0, d.balance ?? 0), 0);
 
-  const maxBarAmt = Math.max(...monthBuckets.map((b) => b.deposit + b.balance), 1);
+  const maxBarAmt = Math.max(...monthBuckets.map((b) => b.received + b.expected), 1);
   const fmtCurrency = (n) => n >= 1000
     ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
     : `$${Math.round(n).toLocaleString()}`;
@@ -4026,7 +4040,7 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
         {[
           { label: 'Won — Total Contract Value', value: fmtFull(totalCommitted), sub: `${wonDeals.length} deal${wonDeals.length !== 1 ? 's' : ''}`, color: '#166534', bg: '#f0fdf4', border: '#bbf7d0' },
-          { label: 'Won — Cash Still Incoming', value: fmtFull(depositsDue),     sub: 'deposits + balances due from today', color: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' },
+          { label: 'Won — Cash Still Incoming', value: fmtFull(depositsDue),     sub: 'unpaid across all schedule stages', color: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' },
           { label: 'Pipeline — Weighted Expected', value: totalExpected > 0 ? fmtFull(totalExpected) : '—', sub: totalQuotedAll > 0 ? `of ${fmtFull(totalQuotedAll)} quoted` : 'no quoted pipeline deals', color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
         ].map(({ label, value, sub, color, bg, border }) => (
           <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '8px', padding: '14px 16px' }}>
@@ -4041,22 +4055,26 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
 
         {/* ── Cash inflow chart — won deals ── */}
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' }}>
-          {sectionLabel('Cash Inflow · Won Deals', '50% deposit at close · 50% balance at +9 wks')}
+          {sectionLabel('Cash Inflow · Won Deals', 'Initial Deposit · Production Payment · Final Payment — per deal\'s own schedule')}
           {wonDeals.length === 0 ? (
-            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No won deals with quote amounts yet.</p>
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No won deals with a payment schedule yet.</p>
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '140px' }}>
               {monthBuckets.map((b) => {
-                const total  = b.deposit + b.balance;
-                const barH   = total > 0 ? Math.max(4, Math.round((total / maxBarAmt) * 120)) : 0;
-                const depH   = total > 0 ? Math.round((b.deposit / total) * barH) : 0;
-                const balH   = barH - depH;
-                const isCur  = b.key === currentMonthKey;
-                const isPast = new Date(b.year, b.month + 1, 0) < today;
+                const total   = b.received + b.expected;
+                const barH    = total > 0 ? Math.max(4, Math.round((total / maxBarAmt) * 120)) : 0;
+                const recH    = total > 0 ? Math.round((b.received / total) * barH) : 0;
+                const expH    = barH - recH;
+                const isCur   = b.key === currentMonthKey;
+                const isPast  = new Date(b.year, b.month + 1, 0) < today;
+                const itemsText = b.items
+                  .slice(0, 6)
+                  .map((it) => `${it.label} (${it.dealName}): ${fmtFull(it.amount)} — ${it.status}`)
+                  .join('\n') + (b.items.length > 6 ? `\n+${b.items.length - 6} more` : '');
                 return (
                   <div
                     key={b.key}
-                    onMouseEnter={(e) => total > 0 && setCashTip({ x: e.clientX, y: e.clientY, content: `${b.label}\nTotal: ${fmtFull(total)}${b.deposit > 0 ? `\nDeposit: ${fmtFull(b.deposit)}` : ''}${b.balance > 0 ? `\nBalance: ${fmtFull(b.balance)}` : ''}` })}
+                    onMouseEnter={(e) => total > 0 && setCashTip({ x: e.clientX, y: e.clientY, content: `${b.label}\nTotal: ${fmtFull(total)}${b.received > 0 ? `\nReceived: ${fmtFull(b.received)}` : ''}${b.expected > 0 ? `\nExpected: ${fmtFull(b.expected)}` : ''}${itemsText ? `\n\n${itemsText}` : ''}` })}
                     onMouseMove={(e) => setCashTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
                     onMouseLeave={() => setCashTip(null)}
                     style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: total > 0 ? 'crosshair' : 'default' }}
@@ -4069,11 +4087,11 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '120px' }}>
                       {total > 0 && (
                         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '3px 3px 0 0', overflow: 'hidden' }}>
-                          {balH > 0 && (
-                            <div style={{ height: `${balH}px`, background: isPast ? '#d1d5db' : '#78350f', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} />
+                          {expH > 0 && (
+                            <div style={{ height: `${expH}px`, background: isPast ? '#d1d5db' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.7 }} />
                           )}
-                          {depH > 0 && (
-                            <div style={{ height: `${depH}px`, background: isPast ? '#9ca3af' : '#d97706', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} />
+                          {recH > 0 && (
+                            <div style={{ height: `${recH}px`, background: isPast ? '#9ca3af' : '#15803d', opacity: isCur ? 1 : isPast ? 0.5 : 0.8 }} />
                           )}
                         </div>
                       )}
@@ -4092,10 +4110,10 @@ function CashflowForecastSection({ leads, stageProbabilities }) {
           {wonDeals.length > 0 && (
             <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#d97706', display: 'inline-block' }} />Deposit (50%)
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#15803d', display: 'inline-block' }} />Received
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#6b7280' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#78350f', display: 'inline-block' }} />Balance (50% · +9 wks)
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#d97706', display: 'inline-block' }} />Expected (est. date)
               </span>
             </div>
           )}
@@ -4153,6 +4171,7 @@ function PerformanceView() {
   const [leads, setLeads] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [stageProbabilities, setStageProbabilities] = useState(null);
+  const [financialDeals, setFinancialDeals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -4165,11 +4184,15 @@ function PerformanceView() {
       }),
       apiCall('/api/admin-analytics').then((r) => r.json()).catch(() => null),
       apiCall('/api/admin-settings').then((r) => r.json()).catch(() => null),
+      // Real per-deal payment schedule (Initial Deposit/Production Payment/Final
+      // Payment) — powers the Cashflow Forecast timeline below instead of a guess.
+      apiCall('/api/admin-cashflow').then((r) => r.json()).catch(() => null),
     ])
-      .then(([leadsData, analyticsData, settingsData]) => {
+      .then(([leadsData, analyticsData, settingsData, financialData]) => {
         setLeads(leadsData.leads ?? []);
         setAnalytics(analyticsData);
         setStageProbabilities(settingsData?.settings?.stage_probabilities ?? {});
+        setFinancialDeals(financialData?.deals ?? []);
         setIsLoading(false);
       })
       .catch(() => { setLoadError('Failed to load performance data.'); setIsLoading(false); });
@@ -4402,7 +4425,7 @@ function PerformanceView() {
 
       {/* ── Cashflow Forecast ── */}
       {!isLoading && (
-        <CashflowForecastSection leads={leads} stageProbabilities={stageProbabilities ?? {}} />
+        <CashflowForecastSection leads={leads} stageProbabilities={stageProbabilities ?? {}} financialDeals={financialDeals} />
       )}
 
       {/* ── Pipeline Health ───────────────────────────────────────────────────── */}
@@ -6186,7 +6209,11 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
   // per-browser; a section auto-expands if the active view lives inside it,
   // even if the user previously collapsed it, so navigation never gets "stuck" hidden.
   const [collapsed, setCollapsed] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('admin_nav_collapsed_sections') ?? '{}'); } catch { return {}; }
+    let stored = {};
+    try { stored = JSON.parse(localStorage.getItem('admin_nav_collapsed_sections') ?? '{}'); } catch { /* ignore */ }
+    // Settings collapses by default (it's the crowded one) unless the user has
+    // already expressed a preference by toggling it themselves.
+    return { Settings: true, ...stored };
   });
   useEffect(() => {
     try { localStorage.setItem('admin_nav_collapsed_sections', JSON.stringify(collapsed)); } catch { /* ignore */ }

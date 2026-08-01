@@ -126,6 +126,17 @@ const SORT_OPTIONS = [
   { key: 'name-desc',  label: 'Z→A Name' },
 ];
 
+const FINANCIAL_SORT_OPTIONS = [
+  { key: 'newest',        label: '↓ Newest' },
+  { key: 'oldest',        label: '↑ Oldest' },
+  { key: 'contract-desc', label: 'Contract High→Low' },
+  { key: 'contract-asc',  label: 'Contract Low→High' },
+  { key: 'balance-desc',  label: 'Balance High→Low' },
+  { key: 'balance-asc',   label: 'Balance Low→High' },
+  { key: 'name-asc',      label: 'A→Z Name' },
+  { key: 'name-desc',     label: 'Z→A Name' },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // ─── Business-hours time math ──────────────────────────────────────────────
@@ -6041,6 +6052,9 @@ function FinancialView() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [expandedId, setExpandedId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState('newest');
+  const [exporting, setExporting] = useState(false);
 
   async function loadDeals() {
     setIsLoading(true);
@@ -6082,6 +6096,53 @@ function FinancialView() {
     balance: acc.balance + d.balance,
   }), { contract: 0, invoiced: 0, received: 0, balance: 0 });
 
+  // Search + sort don't touch the totals above (those stay whole-book figures,
+  // same as the Leads KPI cards) — they only affect which deals are listed below.
+  const filteredDeals = deals
+    .filter((d) => !searchQuery.trim() || d.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    .slice()
+    .sort((a, b) => {
+      if (sortKey === 'newest' || sortKey === 'oldest') {
+        const ta = new Date(a.closed_at).getTime() || 0;
+        const tb = new Date(b.closed_at).getTime() || 0;
+        return sortKey === 'newest' ? tb - ta : ta - tb;
+      }
+      if (sortKey === 'contract-desc' || sortKey === 'contract-asc') {
+        return sortKey === 'contract-desc' ? b.contract_amount - a.contract_amount : a.contract_amount - b.contract_amount;
+      }
+      if (sortKey === 'balance-desc' || sortKey === 'balance-asc') {
+        return sortKey === 'balance-desc' ? b.balance - a.balance : a.balance - b.balance;
+      }
+      if (sortKey === 'name-asc' || sortKey === 'name-desc') {
+        return sortKey === 'name-asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      }
+      return 0;
+    });
+
+  function handleReset() {
+    setSearchQuery('');
+    setSortKey('newest');
+    loadDeals();
+  }
+
+  function handleExportCSV() {
+    setExporting(true);
+    apiCall('/api/admin-cashflow?action=export-csv')
+      .then((r) => r.blob())
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `caliber-financial-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => alert('Export failed. Please try again.'))
+      .finally(() => setExporting(false));
+  }
+
   if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading financials…</p>;
   if (loadError) return (
     <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
@@ -6112,13 +6173,61 @@ function FinancialView() {
         ))}
       </div>
 
+      {deals.length > 0 && (
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <input
+              type="search"
+              placeholder="Search by deal name…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: '100%', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <button
+            onClick={() => setSortKey((k) => {
+              const idx = FINANCIAL_SORT_OPTIONS.findIndex((o) => o.key === k);
+              return FINANCIAL_SORT_OPTIONS[(idx + 1) % FINANCIAL_SORT_OPTIONS.length].key;
+            })}
+            title={`Sort: ${FINANCIAL_SORT_OPTIONS.find((o) => o.key === sortKey)?.label} — click to cycle`}
+            style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600', flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            {FINANCIAL_SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort'}
+          </button>
+
+          <button onClick={handleReset} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
+            Reset
+          </button>
+
+          <button
+            onClick={handleExportCSV}
+            disabled={exporting}
+            title="Download the payment schedule for every Closed Won deal as CSV"
+            style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: exporting ? 'wait' : 'pointer', flexShrink: 0, whiteSpace: 'nowrap', opacity: exporting ? 0.6 : 1 }}
+          >
+            {exporting ? 'Exporting…' : '↓ Export CSV'}
+          </button>
+        </div>
+      )}
+
+      {deals.length > 0 && (
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
+          {filteredDeals.length} deal{filteredDeals.length !== 1 ? 's' : ''}{searchQuery.trim() ? ' (filtered)' : ''}
+        </p>
+      )}
+
       {deals.length === 0 ? (
         <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
           No Closed Won deals yet. They'll show up here automatically as they close.
         </div>
+      ) : filteredDeals.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+          No deals match "{searchQuery}". <button onClick={handleReset} style={{ background: 'none', border: 0, color: '#78350f', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Clear search</button>
+        </div>
       ) : (
         <div style={{ display: 'grid', gap: '10px' }}>
-          {deals.map((d) => {
+          {filteredDeals.map((d) => {
             const isExpanded = expandedId === d.hubspot_deal_id;
             const isPaid = d.balance <= 0 && d.contract_amount > 0;
             return (

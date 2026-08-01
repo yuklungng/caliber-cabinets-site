@@ -92,6 +92,162 @@ function computeDefaultStages(closedAt, contractAmount, s) {
   };
 }
 
+/** Convert an array of flat objects to a CSV string. */
+function toCSV(rows) {
+  if (!rows || rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const escape = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  return [headers.join(','), ...rows.map((row) => headers.map((h) => escape(row[h])).join(','))].join('\n');
+}
+
+/** Build the full Closed Won deal list with each deal's 3-stage payment schedule, auto-creating any missing rows. */
+async function getDealsWithSchedule(supabase) {
+  // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
+  //    only stage columns Supabase actually has, and they're only refreshed
+  //    when someone loads the Leads view — so they can be stale. We treat them
+  //    as a fallback only; live HubSpot stage (fetched below) is authoritative.
+  const { data: supabaseLeads, error } = await supabase
+    .from('leads')
+    .select('id, created_at, form_type, fields, hubspot_deal_id, hs_stage_id')
+    .not('hubspot_deal_id', 'is', null);
+  if (error) throw error;
+
+  // 2. Live stage/date/URL for those deals straight from HubSpot (same helper
+  //    admin-leads.js uses) — this is what actually determines Closed Won status.
+  let hsStages = {};
+  if (process.env.HUBSPOT_ACCESS_TOKEN && (supabaseLeads ?? []).length > 0) {
+    try {
+      const dealIds = (supabaseLeads ?? []).map((l) => l.hubspot_deal_id).filter(Boolean);
+      hsStages = await batchGetDealStages(dealIds);
+    } catch (hsErr) {
+      console.error('[admin-cashflow] batchGetDealStages error (non-fatal):', hsErr.message);
+    }
+  }
+
+  const closedWonSupabaseLeads = (supabaseLeads ?? []).filter((l) => {
+    const liveStageId = hsStages[l.hubspot_deal_id]?.stageId ?? l.hs_stage_id;
+    return liveStageId === CLOSED_WON_STAGE_ID;
+  });
+
+  // 3. HubSpot-only deals (no Supabase row at all) — reuses the existing, already-tested helper
+  let hsOnlyDeals = [];
+  if (process.env.HUBSPOT_ACCESS_TOKEN) {
+    try {
+      const allHsDeals = await getAllPipelineDeals();
+      const supabaseDealIds = new Set((supabaseLeads ?? []).map((l) => l.hubspot_deal_id).filter(Boolean));
+      hsOnlyDeals = allHsDeals.filter((d) => d.hs_stage_id === CLOSED_WON_STAGE_ID && !supabaseDealIds.has(d.hubspot_deal_id));
+    } catch (hsErr) {
+      console.error('[admin-cashflow] HubSpot fetch error (non-fatal):', hsErr.message);
+    }
+  }
+
+  const deals = [
+    ...closedWonSupabaseLeads.map((l) => {
+      const hs = hsStages[l.hubspot_deal_id] ?? null;
+      return {
+        hubspot_deal_id: l.hubspot_deal_id,
+        name: dealDisplayName(l),
+        contract_amount: Number(l.fields?.quote_amount) || 0,
+        closed_at: hs?.dateEnteredClosedWon ?? hs?.stageDate ?? l.created_at,
+        hs_deal_url: hs?.dealUrl ?? null,
+      };
+    }),
+    ...hsOnlyDeals.map((d) => ({
+      hubspot_deal_id: d.hubspot_deal_id,
+      name: dealDisplayName(d),
+      contract_amount: Number(d.fields?.quote_amount) || 0,
+      closed_at: d.hs_date_entered_closed_won ?? d.hs_stage_date ?? d.created_at,
+      hs_deal_url: d.hs_deal_url ?? null,
+    })),
+  ];
+
+  if (deals.length === 0) return [];
+
+  // 4. Default settings for auto-generating missing stage rows
+  const { data: settingsRows } = await supabase
+    .from('admin_settings')
+    .select('value')
+    .eq('key', 'payment_schedule_defaults')
+    .limit(1);
+  const scheduleDefaults = { ...DEFAULT_SCHEDULE_SETTINGS, ...(settingsRows?.[0]?.value ?? {}) };
+
+  // 5. Existing schedule rows for these deals
+  const dealIds = deals.map((d) => d.hubspot_deal_id);
+  const { data: existingRows, error: schedErr } = await supabase
+    .from('payment_schedule')
+    .select('*')
+    .in('hubspot_deal_id', dealIds);
+  if (schedErr) throw schedErr;
+
+  const rowsByDeal = {};
+  for (const row of existingRows ?? []) {
+    (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
+  }
+
+  // 6. Auto-create any missing stage rows (never overwrites an existing row —
+  //    once a bookkeeper edits est_date/amount, it's theirs from then on)
+  const toInsert = [];
+  for (const d of deals) {
+    const have = rowsByDeal[d.hubspot_deal_id] ?? {};
+    const defaults = computeDefaultStages(d.closed_at, d.contract_amount, scheduleDefaults);
+    for (const stage of STAGE_ORDER) {
+      if (!have[stage]) {
+        toInsert.push({
+          hubspot_deal_id: d.hubspot_deal_id,
+          stage,
+          amount: defaults[stage].amount,
+          est_date: defaults[stage].est_date,
+        });
+      }
+    }
+  }
+  if (toInsert.length > 0) {
+    const { data: inserted, error: insErr } = await supabase
+      .from('payment_schedule')
+      .insert(toInsert)
+      .select();
+    if (insErr) {
+      console.error('[admin-cashflow] Failed to auto-create schedule rows (non-fatal):', insErr.message);
+    } else {
+      for (const row of inserted ?? []) {
+        (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
+      }
+    }
+  }
+
+  // 7. Assemble result
+  return deals.map((d) => {
+    const have = rowsByDeal[d.hubspot_deal_id] ?? {};
+    const stages = STAGE_ORDER.map((stage) => {
+      const row = have[stage] ?? {};
+      return {
+        id: row.id ?? null,
+        stage,
+        label: STAGE_LABELS[stage],
+        amount: Number(row.amount) || 0,
+        est_date: row.est_date ?? null,
+        invoice_date: row.invoice_date ?? null,
+        paid_date: row.paid_date ?? null,
+        note: row.note ?? '',
+      };
+    });
+    const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+    const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+    return {
+      ...d,
+      stages,
+      invoiced,
+      received,
+      balance: d.contract_amount - received,
+    };
+  }).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+}
+
 export default async function handler(req, res) {
   const auth = await checkAuth(req);
   if (!auth.ok) return res.status(401).json({ error: 'Unauthorized' });
@@ -99,150 +255,42 @@ export default async function handler(req, res) {
   // (staff, bookkeeper, super admin) is allowed to see.
 
   const supabase = supabaseClient();
+  const action = req.query?.action;
+
+  // ── GET ?action=export-csv — one row per stage, across all Closed Won deals ──
+  if (req.method === 'GET' && action === 'export-csv') {
+    try {
+      const deals = await getDealsWithSchedule(supabase);
+      const rows = [];
+      for (const d of deals) {
+        for (const s of d.stages) {
+          rows.push({
+            deal_name: d.name,
+            contract_amount: d.contract_amount,
+            closed_date: d.closed_at ? String(d.closed_at).slice(0, 10) : '',
+            stage: s.label,
+            amount: s.amount,
+            est_date: s.est_date ?? '',
+            invoice_date: s.invoice_date ?? '',
+            paid_date: s.paid_date ?? '',
+            status: s.paid_date ? 'Paid' : (s.invoice_date ? 'Invoiced' : 'Pending'),
+          });
+        }
+      }
+      const csv = toCSV(rows);
+      const date = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="caliber-financial-${date}.csv"`);
+      return res.status(200).send(csv);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   // ── GET — list Closed Won deals with their 3-stage payment schedule ────────
   if (req.method === 'GET') {
     try {
-      // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
-      //    only stage columns Supabase actually has, and they're only refreshed
-      //    when someone loads the Leads view — so they can be stale. We treat them
-      //    as a fallback only; live HubSpot stage (fetched below) is authoritative.
-      const { data: supabaseLeads, error } = await supabase
-        .from('leads')
-        .select('id, created_at, form_type, fields, hubspot_deal_id, hs_stage_id')
-        .not('hubspot_deal_id', 'is', null);
-      if (error) throw error;
-
-      // 2. Live stage/date/URL for those deals straight from HubSpot (same helper
-      //    admin-leads.js uses) — this is what actually determines Closed Won status.
-      let hsStages = {};
-      if (process.env.HUBSPOT_ACCESS_TOKEN && (supabaseLeads ?? []).length > 0) {
-        try {
-          const dealIds = (supabaseLeads ?? []).map((l) => l.hubspot_deal_id).filter(Boolean);
-          hsStages = await batchGetDealStages(dealIds);
-        } catch (hsErr) {
-          console.error('[admin-cashflow] batchGetDealStages error (non-fatal):', hsErr.message);
-        }
-      }
-
-      const closedWonSupabaseLeads = (supabaseLeads ?? []).filter((l) => {
-        const liveStageId = hsStages[l.hubspot_deal_id]?.stageId ?? l.hs_stage_id;
-        return liveStageId === CLOSED_WON_STAGE_ID;
-      });
-
-      // 3. HubSpot-only deals (no Supabase row at all) — reuses the existing, already-tested helper
-      let hsOnlyDeals = [];
-      if (process.env.HUBSPOT_ACCESS_TOKEN) {
-        try {
-          const allHsDeals = await getAllPipelineDeals();
-          const supabaseDealIds = new Set((supabaseLeads ?? []).map((l) => l.hubspot_deal_id).filter(Boolean));
-          hsOnlyDeals = allHsDeals.filter((d) => d.hs_stage_id === CLOSED_WON_STAGE_ID && !supabaseDealIds.has(d.hubspot_deal_id));
-        } catch (hsErr) {
-          console.error('[admin-cashflow] HubSpot fetch error (non-fatal):', hsErr.message);
-        }
-      }
-
-      const deals = [
-        ...closedWonSupabaseLeads.map((l) => {
-          const hs = hsStages[l.hubspot_deal_id] ?? null;
-          return {
-            hubspot_deal_id: l.hubspot_deal_id,
-            name: dealDisplayName(l),
-            contract_amount: Number(l.fields?.quote_amount) || 0,
-            closed_at: hs?.dateEnteredClosedWon ?? hs?.stageDate ?? l.created_at,
-            hs_deal_url: hs?.dealUrl ?? null,
-          };
-        }),
-        ...hsOnlyDeals.map((d) => ({
-          hubspot_deal_id: d.hubspot_deal_id,
-          name: dealDisplayName(d),
-          contract_amount: Number(d.fields?.quote_amount) || 0,
-          closed_at: d.hs_date_entered_closed_won ?? d.hs_stage_date ?? d.created_at,
-          hs_deal_url: d.hs_deal_url ?? null,
-        })),
-      ];
-
-      if (deals.length === 0) return res.status(200).json({ deals: [] });
-
-      // 4. Default settings for auto-generating missing stage rows
-      const { data: settingsRows } = await supabase
-        .from('admin_settings')
-        .select('value')
-        .eq('key', 'payment_schedule_defaults')
-        .limit(1);
-      const scheduleDefaults = { ...DEFAULT_SCHEDULE_SETTINGS, ...(settingsRows?.[0]?.value ?? {}) };
-
-      // 5. Existing schedule rows for these deals
-      const dealIds = deals.map((d) => d.hubspot_deal_id);
-      const { data: existingRows, error: schedErr } = await supabase
-        .from('payment_schedule')
-        .select('*')
-        .in('hubspot_deal_id', dealIds);
-      if (schedErr) throw schedErr;
-
-      const rowsByDeal = {};
-      for (const row of existingRows ?? []) {
-        (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
-      }
-
-      // 6. Auto-create any missing stage rows (never overwrites an existing row —
-      //    once a bookkeeper edits est_date/amount, it's theirs from then on)
-      const toInsert = [];
-      for (const d of deals) {
-        const have = rowsByDeal[d.hubspot_deal_id] ?? {};
-        const defaults = computeDefaultStages(d.closed_at, d.contract_amount, scheduleDefaults);
-        for (const stage of STAGE_ORDER) {
-          if (!have[stage]) {
-            toInsert.push({
-              hubspot_deal_id: d.hubspot_deal_id,
-              stage,
-              amount: defaults[stage].amount,
-              est_date: defaults[stage].est_date,
-            });
-          }
-        }
-      }
-      if (toInsert.length > 0) {
-        const { data: inserted, error: insErr } = await supabase
-          .from('payment_schedule')
-          .insert(toInsert)
-          .select();
-        if (insErr) {
-          console.error('[admin-cashflow] Failed to auto-create schedule rows (non-fatal):', insErr.message);
-        } else {
-          for (const row of inserted ?? []) {
-            (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
-          }
-        }
-      }
-
-      // 7. Assemble response
-      const result = deals.map((d) => {
-        const have = rowsByDeal[d.hubspot_deal_id] ?? {};
-        const stages = STAGE_ORDER.map((stage) => {
-          const row = have[stage] ?? {};
-          return {
-            id: row.id ?? null,
-            stage,
-            label: STAGE_LABELS[stage],
-            amount: Number(row.amount) || 0,
-            est_date: row.est_date ?? null,
-            invoice_date: row.invoice_date ?? null,
-            paid_date: row.paid_date ?? null,
-            note: row.note ?? '',
-          };
-        });
-        const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-        const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
-        return {
-          ...d,
-          stages,
-          invoiced,
-          received,
-          balance: d.contract_amount - received,
-        };
-      }).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
-
+      const result = await getDealsWithSchedule(supabase);
       return res.status(200).json({ deals: result });
     } catch (err) {
       console.error('[admin-cashflow] GET error:', err.message);

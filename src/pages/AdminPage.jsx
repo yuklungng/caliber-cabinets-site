@@ -3017,13 +3017,23 @@ function Pill({ children, bg = '#f3f4f6', color = '#6b7280' }) {
   );
 }
 
-function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', tooltip, compact = false }) {
+function KpiCard({ title, value, valueColor = '#111827', border = '1px solid #e5e7eb', bg = '#ffffff', tooltip, compact = false, onClick = null, active = false }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', background: bg, border, borderRadius: '8px', padding: compact ? '10px 8px' : '14px 18px', cursor: 'default', textAlign: 'center' }}
+      onClick={onClick ?? undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(e); } } : undefined}
+      style={{
+        position: 'relative', background: bg,
+        border: active ? '1px solid #78350f' : border,
+        boxShadow: active ? '0 0 0 2px rgba(120,53,15,0.25)' : 'none',
+        borderRadius: '8px', padding: compact ? '10px 8px' : '14px 18px',
+        cursor: onClick ? 'pointer' : 'default', textAlign: 'center',
+      }}
     >
       <p style={{ margin: '0 0 2px', fontSize: compact ? '10px' : '11px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={title}>
         {title}
@@ -3071,7 +3081,7 @@ function MetricCards({
   avgResponseDays, responseSamples,
   avgTimeToQuoteDays, quoteSamples,
   quoteAcceptRate, contractOrWonCount, quoteOrLaterCount,
-  staleCount, STALE_DAYS,
+  staleCount, STALE_DAYS, onStaleClick, staleActive,
 }) {
   const isMobile = useIsMobile();
   const dash = isLoading ? '–' : '—';
@@ -3162,8 +3172,10 @@ function MetricCards({
         valueColor={isLoading ? '#9ca3af' : staleCount > 0 ? '#d97706' : '#16a34a'}
         bg={staleCount > 0 ? '#fffbeb' : '#ffffff'}
         border={`1px solid ${staleCount > 0 ? '#fde68a' : '#e5e7eb'}`}
+        onClick={!isLoading && staleCount > 0 ? onStaleClick : null}
+        active={staleActive}
         tooltip={!isLoading && (
-          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more business days (${BIZ_HOURS_LABEL}). These likely need a follow-up or a decision.`}>
+          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more business days (${BIZ_HOURS_LABEL}). These likely need a follow-up or a decision.${staleCount > 0 ? ' Click to filter the list below.' : ''}`}>
             {staleCount > 0
               ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ business days</Pill>
               : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS} business days ✓</Pill>
@@ -3184,6 +3196,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const [loadError, setLoadError] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterStage, setFilterStage] = useState(null); // null = all stages
+  const [filterStale, setFilterStale] = useState(false); // true = only stale leads
   const [sortKey, setSortKey] = useState('newest');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -3313,6 +3326,20 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
   const closedCount = leads.filter((l) => l.hs_stage_id && CLOSED_STAGE_IDS.has(l.hs_stage_id)).length;
 
+  // Stale leads: active stage, no stage change in ≥7 days
+  // (computed here, ahead of `filtered`, since the Stale Leads KPI card filter reads this set)
+  const STALE_DAYS = 7;
+  const staleLeadIds = new Set(
+    leads
+      .filter((l) => {
+        if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
+        const d = businessDaysBetween(l.hs_stage_date, null);
+        return d !== null && d >= STALE_DAYS;
+      })
+      .map((l) => l.id),
+  );
+  const staleCount = staleLeadIds.size;
+
   const filtered = leads
     .filter((l) => {
       if (filterType === 'all') return true;
@@ -3331,6 +3358,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
       if (filterStage) return true;
       return !l.hs_stage_id || !CLOSED_STAGE_IDS.has(l.hs_stage_id);
     })
+    .filter((l) => !filterStale || staleLeadIds.has(l.id))
     .filter((l) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -3453,19 +3481,6 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const quoteAcceptRate = quoteOrLaterCount > 0
     ? Math.round((contractOrWonCount / quoteOrLaterCount) * 100) : null;
 
-  // Stale leads: active stage, no stage change in ≥7 days
-  const STALE_DAYS = 7;
-  const staleLeadIds = new Set(
-    leads
-      .filter((l) => {
-        if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
-        const d = businessDaysBetween(l.hs_stage_date, null);
-        return d !== null && d >= STALE_DAYS;
-      })
-      .map((l) => l.id),
-  );
-  const staleCount = staleLeadIds.size;
-
   // ── Tier 3: Avg Full Cycle (New Request → Closed Won) ────────────────────
   const fullCycleSamples = leads
     .filter((l) => l.hs_date_entered_closed_won)
@@ -3512,6 +3527,11 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
         quoteAcceptRate={quoteAcceptRate} contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}
         staleCount={staleCount} STALE_DAYS={STALE_DAYS}
+        staleActive={filterStale}
+        onStaleClick={() => {
+          setFilterStale((prev) => !prev);
+          setFilterStage(null); // stale isn't tied to one stage — clear any stage filter so it doesn't fight this one
+        }}
       />
 
       {/* Stage counts */}
@@ -3528,7 +3548,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
             return (
               <div key={stage.id} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
                 <div
-                  onClick={() => setFilterStage(isActive ? null : stage.id)}
+                  onClick={() => { setFilterStage(isActive ? null : stage.id); setFilterStale(false); }}
                   title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
                   style={{
                     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -3560,7 +3580,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
                 return (
                   <div
                     key={stage.id}
-                    onClick={() => setFilterStage(isActive ? null : stage.id)}
+                    onClick={() => { setFilterStage(isActive ? null : stage.id); setFilterStale(false); }}
                     title={isActive ? 'Click to clear filter' : `Click to filter by ${stage.label}`}
                     style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -3655,7 +3675,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
           {SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort'}
         </button>
 
-        <button onClick={() => { loadLeads(); setFilterStage(null); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
+        <button onClick={() => { loadLeads(); setFilterStage(null); setFilterStale(false); }} style={{ padding: '7px 14px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
           Reset
         </button>
 
@@ -3706,8 +3726,14 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
       )}
 
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
-        {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery || filterStage) ? ' (filtered)' : ''}
-        {!filterStage && closedCount > 0 && (
+        {filtered.length} submission{filtered.length !== 1 ? 's' : ''}{(filterType !== 'all' || searchQuery || filterStage || filterStale) ? ' (filtered)' : ''}
+        {filterStale && (
+          <>
+            {' · showing stale leads only — '}
+            <a href="#" onClick={(e) => { e.preventDefault(); setFilterStale(false); }} style={{ color: '#78350f', fontWeight: '600' }}>clear</a>
+          </>
+        )}
+        {!filterStage && !filterStale && closedCount > 0 && (
           <span> · {closedCount} closed deal{closedCount !== 1 ? 's' : ''} hidden — click a stage above to view</span>
         )}
       </p>

@@ -1,6 +1,6 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
-import { getAllPipelineDeals } from './_lib/hubspot.js';
+import { batchGetDealStages, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
 
 // ─── Cashflow tracking for Closed Won deals ────────────────────────────────────
@@ -34,14 +34,34 @@ export default async function handler(req, res) {
   // ── GET — list Closed Won deals enriched with payment totals ───────────────
   if (req.method === 'GET') {
     try {
-      // 1. Supabase leads already at Closed Won (hs_stage_id kept in sync by the Leads view)
+      // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
+      //    only stage columns Supabase actually has, and they're only refreshed
+      //    when someone loads the Leads view — so they can be stale. We treat them
+      //    as a fallback only; live HubSpot stage (fetched below) is authoritative.
       const { data: supabaseLeads, error } = await supabase
         .from('leads')
-        .select('id, created_at, form_type, fields, hubspot_deal_id, hs_stage_id, hs_stage_date, hs_deal_url')
-        .eq('hs_stage_id', CLOSED_WON_STAGE_ID);
+        .select('id, created_at, form_type, fields, hubspot_deal_id, hs_stage_id')
+        .not('hubspot_deal_id', 'is', null);
       if (error) throw error;
 
-      // 2. HubSpot-only deals (no Supabase row) — reuses the existing, already-tested helper
+      // 2. Live stage/date/URL for those deals straight from HubSpot (same helper
+      //    admin-leads.js uses) — this is what actually determines Closed Won status.
+      let hsStages = {};
+      if (process.env.HUBSPOT_ACCESS_TOKEN && (supabaseLeads ?? []).length > 0) {
+        try {
+          const dealIds = (supabaseLeads ?? []).map((l) => l.hubspot_deal_id).filter(Boolean);
+          hsStages = await batchGetDealStages(dealIds);
+        } catch (hsErr) {
+          console.error('[admin-cashflow] batchGetDealStages error (non-fatal):', hsErr.message);
+        }
+      }
+
+      const closedWonSupabaseLeads = (supabaseLeads ?? []).filter((l) => {
+        const liveStageId = hsStages[l.hubspot_deal_id]?.stageId ?? l.hs_stage_id;
+        return liveStageId === CLOSED_WON_STAGE_ID;
+      });
+
+      // 3. HubSpot-only deals (no Supabase row at all) — reuses the existing, already-tested helper
       let hsOnlyDeals = [];
       if (process.env.HUBSPOT_ACCESS_TOKEN) {
         try {
@@ -53,17 +73,27 @@ export default async function handler(req, res) {
         }
       }
 
-      const deals = [...(supabaseLeads ?? []), ...hsOnlyDeals]
-        .filter((d) => d.hubspot_deal_id) // payments are keyed by deal ID — skip anything without one
-        .map((d) => ({
+      const deals = [
+        ...closedWonSupabaseLeads.map((l) => {
+          const hs = hsStages[l.hubspot_deal_id] ?? null;
+          return {
+            hubspot_deal_id: l.hubspot_deal_id,
+            name: dealDisplayName(l),
+            contract_amount: Number(l.fields?.quote_amount) || 0,
+            closed_at: hs?.dateEnteredClosedWon ?? hs?.stageDate ?? l.created_at,
+            hs_deal_url: hs?.dealUrl ?? null,
+          };
+        }),
+        ...hsOnlyDeals.map((d) => ({
           hubspot_deal_id: d.hubspot_deal_id,
           name: dealDisplayName(d),
           contract_amount: Number(d.fields?.quote_amount) || 0,
-          closed_at: d.hs_stage_date ?? d.created_at,
+          closed_at: d.hs_date_entered_closed_won ?? d.hs_stage_date ?? d.created_at,
           hs_deal_url: d.hs_deal_url ?? null,
-        }));
+        })),
+      ];
 
-      // 3. Payment totals per deal
+      // 4. Payment totals per deal
       const dealIds = deals.map((d) => d.hubspot_deal_id);
       let payments = [];
       if (dealIds.length > 0) {

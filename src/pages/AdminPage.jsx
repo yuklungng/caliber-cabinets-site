@@ -6092,6 +6092,7 @@ function computeActionItems(deals) {
         const urgency = days < 0 ? 'overdue' : days <= 7 ? 'dueSoon' : 'upcoming';
         items.push({
           key: `${stage.id ?? `${deal.hubspot_deal_id}-${stage.stage}`}-invoice`,
+          dealId: deal.hubspot_deal_id,
           dealName: deal.name,
           stageLabel: stage.label,
           amount: stage.amount,
@@ -6111,6 +6112,7 @@ function computeActionItems(deals) {
         const urgency = daysSince > 14 ? 'overdue' : daysSince > 7 ? 'dueSoon' : 'upcoming';
         items.push({
           key: `${stage.id ?? `${deal.hubspot_deal_id}-${stage.stage}`}-followup`,
+          dealId: deal.hubspot_deal_id,
           dealName: deal.name,
           stageLabel: stage.label,
           amount: stage.amount,
@@ -6136,7 +6138,7 @@ const URGENCY_STYLE = {
   upcoming: { bg: '#f9fafb', border: '#e5e7eb', text: '#374151', dot: '#9ca3af', tag: 'Upcoming' },
 };
 
-function ActionItemsList({ deals }) {
+function ActionItemsList({ deals, onSelectDeal }) {
   const items = computeActionItems(deals);
   const overdueCount = items.filter((i) => i.urgency === 'overdue').length;
 
@@ -6158,7 +6160,12 @@ function ActionItemsList({ deals }) {
           {items.map((item) => {
             const s = URGENCY_STYLE[item.urgency];
             return (
-              <div key={item.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: '6px' }}>
+              <div
+                key={item.key}
+                onClick={() => onSelectDeal?.(item.dealId)}
+                title="Click to jump to this deal's payment schedule below"
+                style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: '6px', cursor: onSelectDeal ? 'pointer' : 'default' }}
+              >
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.dot, marginTop: '5px', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '700', color: '#111827' }}>
@@ -6206,6 +6213,17 @@ function FinancialView() {
   }
 
   useEffect(() => { loadDeals(); }, []);
+
+  // Jump from an Action Item to the matching deal below: expand its schedule,
+  // clear any search that might be hiding it, and scroll it into view.
+  function handleSelectDeal(dealId) {
+    if (!dealId) return;
+    setSearchQuery('');
+    setExpandedId(dealId);
+    setTimeout(() => {
+      document.getElementById(`financial-deal-${dealId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }
 
   function handleRowSaved(dealId, updatedRow) {
     setDeals((prev) => prev.map((d) => {
@@ -6310,7 +6328,7 @@ function FinancialView() {
       {deals.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '24px' }}>
           <CashInflowChart deals={deals} />
-          <ActionItemsList deals={deals} />
+          <ActionItemsList deals={deals} onSelectDeal={handleSelectDeal} />
         </div>
       )}
 
@@ -6372,7 +6390,7 @@ function FinancialView() {
             const isExpanded = expandedId === d.hubspot_deal_id;
             const isPaid = d.balance <= 0 && d.contract_amount > 0;
             return (
-              <div key={d.hubspot_deal_id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+              <div key={d.hubspot_deal_id} id={`financial-deal-${d.hubspot_deal_id}`} style={{ background: '#fff', border: isExpanded ? '1px solid #78350f' : '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', transition: 'border-color 0.2s' }}>
                 <div
                   onClick={() => setExpandedId(isExpanded ? null : d.hubspot_deal_id)}
                   style={{ padding: '16px 20px', cursor: 'pointer', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr 1fr 1fr 90px', gap: '10px', alignItems: 'center' }}

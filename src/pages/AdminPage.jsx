@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
 import { FileDropZone } from '../components/FileDropZone.jsx';
@@ -106,7 +106,7 @@ const LEAD_ACTIVITIES = [
   { key: 'appt_completed', label: 'Appointment Completed' },
 ];
 
-// Default win-probability % per pipeline stage (editable in Forecast Settings).
+// Default win-probability % per pipeline stage (editable in Settings > Financial).
 // Exit stages (Won/Lost/Declined) are not configurable — they're terminal.
 const DEFAULT_STAGE_FORECAST = [
   { id: '3869825744', label: 'New Request',    probability: 15 },
@@ -2072,7 +2072,7 @@ function UsersPanel({ currentUser }) {
                         style={{ fontSize: '13px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', cursor: 'pointer' }}
                       >
                         <option value="staff">Staff (full access)</option>
-                        <option value="bookkeeper">Bookkeeper (Cashflow only)</option>
+                        <option value="bookkeeper">Bookkeeper (Financial only)</option>
                       </select>
                     )}
                     <button
@@ -2139,7 +2139,7 @@ function UsersPanel({ currentUser }) {
                     style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none', background: '#fff', color: '#374151' }}
                   >
                     <option value="staff">Staff (full access)</option>
-                    <option value="bookkeeper">Bookkeeper (Cashflow only)</option>
+                    <option value="bookkeeper">Bookkeeper (Financial only)</option>
                   </select>
                 </div>
               )}
@@ -4955,10 +4955,20 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ─── Forecast Settings Panel ──────────────────────────────────────────────────
+// ─── Financial Settings Panel ─────────────────────────────────────────────────
 
-function ForecastSettingsPanel() {
+const DEFAULT_PAYMENT_SCHEDULE_SETTINGS = {
+  initialDepositPct: 50,
+  productionPaymentPct: 45,
+  finalPaymentPct: 5,
+  initialDepositDaysAfterClose: 3,
+  productionPaymentWeeksAfterDeposit: 8,
+  finalPaymentWeeksAfterProduction: 2,
+};
+
+function FinancialSettingsPanel() {
   const [probs, setProbs] = useState(null); // stageId → probability number
+  const [sched, setSched] = useState(null); // payment schedule defaults
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
 
@@ -4966,60 +4976,109 @@ function ForecastSettingsPanel() {
     apiCall('/api/admin-settings')
       .then((r) => r.json())
       .then((d) => {
-        const stored = d.settings?.stage_probabilities ?? {};
-        // Merge stored values over defaults
-        const merged = {};
+        const storedProbs = d.settings?.stage_probabilities ?? {};
+        const mergedProbs = {};
         for (const stage of DEFAULT_STAGE_FORECAST) {
-          merged[stage.id] = stored[stage.id] ?? stage.probability;
+          mergedProbs[stage.id] = storedProbs[stage.id] ?? stage.probability;
         }
-        setProbs(merged);
+        setProbs(mergedProbs);
+        setSched({ ...DEFAULT_PAYMENT_SCHEDULE_SETTINGS, ...(d.settings?.payment_schedule_defaults ?? {}) });
       })
       .catch(() => {
-        const merged = {};
-        for (const stage of DEFAULT_STAGE_FORECAST) merged[stage.id] = stage.probability;
-        setProbs(merged);
+        const mergedProbs = {};
+        for (const stage of DEFAULT_STAGE_FORECAST) mergedProbs[stage.id] = stage.probability;
+        setProbs(mergedProbs);
+        setSched({ ...DEFAULT_PAYMENT_SCHEDULE_SETTINGS });
       });
   }, []);
+
+  const pctTotal = sched ? (Number(sched.initialDepositPct) || 0) + (Number(sched.productionPaymentPct) || 0) + (Number(sched.finalPaymentPct) || 0) : 100;
 
   async function handleSave() {
     setSaving(true);
     setSaved(false);
     try {
-      await apiCall('/api/admin-settings', {
-        method: 'PUT',
-        body: { key: 'stage_probabilities', value: probs },
-      });
+      await Promise.all([
+        apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'stage_probabilities', value: probs } }),
+        apiCall('/api/admin-settings', { method: 'PUT', body: { key: 'payment_schedule_defaults', value: sched } }),
+      ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch { /* ignore */ }
     setSaving(false);
   }
 
-  if (!probs) return <p style={{ fontSize: '14px', color: '#9ca3af' }}>Loading…</p>;
+  if (!probs || !sched) return <p style={{ fontSize: '14px', color: '#9ca3af' }}>Loading…</p>;
+
+  const numField = (key, width = '56px') => (
+    <input
+      type="number"
+      min="0"
+      value={sched[key]}
+      onChange={(e) => setSched((s) => ({ ...s, [key]: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+      style={{ width, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', textAlign: 'right', outline: 'none' }}
+    />
+  );
 
   return (
     <PanelShell
-      title="Forecast Settings"
-      description="Win probability per pipeline stage. Used to weight expected deal value in the cashflow forecast. Override individual deals from the Leads view."
+      title="Financial Settings"
+      description="Defaults used across Leads forecasting and the Financial Management payment schedule."
     >
-      <div style={{ display: 'grid', gap: '12px', maxWidth: '420px' }}>
-        {DEFAULT_STAGE_FORECAST.map((stage) => (
-          <div key={stage.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ flex: 1, fontSize: '14px', color: '#374151', fontWeight: '500' }}>{stage.label}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={probs[stage.id] ?? stage.probability}
-                onChange={(e) => setProbs((p) => ({ ...p, [stage.id]: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) }))}
-                style={{ width: '64px', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', textAlign: 'right', outline: 'none' }}
-              />
-              <span style={{ fontSize: '14px', color: '#6b7280' }}>%</span>
-            </div>
+      <div style={{ display: 'grid', gap: '32px', maxWidth: '520px' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>Win Probability by Stage</h3>
+          <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
+            Used to weight expected deal value in the Leads cashflow forecast. Override individual deals from the Leads view.
+          </p>
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {DEFAULT_STAGE_FORECAST.map((stage) => (
+              <div key={stage.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <span style={{ flex: 1, fontSize: '14px', color: '#374151', fontWeight: '500' }}>{stage.label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={probs[stage.id] ?? stage.probability}
+                    onChange={(e) => setProbs((p) => ({ ...p, [stage.id]: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) }))}
+                    style={{ width: '64px', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', textAlign: 'right', outline: 'none' }}
+                  />
+                  <span style={{ fontSize: '14px', color: '#6b7280' }}>%</span>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+        </div>
+
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>Payment Schedule Defaults</h3>
+          <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
+            Applied automatically when a deal first reaches Closed Won, per the Master Cabinetry Construction Agreement (Section 7.2–7.3). Editing a deal's own schedule in Financial Management never gets overwritten by these.
+          </p>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ width: '150px', fontSize: '14px', color: '#374151', fontWeight: '500' }}>Initial Deposit</span>
+              {numField('initialDepositPct', '52px')}<span style={{ fontSize: '13px', color: '#6b7280' }}>% · due</span>
+              {numField('initialDepositDaysAfterClose')}<span style={{ fontSize: '13px', color: '#6b7280' }}>days after Closed Won date</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ width: '150px', fontSize: '14px', color: '#374151', fontWeight: '500' }}>Production Payment</span>
+              {numField('productionPaymentPct', '52px')}<span style={{ fontSize: '13px', color: '#6b7280' }}>% · due</span>
+              {numField('productionPaymentWeeksAfterDeposit')}<span style={{ fontSize: '13px', color: '#6b7280' }}>weeks after Initial Deposit date</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ width: '150px', fontSize: '14px', color: '#374151', fontWeight: '500' }}>Final Payment</span>
+              {numField('finalPaymentPct', '52px')}<span style={{ fontSize: '13px', color: '#6b7280' }}>% · due</span>
+              {numField('finalPaymentWeeksAfterProduction')}<span style={{ fontSize: '13px', color: '#6b7280' }}>weeks after Production Payment date</span>
+            </div>
+            {pctTotal !== 100 && (
+              <p style={{ margin: 0, fontSize: '12px', color: '#b45309' }}>⚠ Percentages add up to {pctTotal}%, not 100%. Amounts will still save, but double-check the split.</p>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -5806,26 +5865,159 @@ function RestoreHelpModal({ filename, onClose }) {
   );
 }
 
-// ─── CashflowView ─────────────────────────────────────────────────────────────
+// ─── FinancialView ────────────────────────────────────────────────────────────
 // Independent of the Leads pipeline on purpose: reads Closed Won deals
-// read-only (name, contract amount, close date) and stores payments in their
-// own table. Nothing here writes to `leads`, changes a stage, or touches
-// HubSpot. This is the only view the Bookkeeper role can see.
-
-const PAYMENT_METHOD_OPTIONS = ['Check', 'ACH / Bank Transfer', 'Credit Card', 'Cash', 'Other'];
+// read-only (name, contract amount, close date) and stores the payment
+// schedule in its own table. Nothing here writes to `leads`, changes a stage,
+// or touches HubSpot. This is the only view the Bookkeeper role can see.
+//
+// Each deal gets exactly 3 rows — Initial Deposit, Production Payment, Final
+// Payment — per the Master Cabinetry Construction Agreement. Rows are
+// auto-created server-side with default amounts/dates the first time a deal
+// is loaded here; editing a field from then on is permanent (server never
+// overwrites an existing row). Defaults are configurable in Settings > Financial.
 
 function formatMoney(n) {
   return (Number(n) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-function CashflowView() {
+// One editable date cell within a stage row. Always-visible <input type="date">
+// (not click-to-edit) since this is meant to read like a spreadsheet.
+function StageDateInput({ value, onSave, accent = '#374151' }) {
+  const [local, setLocal] = useState(value ?? '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setLocal(value ?? ''); }, [value]);
+
+  async function commit(next) {
+    if (next === (value ?? '')) return;
+    setSaving(true);
+    try { await onSave(next || null); } finally { setSaving(false); }
+  }
+
+  return (
+    <input
+      type="date"
+      value={local}
+      disabled={saving}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => commit(local)}
+      style={{
+        width: '100%', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: '5px',
+        fontSize: '12.5px', color: accent, background: saving ? '#f9fafb' : '#fff', outline: 'none',
+        boxSizing: 'border-box',
+      }}
+    />
+  );
+}
+
+// Editable dollar amount cell.
+function StageAmountInput({ value, onSave }) {
+  const [local, setLocal] = useState(value != null ? String(value) : '0');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setLocal(value != null ? String(value) : '0'); }, [value]);
+
+  async function commit() {
+    const cleaned = local.replace(/[^0-9.]/g, '');
+    const parsed = cleaned !== '' ? parseFloat(cleaned) : 0;
+    if (parsed === (Number(value) || 0)) return;
+    setSaving(true);
+    try { await onSave(parsed); } finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '0 8px', background: saving ? '#f9fafb' : '#fff' }}>
+      <span style={{ fontSize: '12px', color: '#9ca3af' }}>$</span>
+      <input
+        value={local}
+        disabled={saving}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        style={{ width: '100%', padding: '6px 0', border: 0, fontSize: '12.5px', color: '#111827', outline: 'none', background: 'transparent' }}
+      />
+    </div>
+  );
+}
+
+function stagePaymentStatus(stage) {
+  if (stage.paid_date) return { label: 'Paid', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' };
+  if (stage.invoice_date) return { label: 'Invoiced', bg: '#fffbeb', color: '#b45309', border: '#fde68a' };
+  return { label: 'Pending', bg: '#f9fafb', color: '#9ca3af', border: '#e5e7eb' };
+}
+
+// The 3-row payment schedule table for a single deal.
+function PaymentScheduleTable({ deal, isMobile, onRowSaved }) {
+  async function saveField(rowId, patch) {
+    const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
+    if (!r.ok) { alert('Failed to save — please try again.'); return; }
+    const { row } = await r.json();
+    onRowSaved(deal.hubspot_deal_id, row);
+  }
+
+  if (isMobile) {
+    return (
+      <div style={{ display: 'grid', gap: '10px' }}>
+        {deal.stages.map((s) => {
+          const status = stagePaymentStatus(s);
+          return (
+            <div key={s.stage} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{s.label}</span>
+                <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Amount</p>
+                  <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Est. Date</p>
+                  <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Invoiced</p>
+                  <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Paid</p>
+                  <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '150px 120px 1fr 1fr 1fr 90px', gap: '10px', alignItems: 'center' }}>
+      {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status'].map((h) => (
+        <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
+      ))}
+      {deal.stages.map((s) => {
+        const status = stagePaymentStatus(s);
+        return (
+          <Fragment key={s.stage}>
+            <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{s.label}</span>
+            <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+            <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
+            <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+            <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+            <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, textAlign: 'center', whiteSpace: 'nowrap' }}>{status.label}</span>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function FinancialView() {
   const isMobile = useIsMobile();
   const [deals, setDeals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [expandedId, setExpandedId] = useState(null);
-  const [paymentModalFor, setPaymentModalFor] = useState(null); // deal object, or null
-  const [confirmDeletePayment, setConfirmDeletePayment] = useState(null); // { id, label } or null
 
   async function loadDeals() {
     setIsLoading(true);
@@ -5844,29 +6036,30 @@ function CashflowView() {
 
   useEffect(() => { loadDeals(); }, []);
 
-  async function handleDeletePayment(id) {
-    setConfirmDeletePayment(null);
-    try {
-      const r = await apiCall('/api/admin-cashflow', { method: 'DELETE', body: { id } });
-      if (!r.ok) throw new Error('Failed to delete');
-      loadDeals();
-    } catch {
-      alert('Failed to delete payment. Please try again.');
-    }
-  }
-
-  function formatDate(iso) {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  function handleRowSaved(dealId, updatedRow) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const stages = d.stages.map((s) => (s.id === updatedRow.id ? {
+        ...s,
+        amount: Number(updatedRow.amount) || 0,
+        est_date: updatedRow.est_date,
+        invoice_date: updatedRow.invoice_date,
+        paid_date: updatedRow.paid_date,
+      } : s));
+      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
+    }));
   }
 
   const totals = deals.reduce((acc, d) => ({
     contract: acc.contract + d.contract_amount,
+    invoiced: acc.invoiced + d.invoiced,
     received: acc.received + d.received,
     balance: acc.balance + d.balance,
-  }), { contract: 0, received: 0, balance: 0 });
+  }), { contract: 0, invoiced: 0, received: 0, balance: 0 });
 
-  if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading cashflow…</p>;
+  if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading financials…</p>;
   if (loadError) return (
     <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
       {loadError} — <button onClick={loadDeals} style={{ background: 'none', border: 0, color: '#b91c1c', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Retry</button>
@@ -5876,15 +6069,16 @@ function CashflowView() {
   return (
     <div>
       <div style={{ marginBottom: '20px' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Cashflow</h2>
+        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#111827' }}>Financial Management</h2>
         <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-          Payments against Closed Won deals. Deals appear here automatically once won — logging a payment never changes a deal's stage or any HubSpot data.
+          Payment schedule against Closed Won deals — Initial Deposit, Production Payment, Final Payment. Deals appear here automatically once won; editing dates or amounts never changes a deal's stage or any HubSpot data.
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
         {[
           { label: 'Total Contract Value', value: totals.contract, color: '#111827' },
+          { label: 'Total Invoiced', value: totals.invoiced, color: '#b45309' },
           { label: 'Total Received', value: totals.received, color: '#15803d' },
           { label: 'Total Outstanding', value: totals.balance, color: totals.balance > 0 ? '#b45309' : '#6b7280' },
         ].map((k) => (
@@ -5933,44 +6127,20 @@ function CashflowView() {
                     </>
                   )}
                   <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
-                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>{isExpanded ? '▴ Hide' : '▾ Details'}</span>
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>{isExpanded ? '▴ Hide' : '▾ Schedule'}</span>
                   </div>
                 </div>
 
                 {isExpanded && (
-                  <div style={{ padding: '0 20px 20px', borderTop: '1px solid #f3f4f6' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 10px' }}>
-                      <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Payment History ({d.payments.length})
+                  <div style={{ padding: '4px 20px 20px', borderTop: '1px solid #f3f4f6' }} onClick={(e) => e.stopPropagation()}>
+                    <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Payment Schedule
+                    </p>
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} />
+                    {d.hs_deal_url && (
+                      <p style={{ margin: '14px 0 0' }}>
+                        <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>
                       </p>
-                      <button
-                        onClick={() => setPaymentModalFor(d)}
-                        style={{ padding: '6px 14px', border: 0, borderRadius: '6px', background: '#78350f', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                      >
-                        + Log Payment
-                      </button>
-                    </div>
-                    {d.payments.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>No payments logged yet.</p>
-                    ) : (
-                      <div style={{ display: 'grid', gap: '6px' }}>
-                        {d.payments.map((p) => (
-                          <div key={p.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', padding: '8px 12px', background: '#f9fafb', borderRadius: '6px' }}>
-                            <span style={{ fontSize: '13px', fontWeight: '700', color: '#15803d', minWidth: '90px' }}>{formatMoney(p.amount)}</span>
-                            <span style={{ fontSize: '12px', color: '#6b7280', minWidth: '90px' }}>{formatDate(p.payment_date)}</span>
-                            <span style={{ fontSize: '12px', color: '#6b7280', minWidth: '120px' }}>{p.method ?? '—'}</span>
-                            <span style={{ fontSize: '12px', color: '#9ca3af', flex: 1 }}>{p.note ?? ''}</span>
-                            <span style={{ fontSize: '11px', color: '#d1d5db' }}>{p.created_by}</span>
-                            <button
-                              onClick={() => setConfirmDeletePayment({ id: p.id, label: `${formatMoney(p.amount)} on ${formatDate(p.payment_date)}` })}
-                              style={{ background: 'none', border: 0, color: '#d1d5db', cursor: 'pointer', fontSize: '15px', padding: '0 4px', lineHeight: 1 }}
-                              title="Delete this payment entry"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
                     )}
                   </div>
                 )}
@@ -5979,125 +6149,25 @@ function CashflowView() {
           })}
         </div>
       )}
-
-      {paymentModalFor && (
-        <LogPaymentModal
-          deal={paymentModalFor}
-          onClose={() => setPaymentModalFor(null)}
-          onSaved={() => { setPaymentModalFor(null); loadDeals(); }}
-        />
-      )}
-
-      {confirmDeletePayment && (
-        <FixedOverlay>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '400px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>Delete this payment?</h3>
-            <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#6b7280' }}>{confirmDeletePayment.label}. This can't be undone.</p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmDeletePayment(null)} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => handleDeletePayment(confirmDeletePayment.id)} style={{ padding: '8px 16px', border: 0, borderRadius: '6px', background: '#b91c1c', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Delete</button>
-            </div>
-          </div>
-        </div>
-        </FixedOverlay>
-      )}
     </div>
-  );
-}
-
-function LogPaymentModal({ deal, onClose, onSaved }) {
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [method, setMethod] = useState(PAYMENT_METHOD_OPTIONS[0]);
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const canSave = Number(amount) > 0 && !!date;
-
-  async function handleSave() {
-    if (!canSave || saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      const r = await apiCall('/api/admin-cashflow', {
-        method: 'POST',
-        body: { hubspot_deal_id: deal.hubspot_deal_id, amount: Number(amount), payment_date: date, method, note },
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to save');
-      onSaved();
-    } catch (err) {
-      setError(err.message);
-      setSaving(false);
-    }
-  }
-
-  return (
-    <FixedOverlay>
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onMouseDown={onClose}>
-      <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onMouseDown={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: '0 0 4px', fontSize: '17px', fontWeight: '700', color: '#111827' }}>Log a Payment</h3>
-        <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#6b7280' }}>{deal.name}</p>
-
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Amount</label>
-        <input
-          type="number" min="0.01" step="0.01" autoFocus
-          value={amount} onChange={(e) => setAmount(e.target.value)}
-          placeholder="0.00"
-          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box' }}
-        />
-
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Date</label>
-        <input
-          type="date" value={date} onChange={(e) => setDate(e.target.value)}
-          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box' }}
-        />
-
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Method</label>
-        <select
-          value={method} onChange={(e) => setMethod(e.target.value)}
-          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', marginBottom: '14px', boxSizing: 'border-box', background: '#fff' }}
-        >
-          {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Note (optional)</label>
-        <textarea
-          value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-          placeholder="e.g. Deposit, final payment, check #1234"
-          style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', marginBottom: '18px', boxSizing: 'border-box' }}
-        />
-
-        {error && <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#b91c1c' }}>{error}</p>}
-
-        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-          <button onClick={onClose} disabled={saving} style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: saving ? 'not-allowed' : 'pointer' }}>Cancel</button>
-          <button onClick={handleSave} disabled={!canSave || saving} style={{ padding: '8px 18px', border: 0, borderRadius: '6px', background: canSave ? '#78350f' : '#d1d5db', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: canSave && !saving ? 'pointer' : 'not-allowed' }}>
-            {saving ? 'Saving…' : 'Save Payment'}
-          </button>
-        </div>
-      </div>
-    </div>
-    </FixedOverlay>
   );
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 // `bookkeeperHidden: true` items are hidden from the restricted Bookkeeper
-// role (Brianna's account) — she only sees Cashflow. Super admins and regular
-// staff are unaffected by that flag; it's purely for the bookkeeper persona.
+// role (Brianna's account) — she only sees Financial Management. Super admins
+// and regular staff are unaffected by that flag; it's purely for the bookkeeper persona.
 const NAV_ITEMS = [
   { key: 'leads', label: 'Leads', section: null, bookkeeperHidden: true },
   { key: 'performance', label: 'Performance', section: null, bookkeeperHidden: true },
   { key: 'site-stats', label: 'Site Stats', section: null, bookkeeperHidden: true },
-  { key: 'cashflow', label: 'Cashflow', section: null },
+  { key: 'cashflow', label: 'Financial', section: null },
   { key: 'projects', label: 'Projects', section: 'Content', bookkeeperHidden: true },
   { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
   { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
-  { key: 'forecast-settings', label: 'Forecast', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
+  { key: 'financial-settings', label: 'Financial', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
 ];
 
@@ -6112,15 +6182,25 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
     return true;
   });
 
-  const sections = [];
-  let lastSection = null;
+  // Collapsible sections (Settings especially — 5 items and growing). Persisted
+  // per-browser; a section auto-expands if the active view lives inside it,
+  // even if the user previously collapsed it, so navigation never gets "stuck" hidden.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('admin_nav_collapsed_sections') ?? '{}'); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('admin_nav_collapsed_sections', JSON.stringify(collapsed)); } catch { /* ignore */ }
+  }, [collapsed]);
+  function toggleSection(section) {
+    setCollapsed((prev) => ({ ...prev, [section]: !prev[section] }));
+  }
 
+  // Group consecutive items sharing a section label into one block.
+  const groups = [];
   for (const item of visibleItems) {
-    if (item.section !== lastSection) {
-      sections.push({ type: 'heading', label: item.section });
-      lastSection = item.section;
-    }
-    sections.push({ type: 'item', ...item });
+    const last = groups[groups.length - 1];
+    if (last && last.section === item.section) last.items.push(item);
+    else groups.push({ section: item.section, items: [item] });
   }
 
   const hasData = winRate !== null;
@@ -6218,31 +6298,49 @@ function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
         )}
       </div>
       )}
-      {/* ── Nav items ── */}
-      {sections.map((entry, i) => {
-        if (entry.type === 'heading') {
-          return entry.label ? (
-            <p key={i} style={{ margin: '20px 0 6px 16px', fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {entry.label}
-            </p>
-          ) : null;
-        }
-        const isActive = activeView === entry.key;
+      {/* ── Nav items, grouped by section — each section header toggles collapse ── */}
+      {groups.map((g, gi) => {
+        const hasActiveChild = g.items.some((it) => it.key === activeView);
+        const isCollapsed = g.section && !!collapsed[g.section] && !hasActiveChild;
         return (
-          <button
-            key={entry.key}
-            onClick={() => onNavigate(entry.key)}
-            style={{
-              display: 'block', width: '100%', textAlign: 'left',
-              padding: '8px 16px', border: 0, borderRadius: '6px',
-              background: isActive ? '#78350f' : 'transparent',
-              color: isActive ? '#ffffff' : '#374151',
-              fontSize: '14px', fontWeight: isActive ? '700' : '500',
-              cursor: 'pointer', marginBottom: '2px',
-            }}
-          >
-            {entry.label}
-          </button>
+          <div key={gi}>
+            {g.section && (
+              <button
+                onClick={() => toggleSection(g.section)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                  margin: '20px 0 6px', padding: '0 16px', background: 'none', border: 0, cursor: 'pointer',
+                }}
+                title={isCollapsed ? `Expand ${g.section}` : `Collapse ${g.section}`}
+              >
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {g.section}
+                </span>
+                <span style={{ fontSize: '9px', color: '#9ca3af', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>
+                  ▾
+                </span>
+              </button>
+            )}
+            {!isCollapsed && g.items.map((item) => {
+              const isActive = activeView === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => onNavigate(item.key)}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    padding: '8px 16px', border: 0, borderRadius: '6px',
+                    background: isActive ? '#78350f' : 'transparent',
+                    color: isActive ? '#ffffff' : '#374151',
+                    fontSize: '14px', fontWeight: isActive ? '700' : '500',
+                    cursor: 'pointer', marginBottom: '2px',
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         );
       })}
     </nav>
@@ -6317,25 +6415,25 @@ export function AdminPage() {
   const isBookkeeper = !isSuperAdmin && currentUser?.role === 'bookkeeper';
 
   function renderView() {
-    const settingsViews = ['notifications', 'confirmations', 'forecast-settings', 'users', 'backup'];
+    const settingsViews = ['notifications', 'confirmations', 'financial-settings', 'users', 'backup'];
     if (settingsViews.includes(activeView) && !isSuperAdmin) {
-      return isBookkeeper ? <CashflowView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      return isBookkeeper ? <FinancialView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
-    // Bookkeeper role only ever sees Cashflow — redirect away from anything else,
+    // Bookkeeper role only ever sees Financial Management — redirect away from anything else,
     // regardless of how activeView got set (e.g. a stale nav state).
     const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects'];
-    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <CashflowView />;
+    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView />;
     switch (activeView) {
-      case 'cashflow': return <CashflowView />;
+      case 'cashflow': return <FinancialView />;
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
-      case 'forecast-settings': return <ForecastSettingsPanel />;
+      case 'financial-settings': return <FinancialSettingsPanel />;
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
       case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
-      default: return isBookkeeper ? <CashflowView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      default: return isBookkeeper ? <FinancialView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }
 

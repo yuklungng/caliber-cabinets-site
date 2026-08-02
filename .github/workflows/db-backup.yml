@@ -34,6 +34,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
 
+          # Belt-and-suspenders: don't rely on Debian's alternatives system
+          # having repointed the unversioned `pg_dump` symlink at the new
+          # install. Confirm the v17 binary is actually present and log both
+          # versions so a future mismatch is obvious in the run log instead
+          # of silently resolving to whichever one `pg_dump` happens to mean.
+          test -x /usr/lib/postgresql/17/bin/pg_dump
+          echo "Unversioned pg_dump: $(pg_dump --version)"
+          echo "PGDG v17 pg_dump:    $(/usr/lib/postgresql/17/bin/pg_dump --version)"
+
       - name: Run pg_dump
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -49,7 +58,10 @@ jobs:
             exit 1
           fi
 
-          pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl | gzip > "$FILE"
+          # Call the v17 binary by its explicit path rather than the bare
+          # `pg_dump` on PATH — Ubuntu's alternatives symlink doesn't
+          # reliably switch to the newly installed version.
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl | gzip > "$FILE"
 
           # With pipefail above, a pg_dump failure already aborts this step —
           # but also guard against a "successful" dump that's suspiciously

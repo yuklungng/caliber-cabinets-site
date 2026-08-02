@@ -87,8 +87,13 @@ jobs:
             echo "::error::SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY secrets are not set."
             exit 1
           fi
+          # Supabase's newer sb_secret_... keys are opaque, not JWTs — unlike
+          # the legacy service_role JWT, they must also be sent as `apikey`
+          # or the Storage gateway can't identify them (Authorization: Bearer
+          # alone isn't enough).
           curl -sS --fail-with-body -X POST \
             "$SUPABASE_URL/storage/v1/object/db-backups/$FILENAME" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/gzip" \
             -H "x-upsert: true" \
@@ -103,6 +108,7 @@ jobs:
           set -euo pipefail
           ALL=$(curl -sS --fail-with-body -X POST \
             "$SUPABASE_URL/storage/v1/object/list/db-backups" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -d '{"prefix": "caliber-", "limit": 1000, "sortBy": {"column":"name","order":"desc"}}')
@@ -111,6 +117,7 @@ jobs:
           if [ "$COUNT" -gt 0 ]; then
             curl -sS --fail-with-body -X DELETE \
               "$SUPABASE_URL/storage/v1/object/db-backups" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
               -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
               -H "Content-Type: application/json" \
               -d "{\"prefixes\": $TO_DELETE}"

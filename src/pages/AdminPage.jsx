@@ -3961,7 +3961,14 @@ function CashInflowChart({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Build month buckets: 3 months back + current + 5 ahead = 9 total
+  // Build month buckets: 3 months back + current + 5 ahead = 9 total.
+  // Every stage lands in a bucket by year+month only — the axis (and every
+  // past/future comparison below) treats each bucket as spanning the whole
+  // month, 1st through last day, never a specific date. Labels are built from
+  // a fixed month-abbreviation table rather than toLocaleDateString so the
+  // x-axis always reads "Mon 'YY" — never a day-of-month — regardless of the
+  // browser's locale settings.
+  const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const PAST_MONTHS = 3;
   const FWD_MONTHS  = 5;
   const monthBuckets = [];
@@ -3969,7 +3976,7 @@ function CashInflowChart({
     const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
     monthBuckets.push({
       key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      label: `${MONTH_ABBR[d.getMonth()]} '${String(d.getFullYear()).slice(-2)}`,
       year: d.getFullYear(),
       month: d.getMonth(),
       received: 0,   // stages already paid

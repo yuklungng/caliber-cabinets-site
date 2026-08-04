@@ -5025,11 +5025,49 @@ const DEFAULT_PAYMENT_SCHEDULE_SETTINGS = {
   finalPaymentWeeksAfterProduction: 2,
 };
 
-function FinancialSettingsPanel() {
+function FinancialSettingsPanel({ banner, onDismissBanner }) {
   const [probs, setProbs] = useState(null); // stageId → probability number
   const [sched, setSched] = useState(null); // payment schedule defaults
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
+
+  const [qb, setQb] = useState(null); // { connected, companyName, realmId, connectedAt }
+  const [qbLoading, setQbLoading] = useState(true);
+  const [qbBusy, setQbBusy] = useState(false);
+
+  function loadQbStatus() {
+    setQbLoading(true);
+    apiCall('/api/admin-quickbooks?action=status')
+      .then((r) => r.json())
+      .then((d) => setQb(d))
+      .catch(() => setQb({ connected: false }))
+      .finally(() => setQbLoading(false));
+  }
+
+  useEffect(() => { loadQbStatus(); }, []);
+
+  async function handleQbConnect() {
+    setQbBusy(true);
+    try {
+      const res = await apiCall('/api/admin-quickbooks?action=connect', { method: 'POST' });
+      const data = await res.json();
+      if (data.authorizeUrl) {
+        window.location.href = data.authorizeUrl; // full-page nav to Intuit's consent screen
+        return;
+      }
+    } catch { /* ignore — button just stops spinning */ }
+    setQbBusy(false);
+  }
+
+  async function handleQbDisconnect() {
+    if (!window.confirm('Disconnect QuickBooks? Nothing already synced is affected, but automatic invoice/payment matching will stop until reconnected.')) return;
+    setQbBusy(true);
+    try {
+      await apiCall('/api/admin-quickbooks?action=disconnect', { method: 'POST' });
+      loadQbStatus();
+    } catch { /* ignore */ }
+    setQbBusy(false);
+  }
 
   useEffect(() => {
     apiCall('/api/admin-settings')
@@ -5084,7 +5122,51 @@ function FinancialSettingsPanel() {
       title="Financial Settings"
       description="Defaults used across Leads forecasting and the Financial Management payment schedule."
     >
+      {banner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', padding: '10px 14px',
+          borderRadius: '6px', fontSize: '13px', maxWidth: '520px',
+          background: banner.type === 'success' ? '#f0fdf4' : '#fef2f2',
+          border: `1px solid ${banner.type === 'success' ? '#bbf7d0' : '#fca5a5'}`,
+          color: banner.type === 'success' ? '#166534' : '#b91c1c',
+        }}>
+          <span style={{ flex: 1 }}>{banner.type === 'success' ? '✓' : '⚠'} {banner.message}</span>
+          <span onClick={onDismissBanner} style={{ cursor: 'pointer', opacity: 0.6, fontWeight: '700' }}>✕</span>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gap: '32px', maxWidth: '520px' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>QuickBooks Online</h3>
+          <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
+            Connects Brianna's QuickBooks company so invoices and payments recorded there can be automatically matched to Financial Management's payment schedule.
+          </p>
+          {qbLoading ? (
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Checking connection…</p>
+          ) : qb?.connected ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', color: '#166534', fontWeight: '600' }}>
+                ✓ Connected to {qb.companyName || 'QuickBooks'}
+              </span>
+              <button
+                onClick={handleQbDisconnect}
+                disabled={qbBusy}
+                style={{ padding: '6px 14px', background: '#fff', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: '6px', fontWeight: '600', fontSize: '13px', cursor: qbBusy ? 'wait' : 'pointer' }}
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleQbConnect}
+              disabled={qbBusy}
+              style={{ padding: '9px 20px', background: '#2ca01c', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: qbBusy ? 'wait' : 'pointer', opacity: qbBusy ? 0.6 : 1 }}
+            >
+              {qbBusy ? 'Connecting…' : 'Connect to QuickBooks'}
+            </button>
+          )}
+        </div>
+
         <div>
           <h3 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>Win Probability by Stage</h3>
           <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
@@ -6656,6 +6738,7 @@ export function AdminPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeView, setActiveView] = useState('leads');
   const [navWinRate, setNavWinRate] = useState(null); // bubbled up from LeadsView, shown in nav on all tabs
+  const [qbBanner, setQbBanner] = useState(null); // { type: 'success' | 'error', message }
 
   // Dark mode — per-browser preference (each person's own toggle, stored locally).
   // Implemented as a CSS filter invert rather than per-element theming, since this
@@ -6707,6 +6790,24 @@ export function AdminPage() {
     setAuthState('login');
   }
 
+  // Land back here after the QuickBooks OAuth redirect (api/admin-quickbooks-callback.js
+  // sends the browser to /admin?qb=connected or /admin?qb=error&msg=...). Jump straight
+  // to Financial Settings so the result is visible without hunting for it, and strip the
+  // query string so a refresh doesn't re-show the banner.
+  useEffect(() => {
+    if (authState !== 'authed') return;
+    const params = new URLSearchParams(window.location.search);
+    const qb = params.get('qb');
+    if (!qb) return;
+    setActiveView('financial-settings');
+    setQbBanner(
+      qb === 'connected'
+        ? { type: 'success', message: 'QuickBooks connected.' }
+        : { type: 'error', message: params.get('msg') || 'QuickBooks connection failed.' },
+    );
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [authState]);
+
   const isMobile = useIsMobile();
 
   if (authState === 'loading') return null;
@@ -6730,7 +6831,7 @@ export function AdminPage() {
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
-      case 'financial-settings': return <FinancialSettingsPanel />;
+      case 'financial-settings': return <FinancialSettingsPanel banner={qbBanner} onDismissBanner={() => setQbBanner(null)} />;
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;

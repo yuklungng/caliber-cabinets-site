@@ -10,7 +10,10 @@ import { createClient } from '@supabase/supabase-js';
  *   SITE_URL                    — used to build the redirect_uri; must exactly
  *                                  match the Redirect URI registered in the
  *                                  Intuit app (Settings → Redirect URIs):
- *                                  <SITE_URL>/api/admin-quickbooks-callback
+ *                                  <SITE_URL>/api/admin-cashflow?qbcallback=1
+ *                                  (folded into admin-cashflow.js rather than
+ *                                  its own endpoint — see the note at the top
+ *                                  of that file for why)
  *
  * Optional env vars:
  *   QUICKBOOKS_ENVIRONMENT      — 'sandbox' (default) or 'production'. Only
@@ -38,7 +41,7 @@ function apiBase() {
 }
 
 function redirectUri() {
-  return `${process.env.SITE_URL}/api/admin-quickbooks-callback`;
+  return `${process.env.SITE_URL}/api/admin-cashflow?qbcallback=1`;
 }
 
 function basicAuthHeader() {
@@ -155,6 +158,7 @@ export async function completeConnect({ code, state, realmId }) {
 
 /** Current connection status for display in the admin UI. Never exposes tokens. */
 export async function getConnectionStatus() {
+  const environment = process.env.QUICKBOOKS_ENVIRONMENT === 'production' ? 'production' : 'sandbox';
   const supabase = supabaseClient();
   const { data, error } = await supabase
     .from('quickbooks_connection')
@@ -162,8 +166,8 @@ export async function getConnectionStatus() {
     .eq('id', 1)
     .maybeSingle();
   if (error) throw error;
-  if (!data?.realm_id) return { connected: false };
-  return { connected: true, companyName: data.company_name, realmId: data.realm_id, connectedAt: data.connected_at };
+  if (!data?.realm_id) return { connected: false, environment };
+  return { connected: true, companyName: data.company_name, realmId: data.realm_id, connectedAt: data.connected_at, environment };
 }
 
 /**

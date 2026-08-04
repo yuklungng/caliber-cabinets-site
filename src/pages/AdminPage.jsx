@@ -5037,7 +5037,7 @@ function FinancialSettingsPanel({ banner, onDismissBanner }) {
 
   function loadQbStatus() {
     setQbLoading(true);
-    apiCall('/api/admin-quickbooks?action=status')
+    apiCall('/api/admin-cashflow?action=qb-status')
       .then((r) => r.json())
       .then((d) => setQb(d))
       .catch(() => setQb({ connected: false }))
@@ -5049,7 +5049,7 @@ function FinancialSettingsPanel({ banner, onDismissBanner }) {
   async function handleQbConnect() {
     setQbBusy(true);
     try {
-      const res = await apiCall('/api/admin-quickbooks?action=connect', { method: 'POST' });
+      const res = await apiCall('/api/admin-cashflow?action=qb-connect', { method: 'POST' });
       const data = await res.json();
       if (data.authorizeUrl) {
         window.location.href = data.authorizeUrl; // full-page nav to Intuit's consent screen
@@ -5063,7 +5063,7 @@ function FinancialSettingsPanel({ banner, onDismissBanner }) {
     if (!window.confirm('Disconnect QuickBooks? Nothing already synced is affected, but automatic invoice/payment matching will stop until reconnected.')) return;
     setQbBusy(true);
     try {
-      await apiCall('/api/admin-quickbooks?action=disconnect', { method: 'POST' });
+      await apiCall('/api/admin-cashflow?action=qb-disconnect', { method: 'POST' });
       loadQbStatus();
     } catch { /* ignore */ }
     setQbBusy(false);
@@ -5137,9 +5137,17 @@ function FinancialSettingsPanel({ banner, onDismissBanner }) {
 
       <div style={{ display: 'grid', gap: '32px', maxWidth: '520px' }}>
         <div>
-          <h3 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>QuickBooks Online</h3>
+          <h3 style={{ margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: '#111827' }}>
+            QuickBooks Online
+            {qb?.environment === 'sandbox' && (
+              <span style={{ fontSize: '10px', fontWeight: '800', letterSpacing: '0.05em', color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 7px' }}>
+                SANDBOX — TEST DATA ONLY
+              </span>
+            )}
+          </h3>
           <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
             Connects Brianna's QuickBooks company so invoices and payments recorded there can be automatically matched to Financial Management's payment schedule.
+            {qb?.environment === 'sandbox' && ' Currently wired to Intuit’s development keys, so connecting goes to a fake test company — not Mike’s real QuickBooks — and nothing here touches real financial records yet.'}
           </p>
           {qbLoading ? (
             <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Checking connection…</p>

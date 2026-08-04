@@ -2,6 +2,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
+import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect } from './_lib/quickbooks.js';
+
+// QuickBooks connection actions (qb-status/qb-connect/qb-disconnect) and the
+// OAuth callback (?qbcallback=1) live in this file rather than their own
+// api/admin-quickbooks*.js files — Vercel Hobby caps a deployment at 12
+// Serverless Functions, and this project is already at that ceiling. Folding
+// QuickBooks in here follows the same pattern as admin-backup.js already
+// combining JSON snapshots and git/SQL dumps into one function. It also fits
+// thematically: QuickBooks exists to reconcile against this file's own
+// payment_schedule data.
 
 // ─── Financial Management: 3-stage payment schedule for Closed Won deals ──────
 // Deliberately independent of admin-leads.js: reads from `leads` and HubSpot
@@ -276,6 +286,28 @@ async function getDealsWithSchedule(supabase) {
 }
 
 export default async function handler(req, res) {
+  // ── QuickBooks OAuth callback — Intuit redirects the admin's browser here
+  // directly after consent, so this can't carry our Bearer session token.
+  // Must run before checkAuth. CSRF protection comes from the `state` param
+  // (generated + persisted by qb-connect below, verified inside
+  // completeConnect) rather than our normal session auth.
+  if (req.method === 'GET' && req.query?.qbcallback === '1') {
+    const { code, state, realmId, error } = req.query;
+    const adminUrl = `${process.env.SITE_URL}/admin`;
+    if (error) {
+      return res.redirect(302, `${adminUrl}?qb=error&msg=${encodeURIComponent(error)}`);
+    }
+    if (!code || !state || !realmId) {
+      return res.redirect(302, `${adminUrl}?qb=error&msg=${encodeURIComponent('Missing code/state/realmId from QuickBooks redirect.')}`);
+    }
+    try {
+      await completeConnect({ code, state, realmId });
+      return res.redirect(302, `${adminUrl}?qb=connected`);
+    } catch (err) {
+      return res.redirect(302, `${adminUrl}?qb=error&msg=${encodeURIComponent(err.message)}`);
+    }
+  }
+
   const auth = await checkAuth(req);
   if (!auth.ok) return res.status(401).json({ error: 'Unauthorized' });
   // No role check here on purpose — Financial is the one view every role
@@ -283,6 +315,35 @@ export default async function handler(req, res) {
 
   const supabase = supabaseClient();
   const action = req.query?.action;
+
+  // ── QuickBooks connection management — super-admin only, since connecting/
+  // disconnecting is an account-level action ──────────────────────────────
+  if (req.method === 'GET' && action === 'qb-status') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    try {
+      return res.status(200).json(await getConnectionStatus());
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  if (req.method === 'POST' && action === 'qb-connect') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    try {
+      const authorizeUrl = await startConnect();
+      return res.status(200).json({ authorizeUrl });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  if (req.method === 'POST' && action === 'qb-disconnect') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    try {
+      await qbDisconnect();
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   // ── GET ?action=export-csv — one row per stage, across all Closed Won deals ──
   if (req.method === 'GET' && action === 'export-csv') {

@@ -3946,6 +3946,7 @@ const FORECAST_STAGE_LABELS = {
   production_payment: 'Production Payment',
   final_payment: 'Final Payment',
 };
+const PAYMENT_STAGE_ORDER = Object.keys(FORECAST_STAGE_LABELS); // mirrors STAGE_ORDER in api/admin-cashflow.js
 
 // Reusable cash-inflow bar chart — used on the Performance page (alongside the
 // weighted pipeline table) and directly in Financial Management (where Brianna,
@@ -6095,12 +6096,73 @@ function stagePaymentStatus(stage) {
 }
 
 // The 3-row payment schedule table for a single deal.
-function PaymentScheduleTable({ deal, isMobile, onRowSaved }) {
+function AddInvoiceRowForm({ dealId, onAdded, isMobile }) {
+  const [stage, setStage] = useState('initial_deposit');
+  const [room, setRoom] = useState('');
+  const [amount, setAmount] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  async function handleAdd() {
+    setAdding(true);
+    try {
+      const r = await apiCall('/api/admin-cashflow?action=add-row', {
+        method: 'POST',
+        body: { hubspot_deal_id: dealId, stage, room: room.trim() || null, amount: Number(amount) || 0 },
+      });
+      if (!r.ok) { alert('Failed to add invoice row — please try again.'); return; }
+      const { row } = await r.json();
+      onAdded(dealId, row);
+      setRoom('');
+      setAmount('');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const selectStyle = { padding: '7px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' };
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #e5e7eb' }}>
+      <select value={stage} onChange={(e) => setStage(e.target.value)} style={{ ...selectStyle, width: isMobile ? '100%' : '150px' }}>
+        {PAYMENT_STAGE_ORDER.map((st) => <option key={st} value={st}>{FORECAST_STAGE_LABELS[st]}</option>)}
+      </select>
+      <input
+        placeholder="Room / split (optional)"
+        value={room}
+        onChange={(e) => setRoom(e.target.value)}
+        style={{ ...selectStyle, width: isMobile ? '100%' : '160px' }}
+      />
+      <input
+        placeholder="Amount"
+        type="number"
+        min="0"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        style={{ ...selectStyle, width: isMobile ? '100%' : '100px' }}
+      />
+      <button
+        onClick={handleAdd}
+        disabled={adding}
+        style={{ padding: '7px 14px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '13px', cursor: adding ? 'wait' : 'pointer', opacity: adding ? 0.6 : 1 }}
+      >
+        {adding ? 'Adding…' : '+ Add Invoice'}
+      </button>
+    </div>
+  );
+}
+
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDeleted }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
     const { row } = await r.json();
     onRowSaved(deal.hubspot_deal_id, row);
+  }
+
+  async function handleDelete(rowId) {
+    if (!window.confirm('Delete this invoice row? This cannot be undone.')) return;
+    const r = await apiCall('/api/admin-cashflow?action=delete-row', { method: 'POST', body: { id: rowId } });
+    if (!r.ok) { alert('Failed to delete — please try again.'); return; }
+    onRowDeleted(deal.hubspot_deal_id, rowId);
   }
 
   if (isMobile) {
@@ -6109,10 +6171,13 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved }) {
         {deal.stages.map((s) => {
           const status = stagePaymentStatus(s);
           return (
-            <div key={s.stage} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
+            <div key={s.id} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{s.label}</span>
-                <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
+                  <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '13px', fontWeight: '700' }}>✕</span>
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
@@ -6135,28 +6200,33 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved }) {
             </div>
           );
         })}
+        <AddInvoiceRowForm dealId={deal.hubspot_deal_id} onAdded={onRowAdded} isMobile />
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '150px 120px 1fr 1fr 1fr 90px', gap: '10px', alignItems: 'center' }}>
-      {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status'].map((h) => (
-        <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
-      ))}
-      {deal.stages.map((s) => {
-        const status = stagePaymentStatus(s);
-        return (
-          <Fragment key={s.stage}>
-            <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{s.label}</span>
-            <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
-            <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
-            <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
-            <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
-            <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, textAlign: 'center', whiteSpace: 'nowrap' }}>{status.label}</span>
-          </Fragment>
-        );
-      })}
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '190px 120px 1fr 1fr 1fr 90px 24px', gap: '10px', alignItems: 'center' }}>
+        {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status', ''].map((h) => (
+          <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
+        ))}
+        {deal.stages.map((s) => {
+          const status = stagePaymentStatus(s);
+          return (
+            <Fragment key={s.id}>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{s.label}</span>
+              <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+              <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
+              <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+              <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+              <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, textAlign: 'center', whiteSpace: 'nowrap' }}>{status.label}</span>
+              <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '14px', fontWeight: '700', textAlign: 'center' }}>✕</span>
+            </Fragment>
+          );
+        })}
+      </div>
+      <AddInvoiceRowForm dealId={deal.hubspot_deal_id} onAdded={onRowAdded} isMobile={false} />
     </div>
   );
 }
@@ -6331,7 +6401,42 @@ function FinancialView() {
         est_date: updatedRow.est_date,
         invoice_date: updatedRow.invoice_date,
         paid_date: updatedRow.paid_date,
+        room: updatedRow.room ?? s.room,
+        label: updatedRow.label ?? s.label,
       } : s));
+      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
+    }));
+  }
+
+  // Add/delete a single invoice row (e.g. splitting a deal per room) — recompute
+  // invoiced/received the same way handleRowSaved does, contract_amount/balance
+  // are untouched since they're driven by the deal itself, not its schedule rows.
+  function handleRowAdded(dealId, newRow) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const stages = [...d.stages, {
+        id: newRow.id,
+        stage: newRow.stage,
+        room: newRow.room ?? null,
+        label: newRow.label,
+        amount: Number(newRow.amount) || 0,
+        est_date: newRow.est_date ?? null,
+        invoice_date: newRow.invoice_date ?? null,
+        paid_date: newRow.paid_date ?? null,
+        note: newRow.note ?? '',
+      }].sort((a, b) => PAYMENT_STAGE_ORDER.indexOf(a.stage) - PAYMENT_STAGE_ORDER.indexOf(b.stage) || (a.room ?? '').localeCompare(b.room ?? ''));
+      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
+    }));
+  }
+
+  function handleRowDeleted(dealId, rowId) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const stages = d.stages.filter((s) => s.id !== rowId);
       const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
       const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
@@ -6524,7 +6629,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRowAdded={handleRowAdded} onRowDeleted={handleRowDeleted} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>

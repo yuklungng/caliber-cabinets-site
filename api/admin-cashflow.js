@@ -63,10 +63,16 @@ function formatNoteDate(dateStr) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Compute the display label for a schedule row from its stage + optional room split. */
+function stageLabel(stage, room) {
+  const base = STAGE_LABELS[stage] ?? stage;
+  return room ? `${room} — ${base}` : base;
+}
+
 /** Build a HubSpot deal note summarizing an invoice_date/paid_date change on a schedule row. Returns null if neither changed. */
 function buildScheduleActivityNote(oldRow, newRow) {
   const lines = [];
-  const label = STAGE_LABELS[newRow.stage] ?? newRow.stage;
+  const label = newRow.label ?? stageLabel(newRow.stage, newRow.room);
   const amountStr = `$${(Number(newRow.amount) || 0).toLocaleString('en-US')}`;
   if (oldRow.invoice_date !== newRow.invoice_date) {
     lines.push(newRow.invoice_date
@@ -197,28 +203,34 @@ async function getDealsWithSchedule(supabase) {
     .in('hubspot_deal_id', dealIds);
   if (schedErr) throw schedErr;
 
+  // A deal can now have more than 3 rows (e.g. a room-by-room split), so this
+  // groups by deal only — rowsByDeal[dealId] is an array, not one row per stage.
   const rowsByDeal = {};
   for (const row of existingRows ?? []) {
-    (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
+    (rowsByDeal[row.hubspot_deal_id] ??= []).push(row);
   }
 
-  // 6. Auto-create any missing stage rows (never overwrites an existing row —
-  //    once a bookkeeper edits est_date/amount, it's theirs from then on)
+  // 6. Auto-create the 3 default stage rows, but only for a deal that has NO
+  //    schedule rows at all yet. This intentionally moved from a per-stage
+  //    check to a per-deal one: once any row exists — whether auto-generated
+  //    or a manually added room split — we never re-seed, so deleting a
+  //    default row (e.g. to replace it with per-room rows) sticks.
   const toInsert = [];
   for (const d of deals) {
-    const have = rowsByDeal[d.hubspot_deal_id] ?? {};
+    if ((rowsByDeal[d.hubspot_deal_id] ?? []).length > 0) continue;
     const defaults = computeDefaultStages(d.closed_at, d.contract_amount, scheduleDefaults);
-    for (const stage of STAGE_ORDER) {
-      if (!have[stage]) {
-        toInsert.push({
-          hubspot_deal_id: d.hubspot_deal_id,
-          stage,
-          amount: defaults[stage].amount,
-          est_date: defaults[stage].est_date,
-          invoice_date: defaults[stage].invoice_date,
-        });
-      }
-    }
+    STAGE_ORDER.forEach((stage, i) => {
+      toInsert.push({
+        hubspot_deal_id: d.hubspot_deal_id,
+        stage,
+        room: null,
+        label: STAGE_LABELS[stage],
+        sort_order: i,
+        amount: defaults[stage].amount,
+        est_date: defaults[stage].est_date,
+        invoice_date: defaults[stage].invoice_date,
+      });
+    });
   }
   if (toInsert.length > 0) {
     const { data: inserted, error: insErr } = await supabase
@@ -229,19 +241,20 @@ async function getDealsWithSchedule(supabase) {
       console.error('[admin-cashflow] Failed to auto-create schedule rows (non-fatal):', insErr.message);
     } else {
       for (const row of inserted ?? []) {
-        (rowsByDeal[row.hubspot_deal_id] ??= {})[row.stage] = row;
+        (rowsByDeal[row.hubspot_deal_id] ??= []).push(row);
       }
     }
   }
 
-  // 6.5. Backfill invoice_date on Initial Deposit rows created before this rule
-  //      existed — the deposit is always invoiced the day the deal closes.
-  //      Never touches production_payment/final_payment (those really are
-  //      invoiced manually) or any row that already has an invoice_date.
+  // 6.5. Backfill invoice_date on any Initial Deposit row(s) created before this
+  //      rule existed — the deposit is always invoiced the day the deal closes.
+  //      Handles every initial_deposit row per deal now (a room split could mean
+  //      more than one). Never touches production_payment/final_payment (those
+  //      really are invoiced manually) or any row that already has an invoice_date.
   const depositFixes = [];
   for (const d of deals) {
-    const depositRow = rowsByDeal[d.hubspot_deal_id]?.initial_deposit;
-    if (depositRow && !depositRow.invoice_date) {
+    const depositRows = (rowsByDeal[d.hubspot_deal_id] ?? []).filter((r) => r.stage === 'initial_deposit' && !r.invoice_date);
+    for (const depositRow of depositRows) {
       const invoiceDate = addDays(d.closed_at, 0);
       depositFixes.push({ id: depositRow.id, invoice_date: invoiceDate });
       depositRow.invoice_date = invoiceDate; // keep in-memory copy in sync for step 7
@@ -257,22 +270,22 @@ async function getDealsWithSchedule(supabase) {
     if (failed > 0) console.error(`[admin-cashflow] ${failed} deposit invoice_date backfill(s) failed (non-fatal)`);
   }
 
-  // 7. Assemble result
+  // 7. Assemble result — rows ordered by stage (deposit → production → final),
+  //    then alphabetically by room within the same stage.
   return deals.map((d) => {
-    const have = rowsByDeal[d.hubspot_deal_id] ?? {};
-    const stages = STAGE_ORDER.map((stage) => {
-      const row = have[stage] ?? {};
-      return {
-        id: row.id ?? null,
-        stage,
-        label: STAGE_LABELS[stage],
-        amount: Number(row.amount) || 0,
-        est_date: row.est_date ?? null,
-        invoice_date: row.invoice_date ?? null,
-        paid_date: row.paid_date ?? null,
-        note: row.note ?? '',
-      };
-    });
+    const rows = (rowsByDeal[d.hubspot_deal_id] ?? []).slice()
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.room ?? '').localeCompare(b.room ?? ''));
+    const stages = rows.map((row) => ({
+      id: row.id,
+      stage: row.stage,
+      room: row.room ?? null,
+      label: row.label ?? stageLabel(row.stage, row.room),
+      amount: Number(row.amount) || 0,
+      est_date: row.est_date ?? null,
+      invoice_date: row.invoice_date ?? null,
+      paid_date: row.paid_date ?? null,
+      note: row.note ?? '',
+    }));
     const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
     const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
     return {
@@ -386,9 +399,49 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH — edit one stage row (amount, est_date, invoice_date, paid_date, note) ──
+  // ── POST ?action=add-row — split a deal's schedule with an extra invoice row
+  //    (e.g. a second Initial Deposit/Production/Final set for a specific room) ──
+  if (req.method === 'POST' && action === 'add-row') {
+    const { hubspot_deal_id, stage, room, amount, est_date } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    if (!STAGE_ORDER.includes(stage)) return res.status(400).json({ error: `stage must be one of ${STAGE_ORDER.join(', ')}` });
+    try {
+      const { data, error } = await supabase
+        .from('payment_schedule')
+        .insert({
+          hubspot_deal_id,
+          stage,
+          room: room || null,
+          label: stageLabel(stage, room || null),
+          sort_order: STAGE_ORDER.indexOf(stage),
+          amount: Number(amount) || 0,
+          est_date: est_date || null,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return res.status(200).json({ row: data });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── POST ?action=delete-row — remove a single invoice row from a deal's schedule ──
+  if (req.method === 'POST' && action === 'delete-row') {
+    const { id } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+    try {
+      const { error } = await supabase.from('payment_schedule').delete().eq('id', id);
+      if (error) throw error;
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── PATCH — edit one stage row (amount, est_date, invoice_date, paid_date, note, room) ──
   if (req.method === 'PATCH') {
-    const { id, amount, est_date, invoice_date, paid_date, note } = req.body ?? {};
+    const { id, amount, est_date, invoice_date, paid_date, note, room } = req.body ?? {};
     if (!id) return res.status(400).json({ error: 'Missing id' });
     const update = { updated_at: new Date().toISOString() };
     if (amount !== undefined) {
@@ -403,12 +456,18 @@ export default async function handler(req, res) {
     if (note !== undefined)         update.note         = note || null;
     try {
       // Fetch the pre-update row so we can tell whether invoice_date/paid_date
-      // actually changed (not just resubmitted) before logging a HubSpot note.
+      // actually changed (not just resubmitted) before logging a HubSpot note,
+      // and so a room-only edit can recompute label from the row's own stage.
       const { data: before } = await supabase
         .from('payment_schedule')
         .select('*')
         .eq('id', id)
         .single();
+
+      if (room !== undefined) {
+        update.room = room || null;
+        update.label = stageLabel(before?.stage, room || null);
+      }
 
       const { data, error } = await supabase
         .from('payment_schedule')

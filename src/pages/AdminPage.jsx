@@ -6176,7 +6176,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDel
                 <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{s.label}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
-                  <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '13px', fontWeight: '700' }}>✕</span>
+                  <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '11px', fontWeight: '700', textDecoration: 'underline', whiteSpace: 'nowrap' }}>Delete</span>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -6207,7 +6207,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDel
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '190px 120px 1fr 1fr 1fr 110px', gap: '10px', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '175px 110px 1fr 1fr 1fr 130px', gap: '10px', alignItems: 'center' }}>
         {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status'].map((h) => (
           <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
         ))}
@@ -6222,7 +6222,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDel
               <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
                 <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, whiteSpace: 'nowrap' }}>{status.label}</span>
-                <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>✕</span>
+                <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', color: '#b91c1c', fontSize: '11px', fontWeight: '700', textDecoration: 'underline', whiteSpace: 'nowrap', flexShrink: 0 }}>Delete</span>
               </span>
             </Fragment>
           );

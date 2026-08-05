@@ -6095,67 +6095,95 @@ function stagePaymentStatus(stage) {
   return { label: 'Pending', bg: '#f9fafb', color: '#9ca3af', border: '#e5e7eb' };
 }
 
-// The 3-row payment schedule table for a single deal.
-function AddInvoiceRowForm({ dealId, onAdded, isMobile }) {
-  const [stage, setStage] = useState('initial_deposit');
+// The payment schedule table for a single deal, grouped into one section per
+// room/split (each with its own Initial Deposit / Production Payment / Final
+// Payment) so a project spanning several segments — kitchen, bathroom, home
+// office — can be invoiced separately with its own timing.
+const SCHEDULE_GRID_COLS = '175px 110px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 130px';
+
+function groupStagesByRoom(stages) {
+  const map = new Map();
+  for (const s of stages) {
+    const key = s.room || '';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
+  }
+  for (const rows of map.values()) {
+    rows.sort((a, b) => PAYMENT_STAGE_ORDER.indexOf(a.stage) - PAYMENT_STAGE_ORDER.indexOf(b.stage));
+  }
+  // Default (unnamed) group first, then named rooms alphabetically.
+  return [...map.entries()].sort(([a], [b]) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function RoomLabelInput({ value, onSave }) {
+  const [val, setVal] = useState(value || '');
+  useEffect(() => { setVal(value || ''); }, [value]);
+  return (
+    <input
+      placeholder="Room / split (optional)"
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => { if (val.trim() !== (value || '')) onSave(val.trim()); }}
+      style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '5px', fontSize: '12px', fontWeight: '700', color: '#78350f', width: '220px', outline: 'none' }}
+    />
+  );
+}
+
+function AddRoomSplitForm({ dealId, onAdded, isMobile }) {
   const [room, setRoom] = useState('');
-  const [amount, setAmount] = useState('');
   const [adding, setAdding] = useState(false);
 
   async function handleAdd() {
+    if (!room.trim()) { alert('Enter a name for this room/split first (e.g. Kitchen, Primary Bath).'); return; }
     setAdding(true);
     try {
-      const r = await apiCall('/api/admin-cashflow?action=add-row', {
+      const r = await apiCall('/api/admin-cashflow?action=add-room', {
         method: 'POST',
-        body: { hubspot_deal_id: dealId, stage, room: room.trim() || null, amount: Number(amount) || 0 },
+        body: { hubspot_deal_id: dealId, room: room.trim() },
       });
-      if (!r.ok) { alert('Failed to add invoice row — please try again.'); return; }
-      const { row } = await r.json();
-      onAdded(dealId, row);
+      if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? 'Failed to add room/split — please try again.'); return; }
+      const { rows } = await r.json();
+      onAdded(dealId, rows);
       setRoom('');
-      setAmount('');
     } finally {
       setAdding(false);
     }
   }
 
-  const selectStyle = { padding: '7px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' };
+  const inputStyle = { padding: '7px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' };
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #e5e7eb' }}>
-      <select value={stage} onChange={(e) => setStage(e.target.value)} style={{ ...selectStyle, width: isMobile ? '100%' : '150px' }}>
-        {PAYMENT_STAGE_ORDER.map((st) => <option key={st} value={st}>{FORECAST_STAGE_LABELS[st]}</option>)}
-      </select>
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #e5e7eb' }}>
       <input
-        placeholder="Room / split (optional)"
+        placeholder="Room / split name (e.g. Kitchen)"
         value={room}
         onChange={(e) => setRoom(e.target.value)}
-        style={{ ...selectStyle, width: isMobile ? '100%' : '160px' }}
-      />
-      <input
-        placeholder="Amount"
-        type="number"
-        min="0"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        style={{ ...selectStyle, width: isMobile ? '100%' : '100px' }}
+        style={{ ...inputStyle, width: isMobile ? '100%' : '220px' }}
       />
       <button
         onClick={handleAdd}
         disabled={adding}
         style={{ padding: '7px 14px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '13px', cursor: adding ? 'wait' : 'pointer', opacity: adding ? 0.6 : 1 }}
       >
-        {adding ? 'Adding…' : '+ Add Invoice'}
+        {adding ? 'Adding…' : '+ Add Room/Split'}
       </button>
     </div>
   );
 }
 
-function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDeleted }) {
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
     const { row } = await r.json();
     onRowSaved(deal.hubspot_deal_id, row);
+  }
+
+  async function saveRoomName(rows, newRoom) {
+    for (const row of rows) await saveField(row.id, { room: newRoom });
   }
 
   async function handleDelete(rowId) {
@@ -6165,75 +6193,96 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDel
     onRowDeleted(deal.hubspot_deal_id, rowId);
   }
 
+  const groups = groupStagesByRoom(deal.stages);
+  // Only surface the room-name field once there's actually more than one
+  // section — the common single-project deal stays exactly as simple as
+  // before. The moment a split is added, every section (including the
+  // original, previously-unlabeled one) gets the same editable field so
+  // they read consistently.
+  const showRoomLabels = groups.length > 1;
+
   if (isMobile) {
     return (
-      <div style={{ display: 'grid', gap: '10px' }}>
-        {deal.stages.map((s) => {
-          const status = stagePaymentStatus(s);
-          return (
-            <div key={s.id} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{s.label}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
-                  <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '13px', lineHeight: 1 }}>🗑️</span>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div>
-                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Amount</p>
-                  <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
-                </div>
-                <div>
-                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Est. Date</p>
-                  <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
-                </div>
-                <div>
-                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Invoiced</p>
-                  <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
-                </div>
-                <div>
-                  <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Paid</p>
-                  <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
-                </div>
-              </div>
+      <div style={{ display: 'grid', gap: '20px' }}>
+        {groups.map(([room, rows]) => (
+          <div key={room || '__default__'}>
+            {showRoomLabels && <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />}
+            <div style={{ display: 'grid', gap: '10px', marginTop: showRoomLabels ? '8px' : 0 }}>
+              {rows.map((s) => {
+                const status = stagePaymentStatus(s);
+                return (
+                  <div key={s.id} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
+                        <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '13px', lineHeight: 1 }}>🗑️</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Amount</p>
+                        <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Est. Date</p>
+                        <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Invoiced</p>
+                        <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Paid</p>
+                        <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-        <AddInvoiceRowForm dealId={deal.hubspot_deal_id} onAdded={onRowAdded} isMobile />
+          </div>
+        ))}
+        <AddRoomSplitForm dealId={deal.hubspot_deal_id} onAdded={onRoomAdded} isMobile />
       </div>
     );
   }
 
   return (
     <div>
-      {/* minmax(0, 1fr) rather than bare 1fr — a plain 1fr column has an implicit
-          min-width:auto, so it refuses to shrink below its content's natural
-          width (the date inputs), which was silently overflowing the card and
-          clipping the last column off-screen. minmax(0, 1fr) lets it actually
-          shrink to fit. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '175px 110px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 130px', gap: '10px', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: SCHEDULE_GRID_COLS, gap: '10px', marginBottom: '2px' }}>
         {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status'].map((h) => (
           <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
         ))}
-        {deal.stages.map((s) => {
-          const status = stagePaymentStatus(s);
-          return (
-            <Fragment key={s.id}>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{s.label}</span>
-              <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
-              <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
-              <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
-              <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
-              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, whiteSpace: 'nowrap' }}>{status.label}</span>
-                <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '14px', lineHeight: 1, flexShrink: 0 }}>🗑️</span>
-              </span>
-            </Fragment>
-          );
-        })}
       </div>
-      <AddInvoiceRowForm dealId={deal.hubspot_deal_id} onAdded={onRowAdded} isMobile={false} />
+      {groups.map(([room, rows]) => (
+        <div key={room || '__default__'} style={{ marginTop: showRoomLabels ? '14px' : '0' }}>
+          {showRoomLabels && (
+            <div style={{ marginBottom: '6px' }}>
+              <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: SCHEDULE_GRID_COLS, gap: '10px', alignItems: 'center' }}>
+            {rows.map((s) => {
+              const status = stagePaymentStatus(s);
+              return (
+                <Fragment key={s.id}>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                  <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+                  <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
+                  <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+                  <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, whiteSpace: 'nowrap' }}>{status.label}</span>
+                    <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '14px', lineHeight: 1, flexShrink: 0 }}>🗑️</span>
+                  </span>
+                </Fragment>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <AddRoomSplitForm dealId={deal.hubspot_deal_id} onAdded={onRoomAdded} isMobile={false} />
     </div>
   );
 }
@@ -6417,13 +6466,14 @@ function FinancialView() {
     }));
   }
 
-  // Add/delete a single invoice row (e.g. splitting a deal per room) — recompute
-  // invoiced/received the same way handleRowSaved does, contract_amount/balance
-  // are untouched since they're driven by the deal itself, not its schedule rows.
-  function handleRowAdded(dealId, newRow) {
+  // A room/split adds all 3 stage rows (deposit/production/final) at once —
+  // recompute invoiced/received the same way handleRowSaved does;
+  // contract_amount/balance are untouched since they're driven by the deal
+  // itself, not its schedule rows.
+  function handleRoomAdded(dealId, newRows) {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
-      const stages = [...d.stages, {
+      const added = newRows.map((newRow) => ({
         id: newRow.id,
         stage: newRow.stage,
         room: newRow.room ?? null,
@@ -6433,7 +6483,9 @@ function FinancialView() {
         invoice_date: newRow.invoice_date ?? null,
         paid_date: newRow.paid_date ?? null,
         note: newRow.note ?? '',
-      }].sort((a, b) => PAYMENT_STAGE_ORDER.indexOf(a.stage) - PAYMENT_STAGE_ORDER.indexOf(b.stage) || (a.room ?? '').localeCompare(b.room ?? ''));
+      }));
+      const stages = [...d.stages, ...added]
+        .sort((a, b) => PAYMENT_STAGE_ORDER.indexOf(a.stage) - PAYMENT_STAGE_ORDER.indexOf(b.stage) || (a.room ?? '').localeCompare(b.room ?? ''));
       const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
       const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
@@ -6636,7 +6688,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRowAdded={handleRowAdded} onRowDeleted={handleRowDeleted} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>

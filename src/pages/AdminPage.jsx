@@ -6207,7 +6207,12 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRowAdded, onRowDel
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '175px 110px 1fr 1fr 1fr 130px', gap: '10px', alignItems: 'center' }}>
+      {/* minmax(0, 1fr) rather than bare 1fr — a plain 1fr column has an implicit
+          min-width:auto, so it refuses to shrink below its content's natural
+          width (the date inputs), which was silently overflowing the card and
+          clipping the last column off-screen. minmax(0, 1fr) lets it actually
+          shrink to fit. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '175px 110px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 130px', gap: '10px', alignItems: 'center' }}>
         {['Stage', 'Amount', 'Est. Date', 'Invoice Date', 'Paid Date', 'Status'].map((h) => (
           <p key={h} style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</p>
         ))}

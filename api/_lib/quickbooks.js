@@ -269,3 +269,19 @@ export async function qbFetch(path, options = {}) {
     },
   });
 }
+
+/**
+ * Runs a QBO SQL-like query against the Accounting API's /query endpoint
+ * (e.g. "SELECT * FROM Invoice WHERE DocNumber = '1023'"). Returns the parsed
+ * array of entities (empty array if none), or throws on a non-2xx response.
+ * Read-only — this app never writes to QuickBooks (see the one-way-pull note
+ * in getConnectionStatus's doc comment above).
+ */
+export async function qbQuery(query, entityName) {
+  const res = await qbFetch(`/query?query=${encodeURIComponent(query)}&minorversion=65`);
+  if (!res.ok) {
+    throw new Error(`QuickBooks query ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json();
+  return data?.QueryResponse?.[entityName] ?? [];
+}

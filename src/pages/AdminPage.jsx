@@ -6174,7 +6174,140 @@ function AddRoomSplitForm({ dealId, onAdded, isMobile }) {
   );
 }
 
-function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted }) {
+// One QuickBooks invoice per deal/room group (Brianna's model — the 3 stages
+// are partial payments against a single invoice, not 3 separate invoices), so
+// this renders once per room section and links/unlinks/refreshes all 3 stage
+// rows in that group at once via the group-scoped backend actions.
+function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
+  const linked = rows[0]?.qb_invoice_id;
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function runSearch() {
+    if (!query.trim()) return;
+    setBusy(true);
+    try {
+      const r = await apiCall(`/api/admin-cashflow?action=qb-search-invoices&q=${encodeURIComponent(query.trim())}`);
+      if (!r.ok) { alert('QuickBooks search failed — please try again.'); return; }
+      const { invoices } = await r.json();
+      setResults(invoices);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pick(invoiceId) {
+    setBusy(true);
+    try {
+      const r = await apiCall('/api/admin-cashflow?action=link-invoice', {
+        method: 'POST',
+        body: { hubspot_deal_id: dealId, room: room || null, qb_invoice_id: invoiceId },
+      });
+      if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? 'Failed to link invoice.'); return; }
+      const { rows: updated } = await r.json();
+      onSynced(dealId, updated);
+      setSearching(false);
+      setQuery('');
+      setResults(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refresh() {
+    setBusy(true);
+    try {
+      const r = await apiCall('/api/admin-cashflow?action=qb-refresh-invoice', {
+        method: 'POST',
+        body: { hubspot_deal_id: dealId, room: room || null },
+      });
+      if (!r.ok) { alert('Failed to refresh from QuickBooks.'); return; }
+      const { rows: updated } = await r.json();
+      onSynced(dealId, updated);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlink() {
+    if (!window.confirm('Unlink this QuickBooks invoice? (This only removes the reference here — nothing changes in QuickBooks.)')) return;
+    setBusy(true);
+    try {
+      const r = await apiCall('/api/admin-cashflow?action=unlink-invoice', {
+        method: 'POST',
+        body: { hubspot_deal_id: dealId, room: room || null },
+      });
+      if (!r.ok) { alert('Failed to unlink.'); return; }
+      const { rows: updated } = await r.json();
+      onSynced(dealId, updated);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (linked) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+        <span style={{ fontWeight: '700', color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '5px', padding: '3px 8px' }}>
+          QB #{rows[0].qb_invoice_number ?? rows[0].qb_invoice_id}
+        </span>
+        <span style={{ color: '#374151' }}>Total {formatMoney(rows[0].qb_total)} · Balance {formatMoney(rows[0].qb_balance)}</span>
+        <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={{ border: 'none', background: 'none', cursor: busy ? 'wait' : 'pointer', fontSize: '13px', padding: 0 }}>🔄</button>
+        <button onClick={unlink} disabled={busy} style={{ border: 'none', background: 'none', color: '#b91c1c', cursor: busy ? 'wait' : 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Unlink</button>
+      </div>
+    );
+  }
+
+  if (!searching) {
+    return (
+      <button onClick={() => setSearching(true)} style={{ border: '1px dashed #d1d5db', background: 'none', color: '#78350f', cursor: 'pointer', fontSize: '12px', padding: '3px 8px', borderRadius: '5px' }}>
+        + Link QuickBooks Invoice
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '420px' }}>
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <input
+          placeholder="Customer name or invoice #"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+          style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '5px', fontSize: '12px', outline: 'none' }}
+        />
+        <button onClick={runSearch} disabled={busy} style={{ padding: '5px 10px', background: '#78350f', color: '#fff', border: 0, borderRadius: '5px', fontSize: '12px', cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? '…' : 'Search'}
+        </button>
+        <button onClick={() => { setSearching(false); setResults(null); setQuery(''); }} style={{ padding: '5px 8px', background: 'none', border: '1px solid #d1d5db', borderRadius: '5px', fontSize: '12px', cursor: 'pointer' }}>
+          Cancel
+        </button>
+      </div>
+      {results && (
+        results.length === 0 ? (
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>No matching invoices in QuickBooks.</p>
+        ) : (
+          <div style={{ display: 'grid', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+            {results.map((inv) => (
+              <button
+                key={inv.id}
+                onClick={() => pick(inv.id)}
+                disabled={busy}
+                style={{ textAlign: 'left', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: '5px', background: '#f9fafb', cursor: busy ? 'wait' : 'pointer', fontSize: '12px' }}
+              >
+                <strong>#{inv.docNumber ?? inv.id}</strong> — {inv.customerName ?? 'Unknown customer'} — {formatMoney(inv.totalAmt)} (bal {formatMoney(inv.balance)}){inv.txnDate ? ` · ${inv.txnDate}` : ''}
+              </button>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onInvoiceSynced }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
@@ -6207,7 +6340,10 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
         {groups.map(([room, rows]) => (
           <div key={room || '__default__'}>
             {showRoomLabels && <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />}
-            <div style={{ display: 'grid', gap: '10px', marginTop: showRoomLabels ? '8px' : 0 }}>
+            <div style={{ marginTop: showRoomLabels ? '6px' : 0, marginBottom: '8px' }}>
+              <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} />
+            </div>
+            <div style={{ display: 'grid', gap: '10px' }}>
               {rows.map((s) => {
                 const status = stagePaymentStatus(s);
                 return (
@@ -6262,6 +6398,9 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
               <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />
             </div>
           )}
+          <div style={{ marginBottom: '8px' }}>
+            <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} />
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: SCHEDULE_GRID_COLS, gap: '10px', alignItems: 'center' }}>
             {rows.map((s) => {
               const status = stagePaymentStatus(s);
@@ -6492,6 +6631,29 @@ function FinancialView() {
     }));
   }
 
+  // QBO link/unlink/refresh return the full updated row(s) for a room group —
+  // merge just the qb_* fields in, matched by row id. Doesn't touch
+  // invoiced/received since qb_* fields don't drive those.
+  function handleRowsSynced(dealId, updatedRows) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const byId = new Map((updatedRows ?? []).map((r) => [r.id, r]));
+      const stages = d.stages.map((s) => {
+        const u = byId.get(s.id);
+        if (!u) return s;
+        return {
+          ...s,
+          qb_invoice_id: u.qb_invoice_id ?? null,
+          qb_invoice_number: u.qb_invoice_number ?? null,
+          qb_total: u.qb_total != null ? Number(u.qb_total) : null,
+          qb_balance: u.qb_balance != null ? Number(u.qb_balance) : null,
+          qb_synced_at: u.qb_synced_at ?? null,
+        };
+      });
+      return { ...d, stages };
+    }));
+  }
+
   function handleRowDeleted(dealId, rowId) {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
@@ -6688,7 +6850,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onInvoiceSynced={handleRowsSynced} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>

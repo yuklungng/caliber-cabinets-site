@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
-import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect } from './_lib/quickbooks.js';
+import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbFetch, qbQuery } from './_lib/quickbooks.js';
 
 // QuickBooks connection actions (qb-status/qb-connect/qb-disconnect) and the
 // OAuth callback (?qbcallback=1) live in this file rather than their own
@@ -29,6 +29,20 @@ import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDis
 
 function supabaseClient() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+// QBO's query language embeds string literals directly in the query string
+// (no parameterization), so single quotes must be doubled per SQL convention.
+function qbEscape(s) {
+  return String(s).replace(/'/g, "''");
+}
+
+// Brianna's mental model: one QuickBooks invoice per deal, or per room/split
+// once a deal has been split — never one invoice per stage. So every action
+// below operates on the whole group of stage rows sharing a
+// (hubspot_deal_id, room) pair, not a single row id.
+function scopeToRoomGroup(query, room) {
+  return room ? query.eq('room', room) : query.is('room', null);
 }
 
 const CLOSED_WON_STAGE_ID = 'closedwon';
@@ -285,6 +299,13 @@ async function getDealsWithSchedule(supabase) {
       invoice_date: row.invoice_date ?? null,
       paid_date: row.paid_date ?? null,
       note: row.note ?? '',
+      // One QBO invoice per deal/room group — identical across every stage
+      // row in that group (see the migration note on payment_schedule).
+      qb_invoice_id: row.qb_invoice_id ?? null,
+      qb_invoice_number: row.qb_invoice_number ?? null,
+      qb_total: row.qb_total != null ? Number(row.qb_total) : null,
+      qb_balance: row.qb_balance != null ? Number(row.qb_balance) : null,
+      qb_synced_at: row.qb_synced_at ?? null,
     }));
     const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
     const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
@@ -358,6 +379,121 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── QuickBooks invoice linking — open to every Financial-view role (not just
+  // super admin), since this is Brianna's day-to-day bookkeeping task, not an
+  // account-level connection change. One invoice per deal/room group; see
+  // scopeToRoomGroup above. ──────────────────────────────────────────────────
+  if (req.method === 'GET' && action === 'qb-search-invoices') {
+    const q = (req.query?.q ?? '').trim();
+    if (!q) return res.status(400).json({ error: 'Missing search query' });
+    try {
+      const esc = qbEscape(q);
+      const [byDocNumber, matchingCustomers] = await Promise.all([
+        qbQuery(`SELECT * FROM Invoice WHERE DocNumber LIKE '%${esc}%' ORDERBY TxnDate DESC MAXRESULTS 20`, 'Invoice'),
+        qbQuery(`SELECT * FROM Customer WHERE DisplayName LIKE '%${esc}%' MAXRESULTS 10`, 'Customer'),
+      ]);
+      let byCustomer = [];
+      if (matchingCustomers.length > 0) {
+        const perCustomer = await Promise.all(
+          matchingCustomers.map((c) =>
+            qbQuery(`SELECT * FROM Invoice WHERE CustomerRef = '${c.Id}' ORDERBY TxnDate DESC MAXRESULTS 20`, 'Invoice')
+          )
+        );
+        byCustomer = perCustomer.flat();
+      }
+      const merged = new Map();
+      for (const inv of [...byDocNumber, ...byCustomer]) merged.set(inv.Id, inv);
+      const invoices = [...merged.values()]
+        .sort((a, b) => new Date(b.TxnDate || 0) - new Date(a.TxnDate || 0))
+        .slice(0, 25)
+        .map((inv) => ({
+          id: inv.Id,
+          docNumber: inv.DocNumber ?? null,
+          customerName: inv.CustomerRef?.name ?? null,
+          txnDate: inv.TxnDate ?? null,
+          totalAmt: inv.TotalAmt ?? 0,
+          balance: inv.Balance ?? 0,
+        }));
+      return res.status(200).json({ invoices });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (req.method === 'POST' && action === 'link-invoice') {
+    const { hubspot_deal_id, room, qb_invoice_id } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    if (!qb_invoice_id) return res.status(400).json({ error: 'Missing qb_invoice_id' });
+    try {
+      const invRes = await qbFetch(`/invoice/${qb_invoice_id}`);
+      if (!invRes.ok) throw new Error(`QuickBooks invoice lookup ${invRes.status}: ${await invRes.text()}`);
+      const { Invoice: inv } = await invRes.json();
+      const update = {
+        qb_invoice_id: inv.Id,
+        qb_invoice_number: inv.DocNumber ?? null,
+        qb_total: inv.TotalAmt ?? 0,
+        qb_balance: inv.Balance ?? 0,
+        qb_synced_at: new Date().toISOString(),
+      };
+      const { data, error } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      ).select();
+      if (error) throw error;
+      if (!data || data.length === 0) return res.status(404).json({ error: 'No matching payment schedule rows found for that deal/room' });
+      return res.status(200).json({ rows: data });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (req.method === 'POST' && action === 'unlink-invoice') {
+    const { hubspot_deal_id, room } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    try {
+      const update = { qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null };
+      const { data, error } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      ).select();
+      if (error) throw error;
+      return res.status(200).json({ rows: data ?? [] });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (req.method === 'POST' && action === 'qb-refresh-invoice') {
+    const { hubspot_deal_id, room } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    try {
+      const { data: existing, error: lookupErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('qb_invoice_id').eq('hubspot_deal_id', hubspot_deal_id).not('qb_invoice_id', 'is', null).limit(1),
+        room,
+      ).maybeSingle();
+      if (lookupErr) throw lookupErr;
+      if (!existing?.qb_invoice_id) return res.status(400).json({ error: 'No linked invoice to refresh' });
+
+      const invRes = await qbFetch(`/invoice/${existing.qb_invoice_id}`);
+      if (!invRes.ok) throw new Error(`QuickBooks invoice lookup ${invRes.status}: ${await invRes.text()}`);
+      const { Invoice: inv } = await invRes.json();
+      const update = {
+        qb_invoice_number: inv.DocNumber ?? null,
+        qb_total: inv.TotalAmt ?? 0,
+        qb_balance: inv.Balance ?? 0,
+        qb_synced_at: new Date().toISOString(),
+      };
+      const { data, error } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      ).select();
+      if (error) throw error;
+      return res.status(200).json({ rows: data ?? [] });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── GET ?action=export-csv — one row per stage, across all Closed Won deals ──
   if (req.method === 'GET' && action === 'export-csv') {
     try {
@@ -395,6 +531,34 @@ export default async function handler(req, res) {
       return res.status(200).json({ deals: result });
     } catch (err) {
       console.error('[admin-cashflow] GET error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── POST ?action=add-room — split a deal's schedule with a whole new
+  //    room/segment: its own Initial Deposit + Production Payment + Final
+  //    Payment set, so Caliber can invoice a kitchen/bathroom/office etc.
+  //    separately with its own timing. This is the primary way splits get
+  //    created now — add-row below still exists for adding a single stray
+  //    stage row, but the UI drives everything through add-room. ─────────
+  if (req.method === 'POST' && action === 'add-room') {
+    const { hubspot_deal_id, room } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    if (!room || !room.trim()) return res.status(400).json({ error: 'Room/split name is required' });
+    try {
+      const rows = STAGE_ORDER.map((stage, i) => ({
+        hubspot_deal_id,
+        stage,
+        room: room.trim(),
+        label: stageLabel(stage, room.trim()),
+        sort_order: i,
+        amount: 0,
+        est_date: null,
+      }));
+      const { data, error } = await supabase.from('payment_schedule').insert(rows).select();
+      if (error) throw error;
+      return res.status(200).json({ rows: data });
+    } catch (err) {
       return res.status(500).json({ error: err.message });
     }
   }

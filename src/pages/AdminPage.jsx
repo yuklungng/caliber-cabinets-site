@@ -5145,10 +5145,16 @@ function FinancialSettingsPanel({ banner, onDismissBanner }) {
                 SANDBOX — TEST DATA ONLY
               </span>
             )}
+            {qb?.environment === 'production' && qb?.connected && (
+              <span style={{ fontSize: '10px', fontWeight: '800', letterSpacing: '0.05em', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '2px 7px' }}>
+                LIVE
+              </span>
+            )}
           </h3>
           <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#9ca3af' }}>
             Connects Brianna's QuickBooks company so invoices and payments recorded there can be automatically matched to Financial Management's payment schedule.
             {qb?.environment === 'sandbox' && ' Currently wired to Intuit’s development keys, so connecting goes to a fake test company — not Mike’s real QuickBooks — and nothing here touches real financial records yet.'}
+            {qb?.environment === 'production' && qb?.connected && ' Connected to Mike\'s live QuickBooks company — changes and lookups here reflect real financial records.'}
           </p>
           {qbLoading ? (
             <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Checking connection…</p>

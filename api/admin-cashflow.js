@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
-import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbFetch, qbQuery } from './_lib/quickbooks.js';
+import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbQuery, qbGetInvoice, qbGetPaymentsForCustomer } from './_lib/quickbooks.js';
 
 // QuickBooks connection actions (qb-status/qb-connect/qb-disconnect) and the
 // OAuth callback (?qbcallback=1) live in this file rather than their own
@@ -99,6 +99,115 @@ function buildScheduleActivityNote(oldRow, newRow) {
       : `✅ ${label} paid date cleared.`);
   }
   return lines.length > 0 ? `Financial Management update:\n${lines.join('\n')}` : null;
+}
+
+/**
+ * QBO is the source of truth once a deal/room group is linked to an invoice.
+ * Pulls the invoice's total + date and every Payment applied against it, then
+ * writes amount/invoice_date/paid_date back onto the group's stage rows.
+ *
+ * Amounts are rescaled proportionally so the stages still sum exactly to the
+ * real invoice total, while preserving whatever split ratio was already set
+ * (default 50/45/5, or a manual override) — or falling back to the
+ * configured default percentages if the group has never been priced at all.
+ *
+ * Payments are allocated to stages in order (deposit → production → final)
+ * via a running-threshold waterfall: a single invoice doesn't tell us which
+ * specific stage a given payment was "for," but Brianna's actual billing
+ * model is one invoice per split, paid down against those three milestones
+ * in sequence (the customer can pay ahead of schedule, which this still
+ * handles correctly — an early lump payment just clears multiple stages at
+ * once, dated to whichever payment crossed each threshold).
+ *
+ * Throws on failure — callers decide whether that should surface to the user
+ * (link/refresh) or just get logged and skipped (page-load auto-sync).
+ */
+async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id }) {
+  const invoice = await qbGetInvoice(qb_invoice_id);
+  if (!invoice) throw new Error('QuickBooks invoice not found — it may have been deleted.');
+
+  const customerId = invoice.CustomerRef?.value;
+  const payments = [];
+  if (customerId) {
+    const allPayments = await qbGetPaymentsForCustomer(customerId);
+    for (const p of allPayments) {
+      const matchingLines = (p.Line ?? []).filter((line) =>
+        (line.LinkedTxn ?? []).some((lt) => lt.TxnId === invoice.Id && lt.TxnType === 'Invoice')
+      );
+      if (matchingLines.length === 0) continue;
+      const amount = matchingLines.reduce((sum, l) => sum + (Number(l.Amount) || 0), 0);
+      if (amount > 0) payments.push({ date: p.TxnDate, amount });
+    }
+    payments.sort((a, b) => new Date(a.date) - new Date(b.date));
+  }
+
+  const { data: rows, error: rowsErr } = await scopeToRoomGroup(
+    supabase.from('payment_schedule').select('*').eq('hubspot_deal_id', hubspot_deal_id),
+    room,
+  );
+  if (rowsErr) throw rowsErr;
+  const orderedRows = (rows ?? []).slice().sort((a, b) => STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage));
+  if (orderedRows.length === 0) throw new Error('No payment schedule rows found for that deal/room.');
+
+  const qbTotal = Number(invoice.TotalAmt) || 0;
+  const currentTotal = orderedRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  let newAmounts;
+  if (currentTotal > 0) {
+    const ratio = qbTotal / currentTotal;
+    newAmounts = orderedRows.map((r) => Math.round((Number(r.amount) || 0) * ratio * 100) / 100);
+  } else {
+    const { data: settingsRows } = await supabase
+      .from('admin_settings')
+      .select('value')
+      .eq('key', 'payment_schedule_defaults')
+      .limit(1);
+    const s = { ...DEFAULT_SCHEDULE_SETTINGS, ...(settingsRows?.[0]?.value ?? {}) };
+    const pctByStage = {
+      initial_deposit: s.initialDepositPct,
+      production_payment: s.productionPaymentPct,
+      final_payment: s.finalPaymentPct,
+    };
+    newAmounts = orderedRows.map((r) => Math.round(qbTotal * (Number(pctByStage[r.stage]) || 0)) / 100);
+  }
+  // Force the last row to absorb the rounding remainder so the stages still
+  // sum to exactly qbTotal rather than drifting a cent or two.
+  const roundedSum = newAmounts.slice(0, -1).reduce((sum, a) => sum + a, 0);
+  newAmounts[newAmounts.length - 1] = Math.round((qbTotal - roundedSum) * 100) / 100;
+
+  // Waterfall: cumulative payments against each stage's running threshold.
+  let cumulativeThreshold = 0;
+  const paidDates = newAmounts.map((amt) => {
+    cumulativeThreshold += amt;
+    let running = 0;
+    for (const p of payments) {
+      running += p.amount;
+      if (running >= cumulativeThreshold - 0.01) return p.date; // epsilon for float rounding
+    }
+    return null;
+  });
+
+  const invoiceDate = invoice.TxnDate ?? null;
+  const syncedAt = new Date().toISOString();
+  const updates = orderedRows.map((r, i) => ({
+    id: r.id,
+    amount: newAmounts[i],
+    invoice_date: invoiceDate,
+    paid_date: paidDates[i],
+    qb_invoice_number: invoice.DocNumber ?? null,
+    qb_total: qbTotal,
+    qb_balance: Number(invoice.Balance) || 0,
+    qb_synced_at: syncedAt,
+  }));
+
+  const results = await Promise.all(
+    updates.map(({ id, ...patch }) =>
+      supabase.from('payment_schedule').update(patch).eq('id', id).select().single()
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed) throw failed.error;
+  return results.map((r) => r.data);
 }
 
 function dealDisplayName(lead) {
@@ -284,6 +393,43 @@ async function getDealsWithSchedule(supabase) {
     if (failed > 0) console.error(`[admin-cashflow] ${failed} deposit invoice_date backfill(s) failed (non-fatal)`);
   }
 
+  // 6.75. Auto-refresh every QBO-linked room group from QuickBooks. Mike and
+  //       Brianna should never be looking at stale invoice data just because
+  //       nobody clicked Refresh — visiting this page IS the refresh trigger.
+  //       Skip a group if it was already synced within the last 60s (guards
+  //       against a rapid double-load hitting QBO twice for nothing) and
+  //       never let one group's failure (expired token, deleted invoice,
+  //       etc.) block the page — it just falls back to the last-known values.
+  if (process.env.QUICKBOOKS_CLIENT_ID) {
+    const groups = new Map();
+    for (const rowsForDeal of Object.values(rowsByDeal)) {
+      for (const row of rowsForDeal) {
+        if (!row.qb_invoice_id) continue;
+        const key = `${row.hubspot_deal_id} ${row.room ?? ''}`;
+        if (!groups.has(key)) {
+          groups.set(key, { hubspot_deal_id: row.hubspot_deal_id, room: row.room ?? null, qb_invoice_id: row.qb_invoice_id, qb_synced_at: row.qb_synced_at });
+        }
+      }
+    }
+    const STALE_MS = 60 * 1000;
+    const now = Date.now();
+    const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > STALE_MS);
+    if (toSync.length > 0) {
+      const results = await Promise.allSettled(toSync.map((g) => syncRoomGroupFromQbo(supabase, g)));
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
+          for (const updatedRow of r.value) {
+            const list = rowsByDeal[updatedRow.hubspot_deal_id] ?? [];
+            const idx = list.findIndex((x) => x.id === updatedRow.id);
+            if (idx !== -1) list[idx] = updatedRow;
+          }
+        } else {
+          console.error(`[admin-cashflow] QBO auto-sync failed for deal ${toSync[i].hubspot_deal_id} room ${toSync[i].room ?? '(default)'} (non-fatal):`, r.reason?.message);
+        }
+      });
+    }
+  }
+
   // 7. Assemble result — rows ordered by stage (deposit → production → final),
   //    then alphabetically by room within the same stage.
   return deals.map((d) => {
@@ -425,23 +571,17 @@ export default async function handler(req, res) {
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     if (!qb_invoice_id) return res.status(400).json({ error: 'Missing qb_invoice_id' });
     try {
-      const invRes = await qbFetch(`/invoice/${qb_invoice_id}`);
-      if (!invRes.ok) throw new Error(`QuickBooks invoice lookup ${invRes.status}: ${await invRes.text()}`);
-      const { Invoice: inv } = await invRes.json();
-      const update = {
-        qb_invoice_id: inv.Id,
-        qb_invoice_number: inv.DocNumber ?? null,
-        qb_total: inv.TotalAmt ?? 0,
-        qb_balance: inv.Balance ?? 0,
-        qb_synced_at: new Date().toISOString(),
-      };
-      const { data, error } = await scopeToRoomGroup(
-        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
+      // Stamp the invoice id onto the group first so it's marked "linked"
+      // even if the fuller sync below throws partway through (e.g. a
+      // transient QBO error) — the user can retry via Refresh instead of
+      // losing the link entirely.
+      const { error: stampErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').update({ qb_invoice_id }).eq('hubspot_deal_id', hubspot_deal_id),
         room,
-      ).select();
-      if (error) throw error;
-      if (!data || data.length === 0) return res.status(404).json({ error: 'No matching payment schedule rows found for that deal/room' });
-      return res.status(200).json({ rows: data });
+      );
+      if (stampErr) throw stampErr;
+      const rows = await syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id });
+      return res.status(200).json({ rows });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -474,21 +614,8 @@ export default async function handler(req, res) {
       if (lookupErr) throw lookupErr;
       if (!existing?.qb_invoice_id) return res.status(400).json({ error: 'No linked invoice to refresh' });
 
-      const invRes = await qbFetch(`/invoice/${existing.qb_invoice_id}`);
-      if (!invRes.ok) throw new Error(`QuickBooks invoice lookup ${invRes.status}: ${await invRes.text()}`);
-      const { Invoice: inv } = await invRes.json();
-      const update = {
-        qb_invoice_number: inv.DocNumber ?? null,
-        qb_total: inv.TotalAmt ?? 0,
-        qb_balance: inv.Balance ?? 0,
-        qb_synced_at: new Date().toISOString(),
-      };
-      const { data, error } = await scopeToRoomGroup(
-        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
-        room,
-      ).select();
-      if (error) throw error;
-      return res.status(200).json({ rows: data ?? [] });
+      const rows = await syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id: existing.qb_invoice_id });
+      return res.status(200).json({ rows });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -607,27 +734,37 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { id, amount, est_date, invoice_date, paid_date, note, room } = req.body ?? {};
     if (!id) return res.status(400).json({ error: 'Missing id' });
-    const update = { updated_at: new Date().toISOString() };
-    if (amount !== undefined) {
-      if (amount !== null && (Number.isNaN(Number(amount)) || Number(amount) < 0)) {
-        return res.status(400).json({ error: 'Amount must be a non-negative number' });
-      }
-      update.amount = amount === null ? 0 : Number(amount);
-    }
-    if (est_date !== undefined)     update.est_date     = est_date || null;
-    if (invoice_date !== undefined) update.invoice_date = invoice_date || null;
-    if (paid_date !== undefined)    update.paid_date    = paid_date || null;
-    if (note !== undefined)         update.note         = note || null;
     try {
-      // Fetch the pre-update row so we can tell whether invoice_date/paid_date
-      // actually changed (not just resubmitted) before logging a HubSpot note,
-      // and so a room-only edit can recompute label from the row's own stage.
-      const { data: before } = await supabase
+      // Fetch the pre-update row first — needed both to guard fields that are
+      // now synced from QuickBooks, and (below) to tell whether
+      // invoice_date/paid_date actually changed (not just resubmitted)
+      // before logging a HubSpot note, and so a room-only edit can recompute
+      // label from the row's own stage.
+      const { data: before, error: beforeErr } = await supabase
         .from('payment_schedule')
         .select('*')
         .eq('id', id)
         .single();
+      if (beforeErr) throw beforeErr;
 
+      // Once a deal/room group is linked to a QuickBooks invoice, QBO owns
+      // amount/invoice_date/paid_date — locked in the UI, and guarded here
+      // too rather than relying on the UI alone.
+      if (before?.qb_invoice_id && (amount !== undefined || invoice_date !== undefined || paid_date !== undefined)) {
+        return res.status(400).json({ error: 'Amount, Invoice Date, and Paid Date are synced from QuickBooks for this row — unlink the invoice first to edit them manually.' });
+      }
+
+      const update = { updated_at: new Date().toISOString() };
+      if (amount !== undefined) {
+        if (amount !== null && (Number.isNaN(Number(amount)) || Number(amount) < 0)) {
+          return res.status(400).json({ error: 'Amount must be a non-negative number' });
+        }
+        update.amount = amount === null ? 0 : Number(amount);
+      }
+      if (est_date !== undefined)     update.est_date     = est_date || null;
+      if (invoice_date !== undefined) update.invoice_date = invoice_date || null;
+      if (paid_date !== undefined)    update.paid_date    = paid_date || null;
+      if (note !== undefined)         update.note         = note || null;
       if (room !== undefined) {
         update.room = room || null;
         update.label = stageLabel(before?.stage, room || null);

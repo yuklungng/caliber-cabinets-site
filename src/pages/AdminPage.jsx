@@ -6039,12 +6039,15 @@ function formatMoney(n) {
 
 // One editable date cell within a stage row. Always-visible <input type="date">
 // (not click-to-edit) since this is meant to read like a spreadsheet.
-function StageDateInput({ value, onSave, accent = '#374151' }) {
+// `locked` grays it out and blocks edits — used once a row's group is linked
+// to a QuickBooks invoice, since QBO owns invoice_date/paid_date from then on.
+function StageDateInput({ value, onSave, accent = '#374151', locked = false }) {
   const [local, setLocal] = useState(value ?? '');
   const [saving, setSaving] = useState(false);
   useEffect(() => { setLocal(value ?? ''); }, [value]);
 
   async function commit(next) {
+    if (locked) return;
     if (next === (value ?? '')) return;
     setSaving(true);
     try { await onSave(next || null); } finally { setSaving(false); }
@@ -6054,25 +6057,28 @@ function StageDateInput({ value, onSave, accent = '#374151' }) {
     <input
       type="date"
       value={local}
-      disabled={saving}
+      disabled={saving || locked}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={() => commit(local)}
+      title={locked ? 'Synced from QuickBooks — unlink the invoice to edit manually' : undefined}
       style={{
         width: '100%', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: '5px',
-        fontSize: '12.5px', color: accent, background: saving ? '#f9fafb' : '#fff', outline: 'none',
-        boxSizing: 'border-box',
+        fontSize: '12.5px', color: locked ? '#9ca3af' : accent, background: locked ? '#f3f4f6' : (saving ? '#f9fafb' : '#fff'), outline: 'none',
+        boxSizing: 'border-box', cursor: locked ? 'not-allowed' : 'text',
       }}
     />
   );
 }
 
-// Editable dollar amount cell.
-function StageAmountInput({ value, onSave }) {
+// Editable dollar amount cell. `locked` — see StageDateInput above; applies
+// once QBO owns this row's amount.
+function StageAmountInput({ value, onSave, locked = false }) {
   const [local, setLocal] = useState(value != null ? String(value) : '0');
   const [saving, setSaving] = useState(false);
   useEffect(() => { setLocal(value != null ? String(value) : '0'); }, [value]);
 
   async function commit() {
+    if (locked) return;
     const cleaned = local.replace(/[^0-9.]/g, '');
     const parsed = cleaned !== '' ? parseFloat(cleaned) : 0;
     if (parsed === (Number(value) || 0)) return;
@@ -6081,15 +6087,18 @@ function StageAmountInput({ value, onSave }) {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '0 8px', background: saving ? '#f9fafb' : '#fff' }}>
+    <div
+      title={locked ? 'Synced from QuickBooks — unlink the invoice to edit manually' : undefined}
+      style={{ display: 'flex', alignItems: 'center', gap: '3px', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '0 8px', background: locked ? '#f3f4f6' : (saving ? '#f9fafb' : '#fff') }}
+    >
       <span style={{ fontSize: '12px', color: '#9ca3af' }}>$</span>
       <input
         value={local}
-        disabled={saving}
+        disabled={saving || locked}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        style={{ width: '100%', padding: '6px 0', border: 0, fontSize: '12.5px', color: '#111827', outline: 'none', background: 'transparent' }}
+        style={{ width: '100%', padding: '6px 0', border: 0, fontSize: '12.5px', color: locked ? '#9ca3af' : '#111827', outline: 'none', background: 'transparent', cursor: locked ? 'not-allowed' : 'text' }}
       />
     </div>
   );
@@ -6364,7 +6373,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       <div>
                         <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Amount</p>
-                        <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+                        <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} locked={!!s.qb_invoice_id} />
                       </div>
                       <div>
                         <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Est. Date</p>
@@ -6372,11 +6381,11 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                       </div>
                       <div>
                         <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Invoiced</p>
-                        <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
+                        <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" locked={!!s.qb_invoice_id} />
                       </div>
                       <div>
                         <p style={{ margin: '0 0 3px', fontSize: '10px', color: '#9ca3af', fontWeight: '700', textTransform: 'uppercase' }}>Paid</p>
-                        <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+                        <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" locked={!!s.qb_invoice_id} />
                       </div>
                     </div>
                   </div>
@@ -6413,10 +6422,10 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
               return (
                 <Fragment key={s.id}>
                   <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
-                  <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} />
+                  <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} locked={!!s.qb_invoice_id} />
                   <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
-                  <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" />
-                  <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" />
+                  <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" locked={!!s.qb_invoice_id} />
+                  <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" locked={!!s.qb_invoice_id} />
                   <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
                     <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, whiteSpace: 'nowrap' }}>{status.label}</span>
                     <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '14px', lineHeight: 1, flexShrink: 0 }}>🗑️</span>

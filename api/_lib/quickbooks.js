@@ -285,3 +285,24 @@ export async function qbQuery(query, entityName) {
   const data = await res.json();
   return data?.QueryResponse?.[entityName] ?? [];
 }
+
+/** Fetch a single Invoice by its QBO id. Throws on failure (including "not found"). */
+export async function qbGetInvoice(id) {
+  const res = await qbFetch(`/invoice/${id}?minorversion=65`);
+  if (!res.ok) {
+    throw new Error(`QuickBooks invoice lookup ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json();
+  return data?.Invoice ?? null;
+}
+
+/**
+ * Every Payment recorded against a given customer. QBO's query language
+ * can't filter by a Payment's nested Line[].LinkedTxn[] (which is how a
+ * payment references the invoice(s) it was applied to), so this pulls every
+ * payment for the customer and leaves it to the caller to filter down to the
+ * ones linked to a specific invoice.
+ */
+export async function qbGetPaymentsForCustomer(customerId) {
+  return qbQuery(`SELECT * FROM Payment WHERE CustomerRef = '${customerId}' ORDERBY TxnDate ASC MAXRESULTS 200`, 'Payment');
+}

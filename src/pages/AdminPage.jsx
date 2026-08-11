@@ -6442,10 +6442,21 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
 }
 
 // ─── Action Items — reminders for Brianna, color-coded by urgency ─────────────
-// One item per unpaid stage: "Send invoice" if it hasn't been invoiced yet
-// (anchored on est_date), or "Follow up on payment" if it has (anchored on
-// invoice_date, since that's the real event — est_date is just the original
-// guess). Paid stages never appear here; there's nothing left to do.
+// One item per unpaid stage. Three cases:
+//  - Not invoiced at all yet → "Send invoice", anchored on est_date (the
+//    original guess of when this stage should be billed).
+//  - Manually invoiced (no QBO link) → "Follow up on payment", anchored on
+//    invoice_date — that's a real event Brianna caused by billing this
+//    specific stage, so it's the right signal for "how long has this been
+//    outstanding."
+//  - QBO-linked → also "Follow up on payment", but anchored on est_date
+//    instead. Once a group is linked, invoice_date is synced identically
+//    across all 3 stages from one shared QuickBooks invoice — it no longer
+//    means "we just billed this stage," so it can't drive urgency without
+//    making every future stage look overdue the moment the first one is
+//    billed. est_date is what actually represents Caliber's 50/45/5 payment
+//    schedule for a linked deal.
+// Paid stages never appear here; there's nothing left to act on.
 function parseLocalDateAM(dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
@@ -6480,6 +6491,26 @@ function computeActionItems(deals) {
             : days === 0
               ? 'Invoice due today'
               : `Invoice due in ${days} day${days !== 1 ? 's' : ''}`,
+          sortDate: est,
+        });
+      } else if (stage.qb_invoice_id) {
+        const est = parseLocalDateAM(stage.est_date);
+        if (!est) continue;
+        const days = Math.round((est - today) / 86400000);
+        const urgency = days < 0 ? 'overdue' : days <= 7 ? 'dueSoon' : 'upcoming';
+        items.push({
+          key: `${stage.id ?? `${deal.hubspot_deal_id}-${stage.stage}`}-followup`,
+          dealId: deal.hubspot_deal_id,
+          dealName: deal.name,
+          stageLabel: stage.label,
+          amount: stage.amount,
+          urgency,
+          action: 'Follow up on payment',
+          message: days < 0
+            ? `Payment was due ${Math.abs(days)} day${Math.abs(days) !== 1 ? 's' : ''} ago`
+            : days === 0
+              ? 'Payment due today'
+              : `Payment due in ${days} day${days !== 1 ? 's' : ''}`,
           sortDate: est,
         });
       } else {

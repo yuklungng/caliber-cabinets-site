@@ -33,6 +33,19 @@ const DEFAULT_STAGE_LABELS = {
 
 const BASE = 'https://api.hubapi.com';
 
+// HubSpot's /batch/read endpoint allows up to 100 inputs normally, but caps
+// much lower (50) when propertiesWithHistory is requested. Both
+// batchGetDealStages and getAllPipelineDeals hit this once deal count grows
+// past the cap — the whole request fails outright ("maximum number of
+// inputs supported in a batch request for property histories"), so this
+// chunks any history-requesting batch call to stay under it.
+const HISTORY_BATCH_SIZE = 50;
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 function hs(path, method, body) {
   return fetch(`${BASE}${path}`, {
     method,
@@ -96,17 +109,23 @@ export async function createDeal(properties, contactId) {
 export async function batchGetDealStages(dealIds) {
   if (!dealIds || dealIds.length === 0) return {};
 
-  // Fetch deal objects + full dealstage history (custom pipelines don't have hs_date_entered_* props)
-  const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-    properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
-    propertiesWithHistory: ['dealstage'],
-    inputs: dealIds.map((id) => ({ id })),
-  });
-  if (!res.ok) {
-    console.error('[hubspot] batchGetDealStages error:', res.status, await res.text());
-    return {};
+  // Fetch deal objects + full dealstage history (custom pipelines don't have
+  // hs_date_entered_* props). Chunked — see HISTORY_BATCH_SIZE note above.
+  const uniqueIds = [...new Set(dealIds)];
+  const results = [];
+  for (const idsChunk of chunk(uniqueIds, HISTORY_BATCH_SIZE)) {
+    const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
+      properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
+      propertiesWithHistory: ['dealstage'],
+      inputs: idsChunk.map((id) => ({ id })),
+    });
+    if (!res.ok) {
+      console.error('[hubspot] batchGetDealStages error:', res.status, await res.text());
+      continue; // skip this chunk (those deals fall back to "Not in HubSpot"), keep the rest
+    }
+    const data = await res.json();
+    results.push(...(data.results ?? []));
   }
-  const { results } = await res.json();
 
   // Try to get stage labels from the pipeline
   let stageLabels = { ...DEFAULT_STAGE_LABELS };
@@ -391,16 +410,21 @@ export async function getAllPipelineDeals() {
 
   if (allDeals.length === 0) return [];
 
-  // Step 2: Batch-read with stage history (search API doesn't support propertiesWithHistory)
+  // Step 2: Batch-read with stage history (search API doesn't support
+  // propertiesWithHistory). Chunked — see HISTORY_BATCH_SIZE note above.
   const dealIds = allDeals.map((d) => d.id);
   const dealHistoryMap = {};
   try {
-    const batchRes = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-      properties: ['dealstage'],
-      propertiesWithHistory: ['dealstage'],
-      inputs: dealIds.map((id) => ({ id })),
-    });
-    if (batchRes.ok) {
+    for (const idsChunk of chunk(dealIds, HISTORY_BATCH_SIZE)) {
+      const batchRes = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
+        properties: ['dealstage'],
+        propertiesWithHistory: ['dealstage'],
+        inputs: idsChunk.map((id) => ({ id })),
+      });
+      if (!batchRes.ok) {
+        console.error('[hubspot] getAllPipelineDeals history fetch error:', batchRes.status, await batchRes.text());
+        continue;
+      }
       for (const deal of (await batchRes.json()).results ?? []) {
         const history = [...(deal.propertiesWithHistory?.dealstage ?? [])].reverse();
         const firstEntered = {};

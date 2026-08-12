@@ -477,19 +477,93 @@ export default async function handler(req, res) {
       );
     }
 
-    // Merge in HubSpot-only deals (deals that exist in HubSpot but not from a web form)
-    let hsOnlyDeals = [];
+    // Discover deals created directly in HubSpot (not via a web form) and
+    // persist any new ones into Supabase as normal leads — same shape a form
+    // submission gets (lead-submit.js). Once persisted they're picked up by
+    // the plain Supabase query above on every future load, so this scan
+    // itself only needs to run occasionally, not on every request.
+    //
+    // Staff are instructed to create leads only through the admin's Add Lead
+    // form, so a HubSpot-direct deal should be rare — this is a safety net,
+    // not the expected path. Throttled to once/24h via admin_settings
+    // (rather than running on every 30s Leads-view poll) because
+    // getAllPipelineDeals() re-fetches and reconstitutes the entire pipeline
+    // (deal search + stage history + contact associations), which is
+    // expensive enough that running it every 30s was a major driver of the
+    // project going over Vercel's Hobby-tier Active CPU quota.
+    let newlyDiscovered = [];
     if (process.env.HUBSPOT_ACCESS_TOKEN) {
       try {
-        const allHsDeals = await getAllPipelineDeals();
-        const supabaseDealIds = new Set(data.map((l) => l.hubspot_deal_id).filter(Boolean));
-        hsOnlyDeals = allHsDeals.filter((d) => !supabaseDealIds.has(d.hubspot_deal_id));
+        const DISCOVERY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+        const { data: lastRunRow } = await supabase
+          .from('admin_settings')
+          .select('value')
+          .eq('key', 'hubspot_discovery_last_run')
+          .maybeSingle();
+        const lastRun = lastRunRow?.value ? new Date(lastRunRow.value).getTime() : 0;
+
+        if (Date.now() - lastRun > DISCOVERY_INTERVAL_MS) {
+          const allHsDeals = await getAllPipelineDeals();
+          const supabaseDealIds = new Set(data.map((l) => l.hubspot_deal_id).filter(Boolean));
+          const newDeals = allHsDeals.filter((d) => !supabaseDealIds.has(d.hubspot_deal_id));
+
+          if (newDeals.length > 0) {
+            const toInsert = newDeals.map((d) => ({
+              form_type: 'hubspot_direct',
+              // leadSource marks these non-'Website' so the marketing-stats
+              // web-source filter (PerformanceView) correctly excludes them.
+              fields: { ...d.fields, leadSource: 'HubSpot (Direct)' },
+              status: 'new',
+              hubspot_deal_id: d.hubspot_deal_id,
+              hubspot_contact_id: d.hubspot_contact_id,
+              hs_stage_id: d.hs_stage_id,
+              hs_stage_label: d.hs_stage_label,
+              lost_reason: d.lost_reason,
+              lost_reason_detail: d.lost_reason_detail,
+              declined_reason: d.declined_reason,
+              declined_reason_detail: d.declined_reason_detail,
+              created_at: d.created_at,
+            }));
+            const { data: inserted, error: insErr } = await supabase
+              .from('leads')
+              .insert(toInsert)
+              .select();
+            if (insErr) {
+              console.error('[admin-leads] Failed to persist HubSpot-direct deal(s) (non-fatal):', insErr.message);
+            } else {
+              // hs_deal_url / stage-entry dates aren't stored columns — they're
+              // recomputed live from HubSpot on every load like any other lead
+              // (see the `enriched` map above). For this one response, carry
+              // them over from the discovery data so the new lead renders
+              // fully immediately instead of waiting for the next load.
+              newlyDiscovered = (inserted ?? []).map((row) => {
+                const src = newDeals.find((d) => d.hubspot_deal_id === row.hubspot_deal_id);
+                return {
+                  ...row,
+                  hs_deal_url: src?.hs_deal_url ?? null,
+                  hs_date_entered_new_request:   src?.hs_date_entered_new_request   ?? null,
+                  hs_date_entered_qualified:     src?.hs_date_entered_qualified     ?? null,
+                  hs_date_entered_quote_sent:    src?.hs_date_entered_quote_sent    ?? null,
+                  hs_date_entered_contract_sent: src?.hs_date_entered_contract_sent ?? null,
+                  hs_date_entered_closed_won:    src?.hs_date_entered_closed_won    ?? null,
+                  hs_date_entered_closed_lost:   src?.hs_date_entered_closed_lost   ?? null,
+                };
+              });
+              console.log(`[admin-leads] Persisted ${newlyDiscovered.length} HubSpot-direct deal(s) to Supabase`);
+            }
+          }
+
+          await supabase.from('admin_settings').upsert(
+            { key: 'hubspot_discovery_last_run', value: new Date().toISOString() },
+            { onConflict: 'key' },
+          );
+        }
       } catch (hsErr) {
-        console.error('[admin-leads] HubSpot-only deals fetch error:', hsErr.message);
+        console.error('[admin-leads] HubSpot discovery error (non-fatal):', hsErr.message);
       }
     }
 
-    const combined = [...enriched, ...hsOnlyDeals].sort(
+    const combined = [...enriched, ...newlyDiscovered].sort(
       (a, b) => new Date(b.created_at) - new Date(a.created_at),
     );
 

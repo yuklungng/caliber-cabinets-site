@@ -418,6 +418,7 @@ export async function getAllPipelineDeals() {
 
   // Batch-fetch contact associations, then resolve contact properties
   const contactByDealId = {};
+  const contactIdByDealId = {};
   try {
     const assocRes = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
       inputs: dealIds.map((id) => ({ id })),
@@ -427,6 +428,7 @@ export async function getAllPipelineDeals() {
       for (const r of (await assocRes.json()).results ?? []) {
         if (r.to?.length > 0) dealToContactId[r.from.id] = String(r.to[0].toObjectId);
       }
+      Object.assign(contactIdByDealId, dealToContactId);
       const contactIds = [...new Set(Object.values(dealToContactId))];
       if (contactIds.length > 0) {
         const cRes = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
@@ -457,6 +459,7 @@ export async function getAllPipelineDeals() {
       form_type: null,
       created_at: p.createdate ?? new Date().toISOString(),
       hubspot_deal_id: deal.id,
+      hubspot_contact_id: contactIdByDealId[deal.id] ?? null,
       fields: {
         firstName:    contact.firstname ?? '',
         lastName:     contact.lastname  ?? '',

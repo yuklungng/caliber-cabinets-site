@@ -539,7 +539,7 @@ const SOURCE_OPTIONS = ['Website', 'Phone Call', 'Referral', 'Repeat Client', 'T
 
 // ─── Add Lead Modal ───────────────────────────────────────────────────────────
 
-const MANUAL_SOURCE_OPTIONS = ['Phone Call', 'Referral', 'Repeat Client', 'Trade Show', 'Walk-in', 'Other'];
+const MANUAL_SOURCE_OPTIONS = ['Phone Call', 'Referral', 'Repeat Client', 'Trade Show', 'Walk-in', 'HubSpot (Direct)', 'Other'];
 
 const AL_PROJECT_TYPES    = ['Kitchen', 'Bathroom', 'Closet', 'Garage', 'Entertainment Center', 'Other'];
 const AL_TIMELINE_OPTIONS = ['As soon as possible', '1–3 months', '3–6 months', '6+ months'];
@@ -3354,7 +3354,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const filtered = leads
     .filter((l) => {
       if (filterType === 'all') return true;
-      if (filterType === 'hubspot') return l.source === 'hubspot';
+      if (filterType === 'hubspot') return l.source === 'hubspot' || l.form_type === 'hubspot_direct';
       return l.form_type === filterType;
     })
     .filter((l) => {
@@ -3408,7 +3408,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const totalLeads = leads.length;
   const homeownerLeads = leads.filter((l) => l.form_type === 'homeowner-consultation').length;
   const tradeLeads = leads.filter((l) => l.form_type === 'trade-estimate').length;
-  const hubspotLeads = leads.filter((l) => l.source === 'hubspot').length;
+  const hubspotLeads = leads.filter((l) => l.source === 'hubspot' || l.form_type === 'hubspot_direct').length;
 
   // Stage breakdown — count by stage ID across all pipeline stages
   const stageCountById = {};
@@ -6609,7 +6609,10 @@ function FinancialView() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const r = await apiCall('/api/admin-cashflow');
+      // syncQbo=1 tells the backend to auto-refresh QBO-linked invoices on
+      // this load (throttled to once/day per invoice) — only this view
+      // needs invoice-level freshness, so only this view asks for it.
+      const r = await apiCall('/api/admin-cashflow?syncQbo=1');
       if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
       const d = await r.json();
       setDeals(d.deals ?? []);

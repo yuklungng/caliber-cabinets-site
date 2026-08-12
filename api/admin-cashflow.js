@@ -248,7 +248,7 @@ function toCSV(rows) {
 }
 
 /** Build the full Closed Won deal list with each deal's 3-stage payment schedule, auto-creating any missing rows. */
-async function getDealsWithSchedule(supabase) {
+async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
   // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
   //    only stage columns Supabase actually has, and they're only refreshed
   //    when someone loads the Leads view — so they can be stale. We treat them
@@ -395,12 +395,24 @@ async function getDealsWithSchedule(supabase) {
 
   // 6.75. Auto-refresh every QBO-linked room group from QuickBooks. Mike and
   //       Brianna should never be looking at stale invoice data just because
-  //       nobody clicked Refresh — visiting this page IS the refresh trigger.
-  //       Skip a group if it was already synced within the last 60s (guards
-  //       against a rapid double-load hitting QBO twice for nothing) and
-  //       never let one group's failure (expired token, deleted invoice,
+  //       nobody clicked Refresh — visiting the Financial Management page IS
+  //       the refresh trigger (still page-visit-triggered/"on-demand", not a
+  //       background poller, matching what was disclosed to Intuit's App
+  //       Assessment Questionnaire).
+  //
+  //       Two throttles keep this from burning Vercel's Hobby-tier Active CPU
+  //       budget (a 60s window let every page load re-hit QBO for every
+  //       linked invoice, which ran the project over its monthly CPU
+  //       allowance within days of going live):
+  //         - `syncQbo` — only the Financial Management page passes this;
+  //           the Performance dashboard also calls this endpoint but doesn't
+  //           need invoice-level freshness, so it just reads whatever's
+  //           already stored.
+  //         - STALE_MS — a group only re-syncs once per 24h regardless of
+  //           how many times the page is visited that day.
+  //       Never let one group's failure (expired token, deleted invoice,
   //       etc.) block the page — it just falls back to the last-known values.
-  if (process.env.QUICKBOOKS_CLIENT_ID) {
+  if (syncQbo && process.env.QUICKBOOKS_CLIENT_ID) {
     const groups = new Map();
     for (const rowsForDeal of Object.values(rowsByDeal)) {
       for (const row of rowsForDeal) {
@@ -411,7 +423,7 @@ async function getDealsWithSchedule(supabase) {
         }
       }
     }
-    const STALE_MS = 60 * 1000;
+    const STALE_MS = 24 * 60 * 60 * 1000; // one auto-sync per group per day
     const now = Date.now();
     const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > STALE_MS);
     if (toSync.length > 0) {
@@ -654,7 +666,9 @@ export default async function handler(req, res) {
   // ── GET — list Closed Won deals with their 3-stage payment schedule ────────
   if (req.method === 'GET') {
     try {
-      const result = await getDealsWithSchedule(supabase);
+      // Only the Financial Management page (?syncQbo=1) triggers the QBO
+      // auto-refresh — see the 6.75 comment in getDealsWithSchedule for why.
+      const result = await getDealsWithSchedule(supabase, { syncQbo: req.query?.syncQbo === '1' });
       return res.status(200).json({ deals: result });
     } catch (err) {
       console.error('[admin-cashflow] GET error:', err.message);

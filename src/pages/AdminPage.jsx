@@ -3346,14 +3346,18 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
   const closedCount = leads.filter((l) => l.hs_stage_id && CLOSED_STAGE_IDS.has(l.hs_stage_id)).length;
 
-  // Stale leads: active stage, no logged activity (note/call/email/meeting/
-  // task — see leadActivityDate) in ≥7 days.
+  // Stale leads: active (non-closed) stage, no logged activity (note/call/
+  // email/meeting/task — see leadActivityDate) in ≥7 days. Excludes
+  // CLOSED_STAGE_IDS (not just EXIT_STAGE_IDS) — that's Closed Won too, and
+  // a won deal doesn't need a "follow-up or a decision". Must match the
+  // hide-closed filter `filtered` applies below, or the KPI count and the
+  // list it filters to disagree (closed deals counted here, then hidden there).
   // (computed here, ahead of `filtered`, since the Stale Leads KPI card filter reads this set)
   const STALE_DAYS = 7;
   const staleLeadIds = new Set(
     leads
       .filter((l) => {
-        if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
+        if (!l.hs_stage_id || CLOSED_STAGE_IDS.has(l.hs_stage_id)) return false;
         const d = businessDaysBetween(leadActivityDate(l), null);
         return d !== null && d >= STALE_DAYS;
       })

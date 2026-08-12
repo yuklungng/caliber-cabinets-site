@@ -213,6 +213,15 @@ function businessDaysBetween(start, end) {
   if (isNaN(startD) || isNaN(endD) || endD <= startD) return null;
   return businessMsBetween(startD, endD) / (BIZ_HOURS_PER_DAY * 60 * 60 * 1000);
 }
+// Best available "last touched" timestamp for stale-lead detection: prefer
+// HubSpot's Last Activity Date (note/call/email/meeting/task logged on the
+// deal — updates whether that activity was logged from HubSpot directly or
+// pushed by this admin panel), fall back to the stage-change timestamp, then
+// lead creation date, so a lead with zero logged activity still ages out
+// instead of never going stale.
+function leadActivityDate(lead) {
+  return lead.hs_last_activity_date ?? lead.hs_stage_date ?? lead.created_at ?? null;
+}
 function formatDays(days) {
   if (days === null || days === undefined) return '—';
   if (days < 1) return `${Math.round(days * BIZ_HOURS_PER_DAY)}h`;
@@ -1593,10 +1602,10 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <ProbabilityField lead={lead} stageProbabilities={stageProbabilities} onProbabilityChange={onProbabilityChange} />
           {isStale && (
             <span
-              title={`Business days since last stage change (${BIZ_HOURS_LABEL}) — weekends and off-hours don't count.`}
+              title={`Business days since last logged activity — note, call, email, meeting, or task (${BIZ_HOURS_LABEL}) — weekends and off-hours don't count.`}
               style={{ fontSize: '11px', fontWeight: '700', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px' }}
             >
-              ⚠ Stale · {Math.floor(businessDaysBetween(lead.hs_stage_date, null))}d
+              ⚠ Stale · {Math.floor(businessDaysBetween(leadActivityDate(lead), null))}d
             </span>
           )}
           <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
@@ -3186,7 +3195,7 @@ function MetricCards({
         onClick={!isLoading && staleCount > 0 ? onStaleClick : null}
         active={staleActive}
         tooltip={!isLoading && (
-          <TipBody desc={`Active deals with no stage change in ${STALE_DAYS} or more business days (${BIZ_HOURS_LABEL}). These likely need a follow-up or a decision.${staleCount > 0 ? ' Click to filter the list below.' : ''}`}>
+          <TipBody desc={`Active deals with no logged activity (note, call, email, meeting, or task — in HubSpot or the admin panel) in ${STALE_DAYS} or more business days (${BIZ_HOURS_LABEL}). These likely need a follow-up or a decision.${staleCount > 0 ? ' Click to filter the list below.' : ''}`}>
             {staleCount > 0
               ? <Pill bg="#92400e" color="#fde68a">{staleCount} deal{staleCount !== 1 ? 's' : ''} stuck {STALE_DAYS}+ business days</Pill>
               : <Pill bg="#14532d" color="#bbf7d0">All active deals moving within {STALE_DAYS} business days ✓</Pill>
@@ -3337,14 +3346,15 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 
   const closedCount = leads.filter((l) => l.hs_stage_id && CLOSED_STAGE_IDS.has(l.hs_stage_id)).length;
 
-  // Stale leads: active stage, no stage change in ≥7 days
+  // Stale leads: active stage, no logged activity (note/call/email/meeting/
+  // task — see leadActivityDate) in ≥7 days.
   // (computed here, ahead of `filtered`, since the Stale Leads KPI card filter reads this set)
   const STALE_DAYS = 7;
   const staleLeadIds = new Set(
     leads
       .filter((l) => {
         if (!l.hs_stage_id || EXIT_STAGE_IDS.has(l.hs_stage_id)) return false;
-        const d = businessDaysBetween(l.hs_stage_date, null);
+        const d = businessDaysBetween(leadActivityDate(l), null);
         return d !== null && d >= STALE_DAYS;
       })
       .map((l) => l.id),

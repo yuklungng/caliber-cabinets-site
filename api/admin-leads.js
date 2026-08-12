@@ -452,6 +452,7 @@ export default async function handler(req, res) {
         hs_stage_label: hs?.stageLabel ?? null,
         hs_stage_id:    hs?.stageId   ?? null,
         hs_stage_date:  hs?.stageDate ?? null,
+        hs_last_activity_date: hs?.lastActivityDate ?? null,
         hs_deal_url:    hs?.dealUrl   ?? null,
         // Stage-entry timestamps for operational metrics
         hs_date_entered_new_request:   hs?.dateEnteredNewRequest   ?? null,

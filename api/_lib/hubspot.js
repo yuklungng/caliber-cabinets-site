@@ -115,7 +115,12 @@ export async function batchGetDealStages(dealIds) {
   const results = [];
   for (const idsChunk of chunk(uniqueIds, HISTORY_BATCH_SIZE)) {
     const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
-      properties: ['dealstage', 'dealname', 'hs_lastmodifieddate'],
+      // notes_last_updated = HubSpot's "Last Activity Date" (last note, call,
+      // email, meeting, or task logged on the deal) — confirmed via portal
+      // property lookup. Used for stale-lead detection so activity logged
+      // directly in HubSpot (not through the admin panel) still counts,
+      // unlike hs_lastmodifieddate which tracks any property change.
+      properties: ['dealstage', 'dealname', 'hs_lastmodifieddate', 'notes_last_updated'],
       propertiesWithHistory: ['dealstage'],
       inputs: idsChunk.map((id) => ({ id })),
     });
@@ -163,6 +168,7 @@ export async function batchGetDealStages(dealIds) {
       stageId,
       stageLabel: stageLabels[stageId] ?? stageId,
       stageDate:  p.hs_lastmodifieddate ?? null,
+      lastActivityDate: p.notes_last_updated ?? null,
       dealUrl: portalId
         ? `https://app.hubspot.com/contacts/${portalId}/deal/${deal.id}`
         : null,

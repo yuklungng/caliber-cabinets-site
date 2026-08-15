@@ -583,15 +583,29 @@ export default async function handler(req, res) {
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     if (!qb_invoice_id) return res.status(400).json({ error: 'Missing qb_invoice_id' });
     try {
-      // Stamp the invoice id onto the group first so it's marked "linked"
-      // even if the fuller sync below throws partway through (e.g. a
-      // transient QBO error) — the user can retry via Refresh instead of
-      // losing the link entirely.
-      const { error: stampErr } = await scopeToRoomGroup(
-        supabase.from('payment_schedule').update({ qb_invoice_id }).eq('hubspot_deal_id', hubspot_deal_id),
+      // Snapshot each row's current amount/invoice_date/paid_date into
+      // pre_qb_* columns BEFORE the sync below overwrites them, so
+      // unlink-invoice can restore exactly what was there rather than
+      // guessing or blanking to zero. Also stamps qb_invoice_id in this same
+      // per-row write so the group is marked "linked" even if the fuller
+      // sync below throws partway through (e.g. a transient QBO error) —
+      // the user can retry via Refresh instead of losing the link entirely.
+      const { data: preLinkRows, error: preLinkErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('id, amount, invoice_date, paid_date').eq('hubspot_deal_id', hubspot_deal_id),
         room,
       );
+      if (preLinkErr) throw preLinkErr;
+      const stampResults = await Promise.all((preLinkRows ?? []).map((r) =>
+        supabase.from('payment_schedule').update({
+          pre_qb_amount: r.amount,
+          pre_qb_invoice_date: r.invoice_date,
+          pre_qb_paid_date: r.paid_date,
+          qb_invoice_id,
+        }).eq('id', r.id)
+      ));
+      const stampErr = stampResults.find((r) => r.error)?.error;
       if (stampErr) throw stampErr;
+
       const rows = await syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id });
       return res.status(200).json({ rows });
     } catch (err) {
@@ -603,22 +617,31 @@ export default async function handler(req, res) {
     const { hubspot_deal_id, room } = req.body ?? {};
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     try {
-      // Also reset amount/invoice_date/paid_date back to blank — those were
-      // overwritten from QBO while linked (that's the whole point of the
-      // lock), so leaving them in place after unlinking (e.g. linked to the
-      // wrong invoice by mistake) silently keeps wrong numbers around as
-      // regular, now-editable values. Unlinking should leave the row exactly
-      // like a freshly-added one, not "whatever QBO last said".
-      const update = {
-        qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null,
-        amount: 0, invoice_date: null, paid_date: null,
-      };
-      const { data, error } = await scopeToRoomGroup(
-        supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
+      // Restore each row's pre-link snapshot (captured in link-invoice)
+      // instead of blanking to 0/null — those fields were overwritten from
+      // QBO while linked (that's the whole point of the lock), so leaving
+      // them in place after unlinking (e.g. linked to the wrong invoice by
+      // mistake) would silently keep wrong numbers around as regular,
+      // now-editable values. Falls back to 0/null only for rows linked
+      // before this snapshot existed (no pre_qb_* data to restore from).
+      const { data: rowsToRestore, error: lookupErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('id, pre_qb_amount, pre_qb_invoice_date, pre_qb_paid_date').eq('hubspot_deal_id', hubspot_deal_id),
         room,
-      ).select();
-      if (error) throw error;
-      return res.status(200).json({ rows: data ?? [] });
+      );
+      if (lookupErr) throw lookupErr;
+
+      const restored = await Promise.all((rowsToRestore ?? []).map(async (r) => {
+        const { data, error } = await supabase.from('payment_schedule').update({
+          qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null,
+          amount: r.pre_qb_amount ?? 0,
+          invoice_date: r.pre_qb_invoice_date ?? null,
+          paid_date: r.pre_qb_paid_date ?? null,
+          pre_qb_amount: null, pre_qb_invoice_date: null, pre_qb_paid_date: null,
+        }).eq('id', r.id).select().single();
+        if (error) throw error;
+        return data;
+      }));
+      return res.status(200).json({ rows: restored });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

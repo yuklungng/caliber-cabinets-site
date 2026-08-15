@@ -603,7 +603,16 @@ export default async function handler(req, res) {
     const { hubspot_deal_id, room } = req.body ?? {};
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     try {
-      const update = { qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null };
+      // Also reset amount/invoice_date/paid_date back to blank — those were
+      // overwritten from QBO while linked (that's the whole point of the
+      // lock), so leaving them in place after unlinking (e.g. linked to the
+      // wrong invoice by mistake) silently keeps wrong numbers around as
+      // regular, now-editable values. Unlinking should leave the row exactly
+      // like a freshly-added one, not "whatever QBO last said".
+      const update = {
+        qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null,
+        amount: 0, invoice_date: null, paid_date: null,
+      };
       const { data, error } = await scopeToRoomGroup(
         supabase.from('payment_schedule').update(update).eq('hubspot_deal_id', hubspot_deal_id),
         room,
@@ -739,6 +748,24 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('payment_schedule').delete().eq('id', id);
       if (error) throw error;
       return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── POST ?action=delete-room — remove every row in a room/split at once.
+  //    add-room creates all 3 stage rows in one step; this is the matching
+  //    bulk delete so undoing a split doesn't mean deleting each row by hand. ──
+  if (req.method === 'POST' && action === 'delete-room') {
+    const { hubspot_deal_id, room } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    try {
+      const { data, error } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').delete().eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      ).select('id');
+      if (error) throw error;
+      return res.status(200).json({ ok: true, deletedIds: (data ?? []).map((r) => r.id) });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

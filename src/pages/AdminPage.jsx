@@ -6336,7 +6336,7 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
   );
 }
 
-function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onInvoiceSynced }) {
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
@@ -6355,6 +6355,17 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
     onRowDeleted(deal.hubspot_deal_id, rowId);
   }
 
+  // Bulk counterpart to handleDelete — removes every row in a room/split at
+  // once, matching how add-room creates all 3 rows at once.
+  async function handleDeleteRoom(room, rows) {
+    const label = room || 'this section';
+    if (!window.confirm(`Delete ${label} (all ${rows.length} rows: ${rows.map((r) => FORECAST_STAGE_LABELS[r.stage] ?? r.stage).join(', ')})? This cannot be undone.`)) return;
+    const r = await apiCall('/api/admin-cashflow?action=delete-room', { method: 'POST', body: { hubspot_deal_id: deal.hubspot_deal_id, room: room || null } });
+    if (!r.ok) { alert('Failed to delete — please try again.'); return; }
+    const { deletedIds } = await r.json();
+    onRoomDeleted(deal.hubspot_deal_id, deletedIds ?? rows.map((row) => row.id));
+  }
+
   const groups = groupStagesByRoom(deal.stages);
   // Only surface the room-name field once there's actually more than one
   // section — the common single-project deal stays exactly as simple as
@@ -6368,7 +6379,14 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
       <div style={{ display: 'grid', gap: '20px' }}>
         {groups.map(([room, rows]) => (
           <div key={room || '__default__'}>
-            {showRoomLabels && <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />}
+            {showRoomLabels && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />
+                <button onClick={() => handleDeleteRoom(room, rows)} title="Delete this whole split" style={{ background: 'none', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '11px', fontWeight: '600', padding: '3px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  🗑️ Delete Split
+                </button>
+              </div>
+            )}
             <div style={{ marginTop: showRoomLabels ? '6px' : 0, marginBottom: '8px' }}>
               <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} />
             </div>
@@ -6423,8 +6441,11 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
       {groups.map(([room, rows]) => (
         <div key={room || '__default__'} style={{ marginTop: showRoomLabels ? '14px' : '0' }}>
           {showRoomLabels && (
-            <div style={{ marginBottom: '6px' }}>
+            <div style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
               <RoomLabelInput value={room} onSave={(v) => saveRoomName(rows, v)} />
+              <button onClick={() => handleDeleteRoom(room, rows)} title="Delete this whole split" style={{ background: 'none', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '11px', fontWeight: '600', padding: '3px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                🗑️ Delete Split
+              </button>
             </div>
           )}
           <div style={{ marginBottom: '8px' }}>
@@ -6694,9 +6715,12 @@ function FinancialView() {
     }));
   }
 
-  // QBO link/unlink/refresh return the full updated row(s) for a room group —
-  // merge just the qb_* fields in, matched by row id. Doesn't touch
-  // invoiced/received since qb_* fields don't drive those.
+  // QBO link/unlink/refresh return the full updated row(s) for a room group.
+  // Merges qb_* fields plus amount/invoice_date/paid_date — unlink-invoice
+  // resets the latter three back to blank (see admin-cashflow.js), and
+  // without merging them here the reset wouldn't show until the next full
+  // page load. Recomputes invoiced/received since those fields now can
+  // change through this path too.
   function handleRowsSynced(dealId, updatedRows) {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
@@ -6706,6 +6730,9 @@ function FinancialView() {
         if (!u) return s;
         return {
           ...s,
+          amount: u.amount != null ? Number(u.amount) : s.amount,
+          invoice_date: u.invoice_date ?? null,
+          paid_date: u.paid_date ?? null,
           qb_invoice_id: u.qb_invoice_id ?? null,
           qb_invoice_number: u.qb_invoice_number ?? null,
           qb_total: u.qb_total != null ? Number(u.qb_total) : null,
@@ -6713,7 +6740,9 @@ function FinancialView() {
           qb_synced_at: u.qb_synced_at ?? null,
         };
       });
-      return { ...d, stages };
+      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }
 
@@ -6721,6 +6750,19 @@ function FinancialView() {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
       const stages = d.stages.filter((s) => s.id !== rowId);
+      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
+    }));
+  }
+
+  // Bulk counterpart to handleRowDeleted — removes every row in a room/split
+  // at once (matches add-room creating all 3 at once).
+  function handleRoomDeleted(dealId, deletedIds) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const idSet = new Set(deletedIds);
+      const stages = d.stages.filter((s) => !idSet.has(s.id));
       const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
       const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
@@ -6913,7 +6955,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onInvoiceSynced={handleRowsSynced} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>

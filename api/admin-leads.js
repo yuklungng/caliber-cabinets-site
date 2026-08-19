@@ -32,6 +32,11 @@ async function geocodeRough(queryStr) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Declined-stage constants — shared by the stage-change PATCH handler and ─
+// ─── the standalone declined-reason correction PATCH handler below.         ─
+const DECLINED_STAGE_ID = '3945178857';
+const DECLINED_REASONS = new Set(['Out of Service Area', 'Out of Scope', 'Duplicated', 'Other']);
+
 export default async function handler(req, res) {
   const auth = await checkAuth(req);
   if (!auth.ok) return res.status(401).json({ error: 'Unauthorized' });
@@ -195,6 +200,54 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
+  // PATCH ?action=declined-reason — correct a Declined lead's reason after the
+  // fact (in case the wrong option was picked, e.g. "Other" by mistake).
+  // Deliberately lighter-weight than the general stage-change PATCH below: it
+  // does NOT call updateDealStage (the lead is already Declined) and logs a
+  // "reason corrected" note instead of a generic "Stage changed" one.
+  if (req.method === 'PATCH' && req.query?.action === 'declined-reason') {
+    const { dealId, declinedReason, declinedReasonDetail } = req.body ?? {};
+    if (!dealId) return res.status(400).json({ error: 'Missing dealId' });
+    if (!declinedReason || !DECLINED_REASONS.has(declinedReason)) {
+      return res.status(400).json({ error: 'A decline reason (Out of Service Area, Out of Scope, Duplicated, or Other) is required.' });
+    }
+    if (declinedReason === 'Other' && !declinedReasonDetail?.trim()) {
+      return res.status(400).json({ error: 'Please describe the reason when selecting "Other".' });
+    }
+
+    const actor = auth.user?.name ?? auth.user?.email ?? 'Admin';
+    const detail = declinedReasonDetail?.trim() || null;
+
+    // Push to HubSpot (non-fatal — Supabase remains the source of truth)
+    try {
+      await ensureDeclinedReasonProperties();
+      await updateDealProperties(dealId, {
+        declined_reason: declinedReason,
+        ...(detail ? { declined_reason_detail: detail } : {}),
+      });
+    } catch (declinedErr) {
+      console.error('[admin-leads] HubSpot declined-reason property error (non-fatal):', declinedErr.message);
+    }
+    try {
+      await createDealNote(dealId, `Declined reason corrected to "${declinedReason}"${detail ? ` (${detail})` : ''} by ${actor}`);
+    } catch (noteErr) {
+      console.error('[admin-leads] HubSpot note error (non-fatal):', noteErr.message);
+    }
+
+    const { error: updateErr } = await supabase
+      .from('leads')
+      .update({
+        declined_reason: declinedReason,
+        declined_reason_detail: detail,
+        last_modified_by: actor,
+        last_modified_at: new Date().toISOString(),
+      })
+      .eq('hubspot_deal_id', dealId);
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    return res.status(200).json({ success: true, declined_reason: declinedReason, declined_reason_detail: detail });
+  }
+
   // POST ?action=add-lead — manually add a lead from the admin panel (skips Turnstile + email)
   if (req.method === 'POST' && req.query?.action === 'add-lead') {
     const { formType, fields } = req.body ?? {};
@@ -276,8 +329,6 @@ export default async function handler(req, res) {
     const { dealId, stageId, stageLabel, lostReason, lostReasonDetail, declinedReason, declinedReasonDetail } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
 
-    const DECLINED_STAGE_ID = '3945178857';
-
     // Lost Deal requires a reason — Competitor / Pricing / Value / Other.
     // "Other" requires the free-text detail to actually say something.
     const LOST_REASONS = new Set(['Competitor', 'Pricing', 'Value', 'Other']);
@@ -290,13 +341,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // Declined requires a reason too — Out of Service Area / Out of Scope / Other.
-    // Same "Other" free-text requirement as Lost Deal, but a different category
-    // set since Declined is not a competitive loss.
-    const DECLINED_REASONS = new Set(['Out of Service Area', 'Out of Scope', 'Other']);
+    // Declined requires a reason too — Out of Service Area / Out of Scope /
+    // Duplicated / Other. Same "Other" free-text requirement as Lost Deal, but
+    // a different category set since Declined is not a competitive loss.
     if (stageId === DECLINED_STAGE_ID) {
       if (!declinedReason || !DECLINED_REASONS.has(declinedReason)) {
-        return res.status(400).json({ error: 'A decline reason (Out of Service Area, Out of Scope, or Other) is required to decline a deal.' });
+        return res.status(400).json({ error: 'A decline reason (Out of Service Area, Out of Scope, Duplicated, or Other) is required to decline a deal.' });
       }
       if (declinedReason === 'Other' && !declinedReasonDetail?.trim()) {
         return res.status(400).json({ error: 'Please describe the reason when selecting "Other".' });

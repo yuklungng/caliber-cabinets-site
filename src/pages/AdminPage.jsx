@@ -89,7 +89,7 @@ const LOST_REASON_OPTIONS = ['Competitor', 'Pricing', 'Value', 'Other'];
 // Reasons captured when a deal is moved to the "Declined" stage — required.
 // Declined is not a competitive loss (see HS_EXIT_STAGES note above), so it
 // gets its own category set rather than reusing LOST_REASON_OPTIONS.
-const DECLINED_REASON_OPTIONS = ['Out of Service Area', 'Out of Scope', 'Other'];
+const DECLINED_REASON_OPTIONS = ['Out of Service Area', 'Out of Scope', 'Duplicated', 'Other'];
 const DECLINED_STAGE_ID = '3945178857';
 
 // Derived set for fast exit-stage membership checks — used in LeadsView and PerformanceView
@@ -462,9 +462,9 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
 // ─── Reason prompt modal — required when a deal moves to the Lost Deal or ───
 // ─── Declined stage. Same UX, different heading/options per stage.        ───
 
-function ReasonPromptModal({ heading, subheading, options, confirmLabel, onCancel, onConfirm }) {
-  const [reason, setReason] = useState(null);
-  const [detail, setDetail] = useState('');
+function ReasonPromptModal({ heading, subheading, options, confirmLabel, initialReason = null, initialDetail = '', onCancel, onConfirm }) {
+  const [reason, setReason] = useState(initialReason);
+  const [detail, setDetail] = useState(initialDetail);
   const [submitting, setSubmitting] = useState(false);
 
   const needsDetail = reason === 'Other';
@@ -541,6 +541,51 @@ function ReasonPromptModal({ heading, subheading, options, confirmLabel, onCance
       </div>
     </div>
     </FixedOverlay>
+  );
+}
+
+// ─── Editable Declined-reason badge — click to correct a mis-picked reason ──
+// ─── (e.g. picked "Other" by mistake) without re-running the full stage-   ──
+// ─── change flow. Reuses ReasonPromptModal, pre-filled with the current   ──
+// ─── reason/detail, and saves via the lightweight declined-reason PATCH.  ──
+function EditableDeclinedBadge({ lead, onDeclinedReasonChange }) {
+  const [editing, setEditing] = useState(false);
+  if (!lead.declined_reason) return null;
+
+  async function handleConfirm(reason, detail) {
+    try {
+      await apiCall('/api/admin-leads?action=declined-reason', {
+        method: 'PATCH',
+        body: { dealId: lead.hubspot_deal_id, declinedReason: reason, declinedReasonDetail: detail },
+      });
+      onDeclinedReasonChange(lead.id ?? lead.hubspot_deal_id, reason, detail?.trim() || null);
+    } catch { /* non-fatal */ }
+    setEditing(false);
+  }
+
+  return (
+    <>
+      <span
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        title={`${lead.declined_reason_detail ? `Declined reason: ${lead.declined_reason} — ${lead.declined_reason_detail}` : `Declined reason: ${lead.declined_reason}`} — click to correct`}
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '600', color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
+        Declined: {lead.declined_reason}{lead.declined_reason_detail ? ` — ${lead.declined_reason_detail}` : ''}
+        <span style={{ fontSize: '9px', opacity: 0.7, flexShrink: 0 }}>▾</span>
+      </span>
+      {editing && (
+        <ReasonPromptModal
+          heading="Correct the declined reason"
+          subheading="Pick the right reason — useful if the wrong one was selected by mistake."
+          options={DECLINED_REASON_OPTIONS}
+          confirmLabel="Save Reason"
+          initialReason={lead.declined_reason}
+          initialDetail={lead.declined_reason_detail ?? ''}
+          onCancel={() => setEditing(false)}
+          onConfirm={handleConfirm}
+        />
+      )}
+    </>
   );
 }
 
@@ -1563,7 +1608,7 @@ function LeadDetail({ lead, onActivityChange }) {
   );
 }
 
-function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, onProbabilityChange, stageProbabilities, isSuperAdmin }) {
+function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStages, exitStages, onStageChange, onActivityChange, onSourceChange, onAmountChange, onProbabilityChange, onDeclinedReasonChange, stageProbabilities, isSuperAdmin }) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
   const clientName  = [f.clientFirstName, f.clientLastName].filter(Boolean).join(' ');
@@ -1590,13 +1635,8 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
               Lost: {lead.lost_reason}{lead.lost_reason_detail ? ` — ${lead.lost_reason_detail}` : ''}
             </span>
           )}
-          {lead.hs_stage_id === DECLINED_STAGE_ID && lead.declined_reason && (
-            <span
-              title={lead.declined_reason_detail ? `Declined reason: ${lead.declined_reason} — ${lead.declined_reason_detail}` : `Declined reason: ${lead.declined_reason}`}
-              style={{ fontSize: '11px', fontWeight: '600', color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              Declined: {lead.declined_reason}{lead.declined_reason_detail ? ` — ${lead.declined_reason_detail}` : ''}
-            </span>
+          {lead.hs_stage_id === DECLINED_STAGE_ID && (
+            <EditableDeclinedBadge lead={lead} onDeclinedReasonChange={onDeclinedReasonChange} />
           )}
           <QuoteAmountField lead={lead} onAmountChange={onAmountChange} />
           <ProbabilityField lead={lead} stageProbabilities={stageProbabilities} onProbabilityChange={onProbabilityChange} />
@@ -3251,6 +3291,18 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
     );
   }
 
+  // Local-state update after a Declined lead's reason is corrected in place
+  // (see EditableDeclinedBadge) — the API call itself already happened.
+  function handleDeclinedReasonChange(leadKey, declinedReason, declinedReasonDetail) {
+    setLeads((prev) =>
+      prev.map((l) =>
+        (l.id === leadKey || l.hubspot_deal_id === leadKey)
+          ? { ...l, declined_reason: declinedReason, declined_reason_detail: declinedReasonDetail }
+          : l,
+      ),
+    );
+  }
+
   function handleActivityChange(leadId, activities) {
     setLeads((prev) =>
       prev.map((l) => (l.id === leadId ? { ...l, activities } : l)),
@@ -3774,7 +3826,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         <div style={{ display: 'grid', gap: '10px' }}>
           {filtered.map((lead) => (
             <div key={lead.id} id={`lead-${lead.id}`}>
-              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} onProbabilityChange={handleProbabilityChange} stageProbabilities={stageProbabilities} isSuperAdmin={isSuperAdmin} />
+              <LeadCard lead={lead} isExpanded={expandedId === lead.id} onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)} onDelete={handleDelete} isStale={staleLeadIds.has(lead.id)} pipelineStages={pipelineStages} exitStages={exitStages} onStageChange={handleStageChange} onActivityChange={handleActivityChange} onSourceChange={handleSourceChange} onAmountChange={handleAmountChange} onProbabilityChange={handleProbabilityChange} onDeclinedReasonChange={handleDeclinedReasonChange} stageProbabilities={stageProbabilities} isSuperAdmin={isSuperAdmin} />
             </div>
           ))}
         </div>

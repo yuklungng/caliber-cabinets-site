@@ -349,7 +349,8 @@ export async function ensureDeclinedReasonProperties() {
       options: [
         { label: 'Out of Service Area', value: 'Out of Service Area', displayOrder: 0 },
         { label: 'Out of Scope',        value: 'Out of Scope',        displayOrder: 1 },
-        { label: 'Other',               value: 'Other',               displayOrder: 2 },
+        { label: 'Duplicated',          value: 'Duplicated',          displayOrder: 2 },
+        { label: 'Other',               value: 'Other',               displayOrder: 3 },
       ],
     },
     {
@@ -361,10 +362,34 @@ export async function ensureDeclinedReasonProperties() {
     },
   ];
   for (const def of defs) {
+    let existing = null;
     try {
       const check = await hs(`/crm/v3/properties/deals/${def.name}`, 'GET');
-      if (check.ok) continue; // already exists
+      if (check.ok) existing = await check.json();
     } catch { /* fall through to create attempt */ }
+
+    if (existing) {
+      // Self-heal: an enumeration property that already exists (e.g. from
+      // before a new reason option was added) doesn't get its options
+      // touched by the create-if-missing path below. Diff and PATCH in
+      // whatever's missing — additive only, so safe to run on every call.
+      if (def.type === 'enumeration' && Array.isArray(def.options)) {
+        const existingValues = new Set((existing.options ?? []).map((o) => o.value));
+        const missing = def.options.filter((o) => !existingValues.has(o.value));
+        if (missing.length > 0) {
+          try {
+            const mergedOptions = [...(existing.options ?? []), ...missing];
+            const patchRes = await hs(`/crm/v3/properties/deals/${def.name}`, 'PATCH', { options: mergedOptions });
+            if (!patchRes.ok) {
+              console.error(`[hubspot] Failed to add options to "${def.name}": ${patchRes.status} ${await patchRes.text()}`);
+            }
+          } catch (err) {
+            console.error(`[hubspot] Error patching options on "${def.name}":`, err.message);
+          }
+        }
+      }
+      continue;
+    }
     try {
       const createRes = await hs('/crm/v3/properties/deals', 'POST', def);
       if (!createRes.ok && createRes.status !== 409) {

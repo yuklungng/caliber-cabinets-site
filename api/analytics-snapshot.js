@@ -36,9 +36,14 @@ export default async function handler(req, res) {
   const triggeredAt = new Date().toISOString();
 
   try {
-    // Use SNAPSHOT_SECRET as the internal auth token — no separate ADMIN_PASSWORD needed
+    // Use SNAPSHOT_SECRET as the internal auth token — no separate ADMIN_PASSWORD needed.
+    // 45s safety-net timeout: admin-analytics now bounds each of its own external
+    // calls to 12s, so a healthy run finishes well under this; this just stops a
+    // request from hanging for Vercel's full platform timeout if something slips
+    // through unbounded.
     const r = await fetch(`${siteUrl}/api/admin-analytics`, {
       headers: { Authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(45000),
     });
 
     if (!r.ok) {
@@ -50,7 +55,10 @@ export default async function handler(req, res) {
     // Response from admin-analytics confirms fetch succeeded; persist ran as side effect.
     return res.status(200).json({ ok: true, triggered_at: triggeredAt });
   } catch (err) {
-    console.error('[analytics-snapshot] fetch error:', err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    const message = err.name === 'TimeoutError' || err.name === 'AbortError'
+      ? 'admin-analytics did not respond within 45s'
+      : err.message;
+    console.error('[analytics-snapshot] fetch error:', message);
+    return res.status(500).json({ ok: false, error: message });
   }
 }

@@ -13,6 +13,22 @@ import { checkAuth } from './_lib/auth.js';
  *   CLOUDFLARE_ACCOUNT_ID   — Cloudflare dashboard URL: dash.cloudflare.com/<THIS>/home
  *   CLOUDFLARE_ZONE_ID      — (future) for traffic analytics when proxying is enabled
  */
+// None of the external calls below (UptimeRobot, Cloudflare, Google) had a
+// timeout, so a single unresponsive upstream would hang the whole request
+// until Vercel's own function-execution limit killed it — surfacing as a
+// 502 from analytics-snapshot.js with no clue which source was the culprit.
+// Bound every call so a slow/dead source degrades to `{ error: 'timed out' }`
+// instead of blocking everything else.
+const EXTERNAL_TIMEOUT_MS = 12000;
+function withTimeout() {
+  return AbortSignal.timeout(EXTERNAL_TIMEOUT_MS);
+}
+function describeError(err) {
+  return err.name === 'TimeoutError' || err.name === 'AbortError'
+    ? `Timed out after ${EXTERNAL_TIMEOUT_MS / 1000}s`
+    : err.message;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -56,6 +72,7 @@ async function fetchUptimeRobot() {
         custom_uptime_ratios: '7-30',
         all_time_uptime_ratio: '1',
       }),
+      signal: withTimeout(),
     });
 
     if (!res.ok) return { configured: true, error: `UptimeRobot ${res.status}` };
@@ -83,7 +100,7 @@ async function fetchUptimeRobot() {
     const filtered = monitors.filter((m) => m.url?.toLowerCase().includes('caliber'));
     return { configured: true, monitors: filtered };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 
@@ -133,6 +150,7 @@ async function fetchTurnstile(accountId) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query }),
+      signal: withTimeout(),
     });
 
     if (!res.ok) return { configured: true, error: `Cloudflare ${res.status}: ${await res.text()}` };
@@ -183,7 +201,7 @@ async function fetchTurnstile(accountId) {
       daily,
     };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 
@@ -209,6 +227,7 @@ async function fetchTurnstileSimple(accountId, token, startDate, endDate) {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
+      signal: withTimeout(),
     });
     if (!res.ok) return { configured: true, error: `Cloudflare ${res.status}` };
     const data = await res.json();
@@ -236,7 +255,7 @@ async function fetchTurnstileSimple(accountId, token, startDate, endDate) {
       daily: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)),
     };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 
@@ -266,6 +285,7 @@ async function getGoogleAccessToken(serviceAccount, scope = 'https://www.googlea
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion: `${signingInput}.${signature}`,
     }),
+    signal: withTimeout(),
   });
   const tokenData = await tokenRes.json();
   if (!tokenData.access_token) throw new Error(tokenData.error_description ?? 'Failed to get GA access token');
@@ -279,6 +299,7 @@ async function gaReport(accessToken, propertyId, body) {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: withTimeout(),
     },
   );
   return res.json();
@@ -410,7 +431,7 @@ async function fetchGoogleAnalytics() {
       devices,
     };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 
@@ -437,10 +458,10 @@ async function fetchSearchConsole() {
     const body = (extra) => JSON.stringify({ startDate, endDate, ...extra });
 
     const [overviewRes, queriesRes, pagesRes, dailyRes] = await Promise.all([
-      fetch(base, { method: 'POST', headers, body: body({ rowLimit: 1 }) }),
-      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['query'], rowLimit: 10 }) }),
-      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['page'], rowLimit: 5 }) }),
-      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['date'], rowLimit: 28 }) }),
+      fetch(base, { method: 'POST', headers, body: body({ rowLimit: 1 }), signal: withTimeout() }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['query'], rowLimit: 10 }), signal: withTimeout() }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['page'], rowLimit: 5 }), signal: withTimeout() }),
+      fetch(base, { method: 'POST', headers, body: body({ dimensions: ['date'], rowLimit: 28 }), signal: withTimeout() }),
     ]);
 
     const [overview, queriesData, pagesData, dailyData] = await Promise.all([
@@ -491,7 +512,7 @@ async function fetchSearchConsole() {
 
     return { configured: true, period: `${startDate} to ${endDate}`, totals, queries, pages, daily };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 
@@ -532,6 +553,7 @@ async function fetchCloudflare() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query }),
+      signal: withTimeout(),
     });
 
     if (!res.ok) return { configured: true, error: `Cloudflare ${res.status}` };
@@ -575,7 +597,7 @@ async function fetchCloudflare() {
       daily,
     };
   } catch (err) {
-    return { configured: true, error: err.message };
+    return { configured: true, error: describeError(err) };
   }
 }
 

@@ -37,8 +37,8 @@ export function AboutSection() {
             <h2 id="about-title">About Caliber Cabinets</h2>
             <p>
               Caliber Cabinets traces back to 1984, when Mike&apos;s father started building custom
-              cabinetry in Livermore. Mike apprenticed under him, learning the trade hands-on,
-              before incorporating the business in 2009 as Custom Cabinets by Michael
+              cabinetry in Livermore. Mike grew up around the craft, and in 2009 took the
+              business forward under his own name, incorporating as Custom Cabinets by Michael
               Giannecchini, Inc., doing business as Caliber Cabinets. That&apos;s over 40 years of
               family craftsmanship - not something you manufacture. It&apos;s built job by job, over
               decades.

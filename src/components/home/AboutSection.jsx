@@ -36,10 +36,12 @@ export function AboutSection() {
           <div className="section-copy">
             <h2 id="about-title">About Caliber Cabinets</h2>
             <p>
-              Caliber Cabinets has been building custom cabinetry in Livermore since 1984. What
-              started as one family&apos;s trade became a 40-year track record - one that Mike grew up
-              inside before taking it over as a second-generation owner. That kind of continuity
-              isn&apos;t something you manufacture. It&apos;s built job by job, over decades.
+              Caliber Cabinets traces back to 1984, when Mike&apos;s father started building custom
+              cabinetry in Livermore. Mike apprenticed under him, learning the trade hands-on,
+              before incorporating the business in 2009 as Custom Cabinets by Michael
+              Giannecchini, Inc., doing business as Caliber Cabinets. That&apos;s over 40 years of
+              family craftsmanship - not something you manufacture. It&apos;s built job by job, over
+              decades.
             </p>
             <p>
               We&apos;re a small, hands-on shop serving the Tri-Valley - Livermore, Pleasanton,
@@ -67,6 +69,9 @@ export function AboutSection() {
             ))}
           </div>
         </div>
+        <p style={{ width: '100%', marginTop: '24px', color: '#6b7280', fontSize: '0.85rem', letterSpacing: '0.02em', textAlign: 'center' }}>
+          Licensed &amp; Insured &middot; CA C-6 Contractor License #917541 &middot; A+ Rated by the Better Business Bureau
+        </p>
         <p className="about-closing-line">From the heart of our family, to the heart of your home.</p>
       </div>
     </section>

@@ -22,10 +22,17 @@ async function ensureBucket(supabase) {
   }
 }
 
-/** Convert an array of objects to CSV string. */
+/** Convert an array of objects to CSV string. Header row is the UNION of
+ * keys across every row (not just rows[0]) — a column that only some rows
+ * have (e.g. a trade-partner-only field) still gets included instead of
+ * silently disappearing because the first row happened not to have it. */
 function toCSV(rows) {
   if (!rows || rows.length === 0) return '';
-  const headers = Object.keys(rows[0]);
+  const headerSet = new Set();
+  for (const row of rows) {
+    for (const k of Object.keys(row)) headerSet.add(k);
+  }
+  const headers = [...headerSet];
   const escape = (v) => {
     if (v === null || v === undefined) return '';
     const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -42,37 +49,64 @@ function toCSV(rows) {
   return lines.join('\n');
 }
 
-/** Flatten a lead row into a flat CSV-friendly object. */
+/** Convert a single `fields` value into a CSV-safe scalar. Handles the
+ * array-valued checkbox-group fields (areasRequiringCabinetry, woodSpecies,
+ * accessories), the file-upload attachments array, and plain booleans. */
+function stringifyFieldValue(v) {
+  if (v === null || v === undefined) return '';
+  if (Array.isArray(v)) {
+    if (v.length && typeof v[0] === 'object') {
+      return v.map((item) => item?.name ?? item?.url ?? JSON.stringify(item)).join('; ');
+    }
+    return v.join('; ');
+  }
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/** Flatten a lead row into a flat CSV-friendly object.
+ *
+ * Known top-level lead columns come first for a stable, readable order.
+ * Every key inside `fields` is then included dynamically (using its own
+ * name as the column header) instead of a hardcoded allow-list — that
+ * hardcoded list is what caused trade-partner-only fields (clientFirstName,
+ * tradeRole, licenseNumber, gcNameAndPhone, streetAddress, etc.) to be
+ * missing from the export entirely, and caused several columns that DID
+ * exist (address, message, project_type) to come back blank because the
+ * real field names on the live forms are streetAddress/comments/
+ * areasRequiringCabinetry, not the names this function assumed.
+ */
 function flattenLead(lead) {
   const f = lead.fields ?? {};
-  return {
+  const row = {
     id: lead.id,
     created_at: lead.created_at,
     form_type: lead.form_type,
-    first_name: f.firstName ?? '',
-    last_name: f.lastName ?? '',
-    email: f.email ?? '',
-    phone: f.phone ?? '',
-    company_name: f.companyName ?? '',
-    address: f.address ?? '',
-    city: f.city ?? '',
-    project_type: f.projectType ?? '',
-    message: f.message ?? '',
-    lead_source: f.leadSource ?? '',
-    quote_amount: f.quote_amount ?? '',
-    probability: f.probability ?? '',
+    status: lead.status ?? '',
+    source: lead.source ?? '',
+    hubspot_deal_id: lead.hubspot_deal_id ?? '',
+    hubspot_contact_id: lead.hubspot_contact_id ?? '',
     hs_stage_id: lead.hs_stage_id ?? '',
     hs_stage_label: lead.hs_stage_label ?? '',
     hs_stage_date: lead.hs_stage_date ?? '',
-    hubspot_deal_id: lead.hubspot_deal_id ?? '',
     hs_date_entered_new_request: lead.hs_date_entered_new_request ?? '',
     hs_date_entered_qualified: lead.hs_date_entered_qualified ?? '',
     hs_date_entered_quote_sent: lead.hs_date_entered_quote_sent ?? '',
     hs_date_entered_contract_sent: lead.hs_date_entered_contract_sent ?? '',
     hs_date_entered_closed_won: lead.hs_date_entered_closed_won ?? '',
     hs_date_entered_closed_lost: lead.hs_date_entered_closed_lost ?? '',
+    lost_reason: lead.lost_reason ?? '',
+    lost_reason_detail: lead.lost_reason_detail ?? '',
+    declined_reason: lead.declined_reason ?? '',
+    declined_reason_detail: lead.declined_reason_detail ?? '',
     distance_miles: lead.distance_miles ?? '',
   };
+  // Every field the form actually collected, sorted for a stable column order.
+  for (const key of Object.keys(f).sort()) {
+    row[key] = stringifyFieldValue(f[key]);
+  }
+  return row;
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────

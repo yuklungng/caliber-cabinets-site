@@ -4070,17 +4070,46 @@ function CashInflowChart({
 
   for (const deal of wonDeals) {
     for (const stage of deal.stages ?? []) {
-      const effectiveDateStr = stage.paid_date ?? stage.est_date;
-      if (!effectiveDateStr) continue;
-      const dateObj = parseLocalDate(effectiveDateStr);
-      if (!dateObj) continue;
-      const isPaid = !!stage.paid_date;
-      addToBucket(dateObj, isPaid ? 'received' : 'expected', stage.amount, {
-        label: FORECAST_STAGE_LABELS[stage.stage] ?? stage.stage,
-        dealName: deal.name,
-        amount: stage.amount,
-        status: isPaid ? 'Paid' : (stage.invoice_date ? 'Invoiced' : 'Estimated'),
-      });
+      const label = FORECAST_STAGE_LABELS[stage.stage] ?? stage.stage;
+
+      if (stage.paid_date) {
+        // Common case: fully covered — the whole nominal amount lands on
+        // the date its threshold was crossed.
+        const dateObj = parseLocalDate(stage.paid_date);
+        if (dateObj) {
+          addToBucket(dateObj, 'received', stage.amount, {
+            label, dealName: deal.name, amount: stage.amount, status: 'Paid',
+          });
+        }
+        continue;
+      }
+
+      // Not fully covered — but an overpayment on an earlier stage can still
+      // have partially credited this one (qb_paid_amount) before ITS OWN
+      // threshold was crossed. Split the bar: the partial credit counts as
+      // received now (dated to the last sync, our best available date for
+      // when that money showed up), and only the true remaining amount is
+      // still forecasted at est_date — otherwise this bar would double-count
+      // dollars already collected.
+      const partial = stage.qb_paid_amount > 0 ? stage.qb_paid_amount : 0;
+      if (partial > 0 && stage.qb_synced_at) {
+        const paidDateObj = parseLocalDate(stage.qb_synced_at);
+        if (paidDateObj) {
+          addToBucket(paidDateObj, 'received', partial, {
+            label, dealName: deal.name, amount: partial, status: 'Partially Paid',
+          });
+        }
+      }
+      const remaining = Math.max(0, stage.amount - partial);
+      if (remaining > 0 && stage.est_date) {
+        const dateObj = parseLocalDate(stage.est_date);
+        if (dateObj) {
+          addToBucket(dateObj, 'expected', remaining, {
+            label, dealName: deal.name, amount: remaining,
+            status: stage.invoice_date ? 'Invoiced' : 'Estimated',
+          });
+        }
+      }
     }
   }
 
@@ -6172,6 +6201,9 @@ function StageAmountInput({ value, onSave, locked = false }) {
 
 function stagePaymentStatus(stage) {
   if (stage.paid_date) return { label: 'Paid', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' };
+  // A stage can be partly covered by an overpayment on an earlier stage
+  // before its OWN threshold is fully crossed (which is what sets paid_date).
+  if (stage.qb_paid_amount > 0) return { label: 'Partially Paid', bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
   if (stage.invoice_date) return { label: 'Invoiced', bg: '#fffbeb', color: '#b45309', border: '#fde68a' };
   return { label: 'Pending', bg: '#f9fafb', color: '#9ca3af', border: '#e5e7eb' };
 }
@@ -6723,6 +6755,22 @@ function FinancialView() {
     }, 50);
   }
 
+  // Shared invoiced/received rollup — received credits a stage's
+  // qb_paid_amount (set by the QBO sync waterfall in api/admin-cashflow.js)
+  // when present, since a stage can be partially or over-paid without its
+  // own paid_date being set yet (that only fires once the stage is FULLY
+  // covered). Falls back to the old paid_date/nominal-amount logic for rows
+  // that have never synced from QBO (manually-tracked deals, where `amount`
+  // already IS the real amount Brianna typed in when marking it paid).
+  function computeInvoicedReceived(stages) {
+    const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
+    const received = stages.reduce((sum, s) => {
+      if (s.qb_paid_amount != null) return sum + s.qb_paid_amount;
+      return sum + (s.paid_date ? s.amount : 0);
+    }, 0);
+    return { invoiced, received };
+  }
+
   function handleRowSaved(dealId, updatedRow) {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
@@ -6735,8 +6783,7 @@ function FinancialView() {
         room: updatedRow.room ?? s.room,
         label: updatedRow.label ?? s.label,
       } : s));
-      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }
@@ -6761,8 +6808,7 @@ function FinancialView() {
       }));
       const stages = [...d.stages, ...added]
         .sort((a, b) => PAYMENT_STAGE_ORDER.indexOf(a.stage) - PAYMENT_STAGE_ORDER.indexOf(b.stage) || (a.room ?? '').localeCompare(b.room ?? ''));
-      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }
@@ -6789,11 +6835,11 @@ function FinancialView() {
           qb_invoice_number: u.qb_invoice_number ?? null,
           qb_total: u.qb_total != null ? Number(u.qb_total) : null,
           qb_balance: u.qb_balance != null ? Number(u.qb_balance) : null,
+          qb_paid_amount: u.qb_paid_amount != null ? Number(u.qb_paid_amount) : null,
           qb_synced_at: u.qb_synced_at ?? null,
         };
       });
-      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }
@@ -6802,8 +6848,7 @@ function FinancialView() {
     setDeals((prev) => prev.map((d) => {
       if (d.hubspot_deal_id !== dealId) return d;
       const stages = d.stages.filter((s) => s.id !== rowId);
-      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }
@@ -6815,8 +6860,7 @@ function FinancialView() {
       if (d.hubspot_deal_id !== dealId) return d;
       const idSet = new Set(deletedIds);
       const stages = d.stages.filter((s) => !idSet.has(s.id));
-      const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-      const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+      const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };
     }));
   }

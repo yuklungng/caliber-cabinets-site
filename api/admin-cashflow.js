@@ -175,7 +175,8 @@ async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoic
   const roundedSum = newAmounts.slice(0, -1).reduce((sum, a) => sum + a, 0);
   newAmounts[newAmounts.length - 1] = Math.round((qbTotal - roundedSum) * 100) / 100;
 
-  // Waterfall: cumulative payments against each stage's running threshold.
+  // Waterfall: cumulative payments against each stage's running threshold —
+  // this decides paid_date (the stage is only "Paid" once fully covered).
   let cumulativeThreshold = 0;
   const paidDates = newAmounts.map((amt) => {
     cumulativeThreshold += amt;
@@ -187,6 +188,22 @@ async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoic
     return null;
   });
 
+  // Separately, allocate the REAL total received across stages in the same
+  // nominal-amount order to get qb_paid_amount per stage — how much of THIS
+  // stage's nominal amount has actually been collected. This agrees with
+  // paid_date when payments land stage-by-stage, but diverges on an
+  // overpayment: e.g. a deposit payment bigger than the deposit's nominal
+  // amount. Without this, that overpayment was invisible (not credited
+  // anywhere) until the NEXT stage's full threshold was ALSO crossed —
+  // understating "Received" and overstating the forecast in the meantime.
+  const totalReceived = payments.reduce((sum, p) => sum + p.amount, 0);
+  let remainingReceived = totalReceived;
+  const paidAmounts = newAmounts.map((amt) => {
+    const covered = Math.max(0, Math.min(amt, remainingReceived));
+    remainingReceived -= covered;
+    return Math.round(covered * 100) / 100;
+  });
+
   const invoiceDate = invoice.TxnDate ?? null;
   const syncedAt = new Date().toISOString();
   const updates = orderedRows.map((r, i) => ({
@@ -194,6 +211,7 @@ async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoic
     amount: newAmounts[i],
     invoice_date: invoiceDate,
     paid_date: paidDates[i],
+    qb_paid_amount: paidAmounts[i],
     qb_invoice_number: invoice.DocNumber ?? null,
     qb_total: qbTotal,
     qb_balance: Number(invoice.Balance) || 0,
@@ -463,10 +481,18 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
       qb_invoice_number: row.qb_invoice_number ?? null,
       qb_total: row.qb_total != null ? Number(row.qb_total) : null,
       qb_balance: row.qb_balance != null ? Number(row.qb_balance) : null,
+      qb_paid_amount: row.qb_paid_amount != null ? Number(row.qb_paid_amount) : null,
       qb_synced_at: row.qb_synced_at ?? null,
     }));
     const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
-    const received = stages.filter((s) => s.paid_date).reduce((sum, s) => sum + s.amount, 0);
+    // Credit qb_paid_amount (the real, waterfall-allocated received portion)
+    // when present — falls back to the old paid_date/nominal-amount logic
+    // for rows never synced from QBO, where `amount` already IS the real
+    // amount (manually typed in when marking the row paid).
+    const received = stages.reduce((sum, s) => {
+      if (s.qb_paid_amount != null) return sum + s.qb_paid_amount;
+      return sum + (s.paid_date ? s.amount : 0);
+    }, 0);
     return {
       ...d,
       stages,
@@ -678,10 +704,11 @@ export default async function handler(req, res) {
             closed_date: d.closed_at ? String(d.closed_at).slice(0, 10) : '',
             stage: s.label,
             amount: s.amount,
+            paid_amount: s.qb_paid_amount ?? (s.paid_date ? s.amount : ''),
             est_date: s.est_date ?? '',
             invoice_date: s.invoice_date ?? '',
             paid_date: s.paid_date ?? '',
-            status: s.paid_date ? 'Paid' : (s.invoice_date ? 'Invoiced' : 'Pending'),
+            status: s.paid_date ? 'Paid' : (s.qb_paid_amount > 0 ? 'Partially Paid' : (s.invoice_date ? 'Invoiced' : 'Pending')),
           });
         }
       }

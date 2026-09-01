@@ -3137,7 +3137,7 @@ function MetricCards({
   isLoading,
   activeCount, homeownerLeads, tradeLeads,
   leadToQuoteRate, quotedCount, totalLeads,
-  thisMonthCount, now,
+  last30Count, now,
   avgResponseDays, responseSamples,
   avgTimeToQuoteDays, quoteSamples,
   quoteAcceptRate, contractOrWonCount, quoteOrLaterCount,
@@ -3145,7 +3145,8 @@ function MetricCards({
 }) {
   const isMobile = useIsMobile();
   const dash = isLoading ? '–' : '—';
-  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const last30Start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const rangeLabel = `${last30Start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
   return (
     // Single compact row — Win Rate in nav, Avg Full Cycle on Performance page
@@ -3172,12 +3173,12 @@ function MetricCards({
         )}
       />
       <KpiCard compact
-        title="This Month"
-        value={isLoading ? dash : thisMonthCount}
+        title="Last 30 Days"
+        value={isLoading ? dash : last30Count}
         tooltip={!isLoading && (
-          <TipBody desc={`New lead submissions received so far in ${monthLabel}, from both web forms and HubSpot.`}>
-            <Pill bg="#374151" color="#f3f4f6">{monthLabel}</Pill>
-            <Pill bg="#374151" color="#f3f4f6">{thisMonthCount} submission{thisMonthCount !== 1 ? 's' : ''}</Pill>
+          <TipBody desc={`New lead submissions received in the last 30 days (${rangeLabel}), from both web forms and HubSpot.`}>
+            <Pill bg="#374151" color="#f3f4f6">{rangeLabel}</Pill>
+            <Pill bg="#374151" color="#f3f4f6">{last30Count} submission{last30Count !== 1 ? 's' : ''}</Pill>
           </TipBody>
         )}
       />
@@ -3508,11 +3509,13 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const quotedCount = leads.filter((l) => quoteOrBeyond.has(l.hs_stage_id)).length;
   const leadToQuoteRate = totalLeads > 0 ? Math.round((quotedCount / totalLeads) * 100) : null;
 
-  // New this calendar month
+  // New in the last 30 days (rolling window, not calendar month)
   const now = new Date();
-  const thisMonthCount = leads.filter((l) => {
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const last30Count = leads.filter((l) => {
     const d = new Date(l.created_at);
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    const ageMs = now - d;
+    return ageMs >= 0 && ageMs <= THIRTY_DAYS_MS;
   }).length;
 
   // ── Operational metrics ───────────────────────────────────────────────────
@@ -3599,7 +3602,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         isLoading={isLoading}
         activeCount={activeCount} homeownerLeads={homeownerLeads} tradeLeads={tradeLeads}
         leadToQuoteRate={leadToQuoteRate} quotedCount={quotedCount} totalLeads={totalLeads}
-        thisMonthCount={thisMonthCount} now={now}
+        last30Count={last30Count} now={now}
         avgResponseDays={avgResponseDays} responseSamples={responseSamples}
         avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
         quoteAcceptRate={quoteAcceptRate} contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}

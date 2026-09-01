@@ -47,7 +47,17 @@ export default async function handler(req, res) {
 
   // Persist daily rows to Supabase for historical trend storage (fire-and-forget style,
   // but awaited so the function doesn't exit before writes complete on Vercel).
-  await persistAnalytics({ ga, gsc, turnstile }).catch((err) =>
+  // Unlike the 5 external calls above, the Supabase client's own upsert()
+  // calls have no fetch-level signal to attach a timeout to — so this whole
+  // step is raced against a hard deadline instead. If Supabase is slow or
+  // unresponsive, the persist attempt is abandoned (logged, non-fatal) and
+  // the response still goes out — this is very likely what was actually
+  // hanging analytics-snapshot even after the external-call timeouts, since
+  // this was the only unbounded await left in the handler.
+  await Promise.race([
+    persistAnalytics({ ga, gsc, turnstile }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('persistAnalytics timed out after 15s')), 15000)),
+  ]).catch((err) =>
     console.error('[admin-analytics] persist error:', err.message),
   );
 

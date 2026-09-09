@@ -22,6 +22,7 @@
 const DEFAULT_STAGE_LABELS = {
   '3869825744': 'New Request',           // Caliber custom
   '3869825755': 'Quote Sent',            // Caliber custom
+  '4282794703': 'Info Requested',        // Caliber custom — waiting on customer info before a quote can go out
   qualifiedtobuy: 'Qualified To Buy',
   appointmentscheduled: 'Appointment Scheduled',
   presentationscheduled: 'Presentation Scheduled',
@@ -175,6 +176,7 @@ export async function batchGetDealStages(dealIds) {
       // Stage-entry timestamps derived from history (custom pipelines have no hs_date_entered_* props)
       dateEnteredNewRequest:   firstEnteredStage['3869825744']     ?? null,
       dateEnteredQualified:    firstEnteredStage['qualifiedtobuy'] ?? null,
+      dateEnteredInfoRequested: firstEnteredStage['4282794703']    ?? null,
       dateEnteredQuoteSent:    firstEnteredStage['3869825755']     ?? null,
       dateEnteredContractSent: firstEnteredStage['contractsent']   ?? null,
       dateEnteredClosedWon:    firstEnteredStage['closedwon']      ?? null,
@@ -532,6 +534,7 @@ export async function getAllPipelineDeals() {
         : null,
       hs_date_entered_new_request:   firstEntered['3869825744']     ?? null,
       hs_date_entered_qualified:     firstEntered['qualifiedtobuy'] ?? null,
+      hs_date_entered_info_requested: firstEntered['4282794703']    ?? null,
       hs_date_entered_quote_sent:    firstEntered['3869825755']     ?? null,
       hs_date_entered_contract_sent: firstEntered['contractsent']   ?? null,
       hs_date_entered_closed_won:    firstEntered['closedwon']      ?? null,

@@ -49,6 +49,7 @@ const FIELD_LABELS = {
 const HS_STAGE_COLORS = {
   '3869825744':          { bg: '#fef3c7', color: '#92400e' },  // New Request
   qualifiedtobuy:        { bg: '#dbeafe', color: '#1e40af' },  // Qualified
+  '4282794703':          { bg: '#ffedd5', color: '#9a3412' },  // Info Requested
   '3869825755':          { bg: '#ede9fe', color: '#5b21b6' },  // Quote Sent
   contractsent:          { bg: '#bbf7d0', color: '#14532d' },  // Contract Sent
   closedwon:             { bg: '#14532d', color: '#ffffff' },  // Closed Won
@@ -68,6 +69,7 @@ const HS_STAGE_COLORS = {
 const HS_PIPELINE = [
   { id: '3869825744',   label: 'New Request' },
   { id: 'qualifiedtobuy', label: 'Qualified' },
+  { id: '4282794703',   label: 'Info Requested' }, // waiting on the customer for info before we can quote — see caliber_meeting_2026-09-08 notes
   { id: '3869825755',   label: 'Quote Sent' },
   { id: 'contractsent', label: 'Contract Sent' },
   { id: 'closedwon',    label: 'Closed Won' },
@@ -111,6 +113,7 @@ const LEAD_ACTIVITIES = [
 const DEFAULT_STAGE_FORECAST = [
   { id: '3869825744', label: 'New Request',    probability: 15 },
   { id: 'qualifiedtobuy', label: 'Qualified',  probability: 30 },
+  { id: '4282794703', label: 'Info Requested', probability: 35 },
   { id: '3869825755', label: 'Quote Sent',     probability: 45 },
   { id: 'contractsent', label: 'Contract Sent', probability: 75 },
 ];
@@ -3140,6 +3143,7 @@ function MetricCards({
   last30Count, now,
   avgResponseDays, responseSamples,
   avgTimeToQuoteDays, quoteSamples,
+  avgAwaitingInfoDays, awaitingInfoSamples,
   quoteAcceptRate, contractOrWonCount, quoteOrLaterCount,
   staleCount, STALE_DAYS, onStaleClick, staleActive,
 }) {
@@ -3150,7 +3154,7 @@ function MetricCards({
 
   return (
     // Single compact row — Win Rate in nav, Avg Full Cycle on Performance page
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(4, 1fr)' : 'repeat(7, 1fr)', gap: '10px', marginBottom: '12px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(4, 1fr)' : 'repeat(8, 1fr)', gap: '10px', marginBottom: '12px' }}>
       <KpiCard compact
         title="Active Pipeline"
         value={isLoading ? dash : activeCount}
@@ -3209,6 +3213,21 @@ function MetricCards({
                 <Pill bg="#374151" color="#f3f4f6">avg of {quoteSamples.length} deal{quoteSamples.length !== 1 ? 's' : ''}</Pill>
               </>
             ) : <Pill bg="#374151" color="#f3f4f6">No deals have reached Quote Sent yet</Pill>}
+          </TipBody>
+        )}
+      />
+      <KpiCard compact
+        title="Awaiting Info"
+        value={isLoading ? dash : formatDays(avgAwaitingInfoDays)}
+        valueColor={isLoading || avgAwaitingInfoDays === null ? '#9ca3af' : '#111827'}
+        tooltip={!isLoading && (
+          <TipBody desc={`Average time deals spend in Info Requested — waiting on the customer for measurements, decisions, or other info before a quote can go out. Kept separate from Time to Quote so customer-side delay doesn't get blamed on the team. Counts business hours only (${BIZ_HOURS_LABEL}).`}>
+            {awaitingInfoSamples.length > 0 ? (
+              <>
+                <Pill bg="#9a3412" color="#ffedd5">Info Requested → Quote Sent</Pill>
+                <Pill bg="#374151" color="#f3f4f6">avg of {awaitingInfoSamples.length} deal{awaitingInfoSamples.length !== 1 ? 's' : ''}</Pill>
+              </>
+            ) : <Pill bg="#374151" color="#f3f4f6">No deals have used this stage yet</Pill>}
           </TipBody>
         )}
       />
@@ -3538,6 +3557,15 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
   const avgTimeToQuoteDays = quoteSamples.length > 0
     ? quoteSamples.reduce((a, b) => a + b, 0) / quoteSamples.length : null;
 
+  // Avg time awaiting customer info: Info Requested → Quote Sent (kept separate
+  // from Time to Quote above so a customer's own delay isn't blamed on the team)
+  const awaitingInfoSamples = leads
+    .filter((l) => l.hs_date_entered_info_requested && l.hs_date_entered_quote_sent)
+    .map((l) => businessDaysBetween(l.hs_date_entered_info_requested, l.hs_date_entered_quote_sent))
+    .filter((d) => d !== null && d >= 0);
+  const avgAwaitingInfoDays = awaitingInfoSamples.length > 0
+    ? awaitingInfoSamples.reduce((a, b) => a + b, 0) / awaitingInfoSamples.length : null;
+
   // Quote acceptance: (Contract Sent + Closed Won) / (Quote Sent + all later stages)
   const quotesSentCount    = leads.filter((l) => l.hs_date_entered_quote_sent).length;
   const contractsSentCount = leads.filter((l) => l.hs_date_entered_contract_sent).length;
@@ -3605,6 +3633,7 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         last30Count={last30Count} now={now}
         avgResponseDays={avgResponseDays} responseSamples={responseSamples}
         avgTimeToQuoteDays={avgTimeToQuoteDays} quoteSamples={quoteSamples}
+        avgAwaitingInfoDays={avgAwaitingInfoDays} awaitingInfoSamples={awaitingInfoSamples}
         quoteAcceptRate={quoteAcceptRate} contractOrWonCount={contractOrWonCount} quoteOrLaterCount={quoteOrLaterCount}
         staleCount={staleCount} STALE_DAYS={STALE_DAYS}
         staleActive={filterStale}
@@ -3841,17 +3870,19 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
 // ─── Performance view ─────────────────────────────────────────────────────────
 
 const PERF_STAGE_VELOCITY_DEFS = [
-  { label: 'New Request',   startKey: 'hs_date_entered_new_request',   endKey: 'hs_date_entered_qualified',     id: '3869825744' },
-  { label: 'Qualified',     startKey: 'hs_date_entered_qualified',      endKey: 'hs_date_entered_quote_sent',    id: 'qualifiedtobuy' },
-  { label: 'Quote Sent',    startKey: 'hs_date_entered_quote_sent',     endKey: 'hs_date_entered_contract_sent', id: '3869825755' },
-  { label: 'Contract Sent', startKey: 'hs_date_entered_contract_sent',  endKey: 'hs_date_entered_closed_won',    id: 'contractsent' },
+  { label: 'New Request',    startKey: 'hs_date_entered_new_request',    endKey: 'hs_date_entered_qualified',      id: '3869825744' },
+  { label: 'Qualified',      startKey: 'hs_date_entered_qualified',      endKey: 'hs_date_entered_info_requested',  id: 'qualifiedtobuy' },
+  { label: 'Info Requested', startKey: 'hs_date_entered_info_requested', endKey: 'hs_date_entered_quote_sent',      id: '4282794703' },
+  { label: 'Quote Sent',     startKey: 'hs_date_entered_quote_sent',     endKey: 'hs_date_entered_contract_sent',   id: '3869825755' },
+  { label: 'Contract Sent',  startKey: 'hs_date_entered_contract_sent',  endKey: 'hs_date_entered_closed_won',      id: 'contractsent' },
 ];
 
 const PERF_STAGE_REACH_ORDER = [
-  { key: 'hs_date_entered_contract_sent', label: 'Contract Sent', id: 'contractsent' },
-  { key: 'hs_date_entered_quote_sent',    label: 'Quote Sent',    id: '3869825755' },
-  { key: 'hs_date_entered_qualified',     label: 'Qualified',     id: 'qualifiedtobuy' },
-  { key: 'hs_date_entered_new_request',   label: 'New Request',   id: '3869825744' },
+  { key: 'hs_date_entered_contract_sent',  label: 'Contract Sent',  id: 'contractsent' },
+  { key: 'hs_date_entered_quote_sent',     label: 'Quote Sent',     id: '3869825755' },
+  { key: 'hs_date_entered_info_requested', label: 'Info Requested', id: '4282794703' },
+  { key: 'hs_date_entered_qualified',      label: 'Qualified',      id: 'qualifiedtobuy' },
+  { key: 'hs_date_entered_new_request',    label: 'New Request',    id: '3869825744' },
 ];
 
 const PERF_QUOTE_OR_BEYOND = new Set(['3869825755', 'contractsent', 'closedwon']);
@@ -4643,6 +4674,7 @@ function PerformanceView() {
                   <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
                     {Object.keys(lostByStage).length === 0 ? 'Stage reached unknown for these deals.' :
                      lostByStage['3869825755'] > 0 ? 'Most losses after Quote Sent — review pricing or proposal quality.' :
+                     lostByStage['4282794703'] > 0 ? 'Losses while waiting on customer info — may indicate follow-up or nudge timing issues.' :
                      lostByStage['qualifiedtobuy'] > 0 ? 'Losses at Qualified — may indicate fit or follow-up issues.' :
                      'Losses at early stages — lead quality or response time may be the issue.'}
                   </p>

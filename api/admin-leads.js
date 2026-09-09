@@ -318,6 +318,7 @@ export default async function handler(req, res) {
         hubspot_deal_id: hubspotDealId ?? null,
         hs_stage_label: null, hs_stage_id: null, hs_stage_date: null, hs_deal_url: null,
         hs_date_entered_new_request: null, hs_date_entered_qualified: null,
+        hs_date_entered_info_requested: null,
         hs_date_entered_quote_sent: null, hs_date_entered_contract_sent: null,
         hs_date_entered_closed_won: null, hs_date_entered_closed_lost: null,
       },
@@ -507,6 +508,7 @@ export default async function handler(req, res) {
         // Stage-entry timestamps for operational metrics
         hs_date_entered_new_request:   hs?.dateEnteredNewRequest   ?? null,
         hs_date_entered_qualified:     hs?.dateEnteredQualified    ?? null,
+        hs_date_entered_info_requested: hs?.dateEnteredInfoRequested ?? null,
         hs_date_entered_quote_sent:    hs?.dateEnteredQuoteSent    ?? null,
         hs_date_entered_contract_sent: hs?.dateEnteredContractSent ?? null,
         hs_date_entered_closed_won:    hs?.dateEnteredClosedWon    ?? null,
@@ -594,6 +596,7 @@ export default async function handler(req, res) {
                   hs_deal_url: src?.hs_deal_url ?? null,
                   hs_date_entered_new_request:   src?.hs_date_entered_new_request   ?? null,
                   hs_date_entered_qualified:     src?.hs_date_entered_qualified     ?? null,
+                  hs_date_entered_info_requested: src?.hs_date_entered_info_requested ?? null,
                   hs_date_entered_quote_sent:    src?.hs_date_entered_quote_sent    ?? null,
                   hs_date_entered_contract_sent: src?.hs_date_entered_contract_sent ?? null,
                   hs_date_entered_closed_won:    src?.hs_date_entered_closed_won    ?? null,

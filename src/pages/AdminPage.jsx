@@ -3391,8 +3391,17 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         .subscribe();
     }
 
-    // ── Fallback polling every 30s ──
-    const pollInterval = setInterval(() => loadLeads(true), 30_000);
+    // ── Fallback polling, tab-visible only ──
+    // Realtime (above) covers the normal case; this is just a safety net in
+    // case a Realtime channel silently drops. Every 30s was firing this
+    // full leads+HubSpot sync continuously — including on backgrounded tabs
+    // left open all day — which was the primary driver of a Supabase
+    // egress-quota incident (Sept 2026). 5 min + visibility-gated keeps the
+    // safety net without the constant load.
+    const FALLBACK_POLL_MS = 5 * 60_000;
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadLeads(true);
+    }, FALLBACK_POLL_MS);
 
     // ── Page Visibility: refresh immediately when tab regains focus ──
     function onVisibility() {

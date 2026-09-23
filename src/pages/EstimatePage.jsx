@@ -629,7 +629,7 @@ export function EstimatePage() {
                   <FileDropZone
                     accept=".pdf,.dwg,.jpg,.jpeg,.png"
                     multiple
-                    hint="PDF, DWG, JPG, or PNG — up to 10MB each, max 5 files"
+                    hint="PDF, DWG, JPG, or PNG — up to 10MB each, max 15 files"
                     selectedFiles={selectedFiles}
                     onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
                     error={uploadError}

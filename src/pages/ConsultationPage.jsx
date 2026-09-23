@@ -291,7 +291,7 @@ export function ConsultationPage() {
                   <FileDropZone
                     accept=".jpg,.jpeg,.png,.pdf"
                     multiple
-                    hint="JPG, PNG, or PDF — up to 10MB each, max 5 files"
+                    hint="JPG, PNG, or PDF — up to 10MB each, max 15 files"
                     selectedFiles={selectedFiles}
                     onChange={(files) => { setSelectedFiles(files); setUploadError(''); }}
                     error={uploadError}

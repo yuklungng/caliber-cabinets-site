@@ -4,7 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const BUCKET = 'lead-uploads';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_FILES = 5;
+const MAX_FILES = 15; // raised from 5 per Mike's request 2026-09-23 — clients with larger jobs (5+ pages) couldn't attach everything up front, and staff can't add pages after submission in the current flow
 
 /**
  * Uploads an array of File objects to Supabase Storage.

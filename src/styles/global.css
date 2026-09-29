@@ -561,6 +561,7 @@ button:focus-visible {
 
 .project-card,
 .testimonial-card {
+  margin: 0; /* <figure> default 40px side margins were insetting the cards from the page container */
   overflow: hidden;
   background: #ffffff;
   border: 1px solid var(--color-line);
@@ -1023,6 +1024,21 @@ button:focus-visible {
   background: #ffffff;
 }
 
+/* Wide enough that "Frequently Asked Questions" stays on one line on desktop,
+   balanced wrapping (no orphan word) on narrower screens. */
+.faq-section .section-heading {
+  max-width: 1040px;
+}
+
+.faq-section .section-heading h2 {
+  text-wrap: balance;
+}
+
+/* .section-heading p was overriding the eyebrow colour; match Testimonials */
+.faq-section .section-heading .eyebrow {
+  color: var(--color-brand-primary);
+}
+
 .faq-section {
   padding: 64px 0;
 }
@@ -1108,7 +1124,7 @@ button:focus-visible {
 }
 
 .faq-item {
-  background: var(--color-surface);
+  background: #ffffff;
   border: 1px solid var(--color-line);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
@@ -1137,6 +1153,14 @@ button:focus-visible {
 
 .faq-item summary::-webkit-details-marker {
   display: none;
+}
+
+.faq-item summary > span:first-child {
+  text-wrap: balance; /* avoids one-word last lines like a dangling "installation?" */
+}
+
+.faq-answer p {
+  text-wrap: pretty;
 }
 
 .faq-item summary:focus-visible {

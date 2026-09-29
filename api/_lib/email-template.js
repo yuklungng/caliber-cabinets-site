@@ -96,19 +96,21 @@ function buildMapRow(fields, distanceMiles, distanceRough = false) {
 function buildAttachmentRows(attachedFiles, failedFiles) {
   if (attachedFiles.length === 0 && failedFiles.length === 0) return '';
 
+  // attachedFiles: [{ filename, url }] — linked, not attached, so there's no
+  // email-size ceiling regardless of file count or size (see lead-submit.js).
   const attachedItems = attachedFiles
-    .map((f) => `<p style="margin:0 0 4px;font-size:14px;color:#111827;">&#128206; ${f}</p>`)
+    .map((f) => `<p style="margin:0 0 4px;font-size:14px;"><a href="${f.url}" target="_blank" style="color:#1e40af;text-decoration:none;">&#128206; ${f.filename}</a></p>`)
     .join('');
 
   const failedNote =
     failedFiles.length > 0
-      ? `<p style="margin:8px 0 0;font-size:13px;color:#b91c1c;">Could not attach (check Supabase): ${failedFiles.join(', ')}</p>`
+      ? `<p style="margin:8px 0 0;font-size:13px;color:#b91c1c;">Could not generate link (check Supabase): ${failedFiles.join(', ')}</p>`
       : '';
 
   return `
     <tr>
       <td colspan="2" style="padding:16px 0 0;">
-        <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Attached Files</p>
+        <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Uploaded Files</p>
         ${attachedItems}
         ${failedNote}
       </td>

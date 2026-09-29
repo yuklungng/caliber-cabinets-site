@@ -149,6 +149,32 @@ export default async function handler(req, res) {
     }
   } catch { /* use default */ }
 
+  // Step 2.5: Generate signed URLs (1 year) for any uploaded files, once, so both
+  // the notification email and the HubSpot deal can link to the same files without
+  // downloading their bytes. Previously the email step downloaded and attached the
+  // raw files via Gmail SMTP, which silently fails once total attachment size
+  // crosses Gmail's ~25MB cap — a real risk once the per-submission file limit was
+  // raised from 5 to 15 (2026-09-23). Links have no such ceiling.
+  const attachmentUrls = {}; // path → signed URL (used by the HubSpot step below)
+  const attachedFiles = []; // [{ filename, url }] — used by the notification email
+  const failedFileNames = [];
+  if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
+    for (const path of fields.attachments) {
+      const filename = path.split('/').pop().replace(/^\d+-/, '');
+      try {
+        const { data, error: urlError } = await supabase.storage
+          .from('lead-uploads')
+          .createSignedUrl(path, 31_536_000); // 1 year in seconds
+        if (urlError || !data?.signedUrl) throw new Error(urlError?.message ?? 'No signed URL returned');
+        attachmentUrls[path] = data.signedUrl;
+        attachedFiles.push({ filename, url: data.signedUrl });
+      } catch (urlErr) {
+        failedFileNames.push(filename);
+        console.error('[lead-submit] Signed URL error:', urlErr.message);
+      }
+    }
+  }
+
   // Step 3: Send notification email via Gmail SMTP (nodemailer)
   if (process.env.GMAIL_APP_PASSWORD) {
     try {
@@ -162,45 +188,19 @@ export default async function handler(req, res) {
         .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
         .join('\n');
 
-      // Download uploaded files from Supabase Storage and attach to email
-      const emailAttachments = [];
-      const failedFiles = [];
-
-      if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
-        for (const path of fields.attachments) {
-          try {
-            const { data: blob, error: dlError } = await supabase.storage
-              .from('lead-uploads')
-              .download(path);
-            if (dlError || !blob) throw new Error(dlError?.message ?? 'Download failed');
-            const arrayBuffer = await blob.arrayBuffer();
-            const content = Buffer.from(arrayBuffer);
-            // Strip the leading timestamp from the filename (e.g. 1748123456789-photo.jpg → photo.jpg)
-            const filename = path.split('/').pop().replace(/^\d+-/, '');
-            emailAttachments.push({ filename, content });
-          } catch (dlErr) {
-            failedFiles.push(path.split('/').pop());
-            console.error('[lead-submit] File attachment error:', dlErr.message);
-          }
-        }
-      }
-
-      const attachedFileNames = emailAttachments.map((a) => a.filename);
-      const failedFileNames = failedFiles.map((f) => f.split('/').pop());
-
       // Plain text fallback
       let attachmentNote = '';
-      if (attachedFileNames.length > 0) {
-        attachmentNote = `\n\nAttached files: ${attachedFileNames.join(', ')}`;
+      if (attachedFiles.length > 0) {
+        attachmentNote = `\n\nUploaded files:\n${attachedFiles.map((a) => `${a.filename}: ${a.url}`).join('\n')}`;
       }
       if (failedFileNames.length > 0) {
-        attachmentNote += `\n\nCould not attach (check Supabase): ${failedFileNames.join(', ')}`;
+        attachmentNote += `\n\nCould not generate link (check Supabase): ${failedFileNames.join(', ')}`;
       }
 
       const htmlBody = buildHtmlEmail({
         formLabel,
         fields: enrichedFields,
-        attachedFiles: attachedFileNames,
+        attachedFiles,
         failedFiles: failedFileNames,
         distanceMiles,
         distanceRough: distanceIsRough,
@@ -224,7 +224,6 @@ export default async function handler(req, res) {
           : `New ${formLabel} - ${[fields.firstName, fields.lastName].filter(Boolean).join(' ')}`,
         text: `New lead submitted via the website.\n\nForm: ${formLabel}\n\n${fieldsSummary}${attachmentNote}\n\nView in admin panel.`,
         html: htmlBody,
-        attachments: emailAttachments,
       });
 
       console.log('[lead-submit] Notification email sent via Gmail SMTP');
@@ -278,18 +277,8 @@ export default async function handler(req, res) {
   // Step 5: Push lead to HubSpot and store deal ID back in Supabase
   if (process.env.HUBSPOT_ACCESS_TOKEN) {
     try {
-      // Generate 1-year signed URLs for any uploaded files so Mike can open
-      // them directly from the HubSpot deal description
-      const attachmentUrls = {};
-      if (Array.isArray(fields.attachments) && fields.attachments.length > 0) {
-        for (const path of fields.attachments) {
-          const { data } = await supabase.storage
-            .from('lead-uploads')
-            .createSignedUrl(path, 31_536_000); // 1 year in seconds
-          if (data?.signedUrl) attachmentUrls[path] = data.signedUrl;
-        }
-      }
-
+      // Signed URLs already generated above (Step 2.5) — reused here so Mike can
+      // open the files directly from the HubSpot deal description.
       const { contactProperties, dealProperties } = buildHubSpotObjects(formType, fields, attachmentUrls);
       const contactId = await upsertContact(contactProperties);
       const dealId = await createDeal(dealProperties, contactId);

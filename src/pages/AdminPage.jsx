@@ -5721,6 +5721,181 @@ function ProjectsPanel() {
   );
 }
 
+// ─── FaqPanel ─────────────────────────────────────────────────────────────────
+
+function FaqPanel() {
+  const [faqs, setFaqs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState('');
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [published, setPublished] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editAnswer, setEditAnswer] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  const hdrs = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
+  const URL = '/api/admin-projects?resource=faqs';
+
+  async function loadFaqs() {
+    setLoading(true);
+    try {
+      const r = await fetch(`${URL}&all=1`, { headers: hdrs() });
+      const d = await r.json();
+      setFaqs(d.faqs || []);
+    } catch {
+      setListError('Failed to load FAQs');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { loadFaqs(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    setFormError('');
+    if (!question.trim() || !answer.trim()) { setFormError('Question and answer are required'); return; }
+    setSubmitting(true);
+    try {
+      const r = await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'create', question, answer, published }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Failed to add FAQ');
+      setQuestion(''); setAnswer(''); setPublished(true);
+      await loadFaqs();
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function patch(id, fields) {
+    const r = await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'update', id, ...fields }) });
+    const { faq } = await r.json();
+    if (faq) setFaqs((list) => list.map((x) => (x.id === id ? { ...x, ...faq } : x)));
+  }
+
+  async function saveEdit(faq) {
+    setEditSaving(true);
+    await patch(faq.id, { question: editQuestion, answer: editAnswer });
+    setEditingId(null);
+    setEditSaving(false);
+  }
+
+  async function handleDelete(faq) {
+    if (!window.confirm(`Delete this FAQ?\n\n"${faq.question}"`)) return;
+    await fetch(URL, { method: 'DELETE', headers: hdrs(), body: JSON.stringify({ id: faq.id }) });
+    setFaqs((list) => list.filter((x) => x.id !== faq.id));
+  }
+
+  async function move(index, dir) {
+    const target = index + dir;
+    if (target < 0 || target >= faqs.length) return;
+    const next = [...faqs];
+    [next[index], next[target]] = [next[target], next[index]];
+    setFaqs(next);
+    await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'reorder', ids: next.map((f) => f.id) }) });
+  }
+
+  const inputSt = { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' };
+  const labelSt = { display: 'block', fontSize: '12px', fontWeight: '700', color: '#6b7280', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' };
+  const cardSt = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '28px', marginBottom: '24px' };
+  const smallBtn = { fontSize: '12px', padding: '5px 10px', borderRadius: '5px', border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' };
+
+  return (
+    <div>
+      <div style={cardSt}>
+        <h2 style={{ margin: '0 0 6px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>Add New FAQ</h2>
+        <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#6b7280' }}>
+          Published FAQs appear on the homepage in the order shown below and are also added to the site&apos;s search-engine FAQ markup automatically.
+        </p>
+        <form onSubmit={handleAdd}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelSt}>Question</label>
+            <input style={inputSt} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Do you offer free consultations?" />
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelSt}>Answer</label>
+            <textarea style={{ ...inputSt, minHeight: '110px', resize: 'vertical' }} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Plain text. Keep it direct and factual." />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
+            <input type="checkbox" id="faq-published" checked={published} onChange={(e) => setPublished(e.target.checked)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+            <label htmlFor="faq-published" style={{ fontSize: '14px', color: '#374151', cursor: 'pointer' }}>Published (visible on the website)</label>
+          </div>
+          {formError && <p style={{ color: '#b91c1c', fontSize: '13px', margin: '0 0 12px' }}>{formError}</p>}
+          <button type="submit" disabled={submitting} style={{ background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', padding: '10px 22px', fontWeight: '700', fontSize: '14px', cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? 'Adding…' : 'Add FAQ'}
+          </button>
+        </form>
+      </div>
+
+      <div style={cardSt}>
+        <h2 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: '700', color: '#111827' }}>
+          All FAQs <span style={{ fontWeight: '400', color: '#9ca3af' }}>({faqs.length})</span>
+        </h2>
+        {loading ? (
+          <p style={{ color: '#9ca3af' }}>Loading…</p>
+        ) : listError ? (
+          <p style={{ color: '#b91c1c' }}>{listError}</p>
+        ) : faqs.length === 0 ? (
+          <p style={{ color: '#9ca3af' }}>No FAQs yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {faqs.map((faq, i) => (
+              <div key={faq.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '14px', border: '1px solid #f3f4f6', borderRadius: '8px', background: '#fafafa', opacity: faq.published ? 1 : 0.6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                  <button aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === 0 ? 0.35 : 1 }}>▲</button>
+                  <button aria-label="Move down" disabled={i === faqs.length - 1} onClick={() => move(i, 1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === faqs.length - 1 ? 0.35 : 1 }}>▼</button>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {editingId === faq.id ? (
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      <input style={inputSt} value={editQuestion} onChange={(e) => setEditQuestion(e.target.value)} />
+                      <textarea style={{ ...inputSt, minHeight: '90px', resize: 'vertical' }} value={editAnswer} onChange={(e) => setEditAnswer(e.target.value)} />
+                    </div>
+                  ) : (
+                    <>
+                      <p style={{ margin: '0 0 4px', fontWeight: '700', fontSize: '14px', color: '#111827' }}>{i + 1}. {faq.question}</p>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#6b7280', lineHeight: 1.5 }}>{faq.answer}</p>
+                    </>
+                  )}
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      onClick={() => patch(faq.id, { published: !faq.published })}
+                      style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', border: '1px solid', cursor: 'pointer',
+                        background: faq.published ? '#dcfce7' : '#f3f4f6',
+                        color: faq.published ? '#166534' : '#6b7280',
+                        borderColor: faq.published ? '#86efac' : '#d1d5db' }}
+                    >
+                      {faq.published ? '● Published' : '○ Hidden'}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  {editingId === faq.id ? (
+                    <>
+                      <button onClick={() => saveEdit(faq)} disabled={editSaving} style={{ ...smallBtn, background: '#78350f', color: '#fff', border: 0, fontWeight: '700' }}>{editSaving ? '…' : 'Save'}</button>
+                      <button onClick={() => setEditingId(null)} style={smallBtn}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => { setEditingId(faq.id); setEditQuestion(faq.question); setEditAnswer(faq.answer); }} style={smallBtn}>Edit</button>
+                      <button onClick={() => handleDelete(faq)} style={{ ...smallBtn, border: '1px solid #fca5a5', color: '#b91c1c' }}>Delete</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── BackupRestoreView ────────────────────────────────────────────────────────
 
 function BackupRestoreView({ isSuperAdmin }) {
@@ -7123,6 +7298,7 @@ const NAV_ITEMS = [
   { key: 'site-stats', label: 'Site Stats', section: null, bookkeeperHidden: true },
   { key: 'cashflow', label: 'Financial', section: null },
   { key: 'projects', label: 'Projects', section: 'Content', bookkeeperHidden: true },
+  { key: 'faqs', label: 'FAQs', section: 'Content', bookkeeperHidden: true },
   { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
   { key: 'notifications', label: 'Notifications', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
   { key: 'confirmations', label: 'Confirmations', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
@@ -7403,7 +7579,7 @@ export function AdminPage() {
     }
     // Bookkeeper role only ever sees Financial Management — redirect away from anything else,
     // regardless of how activeView got set (e.g. a stale nav state).
-    const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects'];
+    const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects', 'faqs'];
     if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView />;
     switch (activeView) {
       case 'cashflow': return <FinancialView />;
@@ -7414,6 +7590,7 @@ export function AdminPage() {
       case 'users': return <UsersPanel currentUser={currentUser} />;
       case 'site-stats': return <SiteStatsView />;
       case 'projects': return <ProjectsPanel />;
+      case 'faqs': return <FaqPanel />;
       case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
       default: return isBookkeeper ? <FinancialView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }

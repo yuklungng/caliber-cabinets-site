@@ -221,8 +221,8 @@
       ]
     }
     </script>
-    <!-- Structured Data: FAQ (SEO + AIEO) -->
-    <script type="application/ld+json">
+    <!-- Structured Data: FAQ (SEO + AIEO). Static fallback; FaqSection.jsx replaces it at runtime with the live admin-managed list. -->
+    <script type="application/ld+json" id="faq-jsonld">
     {
       "@context": "https://schema.org",
       "@type": "FAQPage",

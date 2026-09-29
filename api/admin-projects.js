@@ -1,10 +1,14 @@
 /* global process */
 import { createClient } from '@supabase/supabase-js';
 import { checkAuth } from './_lib/auth.js';
+import { handleFaqs } from './_lib/faqs.js';
 
 const BUCKET = 'project-images';
 
 export default async function handler(req, res) {
+  // FAQ content shares this function (keeps us under Vercel's function-count limit)
+  if (req.query?.resource === 'faqs') return handleFaqs(req, res);
+
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,

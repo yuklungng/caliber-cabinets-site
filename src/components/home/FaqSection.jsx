@@ -10,7 +10,7 @@ const FALLBACK_FAQS = [
 
 // Questions shown before "Show all" within the selected view. Order comes from
 // Admin → Content → FAQs. JSON-LD always includes every published FAQ.
-const INITIAL_VISIBLE = 5;
+const INITIAL_VISIBLE = 6; // even, so the two-column grid stays balanced
 const ALL = 'All';
 
 function syncJsonLd(faqs) {

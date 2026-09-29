@@ -32,7 +32,7 @@ export function SiteHeader({ hideCta = false }) {
       </a>
       <nav className="site-nav container" aria-label="Primary navigation">
         <a className="brand" href="/" aria-label="Caliber Cabinets home">
-          <img className="brand-logo" src="/images/caliber-logo-brand.webp" alt="" aria-hidden="true" width="200" height="143" />
+          <img className="brand-logo" src="/images/caliber-logo-brand-96.webp" alt="" aria-hidden="true" width="200" height="143" />
           <span>
             <strong>Caliber Cabinets</strong>
           </span>

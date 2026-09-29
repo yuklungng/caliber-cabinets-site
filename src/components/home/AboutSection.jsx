@@ -62,7 +62,16 @@ export function AboutSection() {
           <div className="team-grid">
             {teamMembers.map((member) => (
               <article key={member.name} className="team-member">
-                <img src={member.image} alt={`${member.name}, ${member.role}`} className="team-member-photo" loading="lazy" />
+                <img
+                  src={member.image.replace('.webp', '-900.webp')}
+                  srcSet={`${member.image.replace('.webp', '-900.webp')} 900w, ${member.image.replace('.webp', '-1350.webp')} 1350w`}
+                  sizes="(max-width: 980px) calc(100vw - 32px), 410px"
+                  alt={`${member.name}, ${member.role}`}
+                  className="team-member-photo"
+                  width="900"
+                  height="600"
+                  loading="lazy"
+                />
                 <p className="team-member-name">{member.name}</p>
                 <p className="team-member-role">{member.role}</p>
               </article>

@@ -7,6 +7,10 @@ const FALLBACK_FAQS = [
   { id: 'f2', question: 'Do you offer free consultations?', answer: 'Yes, Caliber Cabinets offers a free design consultation. You can request one online at calibercabinetshop.com.' },
 ];
 
+// Questions shown before "Show all". Order comes from Admin → Content → FAQs,
+// so the top 5 there are the featured ones. JSON-LD always includes every published FAQ.
+const INITIAL_VISIBLE = 5;
+
 function syncJsonLd(faqs) {
   if (!faqs.length) return;
   const json = {
@@ -31,6 +35,7 @@ function syncJsonLd(faqs) {
 export function FaqSection() {
   const [faqs, setFaqs] = useState(FALLBACK_FAQS);
   const [loaded, setLoaded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +64,7 @@ export function FaqSection() {
         <p>Straight answers about working with Caliber Cabinets, from first consultation to final install.</p>
       </div>
       <div className="container faq-list">
-        {faqs.map((faq) => (
+        {(showAll ? faqs : faqs.slice(0, INITIAL_VISIBLE)).map((faq) => (
           <details className="faq-item" key={faq.id}>
             <summary>
               <span>{faq.question}</span>
@@ -70,6 +75,16 @@ export function FaqSection() {
             </div>
           </details>
         ))}
+        {faqs.length > INITIAL_VISIBLE && (
+          <button
+            type="button"
+            className="faq-toggle"
+            aria-expanded={showAll}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? 'Show fewer questions' : `Show all ${faqs.length} questions`}
+          </button>
+        )}
       </div>
     </section>
   );

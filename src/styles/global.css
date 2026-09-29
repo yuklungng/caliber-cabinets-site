@@ -1034,6 +1034,43 @@ button:focus-visible {
   gap: 10px;
 }
 
+.faq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 880px;
+  margin-top: 28px;
+}
+
+.faq-pill {
+  padding: 8px 16px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.faq-pill:hover {
+  border-color: var(--color-brand-primary);
+}
+
+.faq-pill.is-active {
+  color: #ffffff;
+  background: var(--color-brand-primary);
+  border-color: var(--color-brand-primary);
+}
+
+.faq-pill:focus-visible {
+  outline: 3px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
 .faq-toggle {
   justify-self: center;
   margin-top: 10px;

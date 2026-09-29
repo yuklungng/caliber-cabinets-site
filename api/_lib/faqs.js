@@ -19,7 +19,7 @@ export async function handleFaqs(req, res) {
     }
     let q = supabase
       .from('faqs')
-      .select('id, question, answer, sort_order, published')
+      .select('id, question, answer, category, sort_order, published')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (!includeAll) q = q.eq('published', true);
@@ -35,7 +35,7 @@ export async function handleFaqs(req, res) {
     const { action } = req.body;
 
     if (action === 'create') {
-      const { question, answer, published = true } = req.body;
+      const { question, answer, category, published = true } = req.body;
       if (!question?.trim() || !answer?.trim()) {
         return res.status(400).json({ error: 'question and answer are required' });
       }
@@ -48,7 +48,7 @@ export async function handleFaqs(req, res) {
       const sort_order = (maxRow?.sort_order ?? 0) + 10;
       const { data, error } = await supabase
         .from('faqs')
-        .insert({ question: question.trim(), answer: answer.trim(), published, sort_order })
+        .insert({ question: question.trim(), answer: answer.trim(), published, sort_order, ...(category ? { category } : {}) })
         .select()
         .single();
       if (error) return res.status(500).json({ error: error.message });
@@ -56,8 +56,9 @@ export async function handleFaqs(req, res) {
     }
 
     if (action === 'update') {
-      const { id, question, answer, published } = req.body;
+      const { id, question, answer, published, category } = req.body;
       const updates = { updated_at: new Date().toISOString() };
+      if (category !== undefined) updates.category = category;
       if (question !== undefined) updates.question = question.trim();
       if (answer !== undefined) updates.answer = answer.trim();
       if (published !== undefined) updates.published = published;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
 import { FileDropZone } from '../components/FileDropZone.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
+import { FAQ_CATEGORIES, DEFAULT_FAQ_CATEGORY, sortFaqs } from '../lib/faqCategories.js';
 
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -5729,12 +5730,14 @@ function FaqPanel() {
   const [listError, setListError] = useState('');
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
+  const [category, setCategory] = useState(FAQ_CATEGORIES[0]);
   const [published, setPublished] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editQuestion, setEditQuestion] = useState('');
   const [editAnswer, setEditAnswer] = useState('');
+  const [editCategory, setEditCategory] = useState(DEFAULT_FAQ_CATEGORY);
   const [editSaving, setEditSaving] = useState(false);
 
   const hdrs = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
@@ -5745,7 +5748,7 @@ function FaqPanel() {
     try {
       const r = await fetch(`${URL}&all=1`, { headers: hdrs() });
       const d = await r.json();
-      setFaqs(d.faqs || []);
+      setFaqs(sortFaqs(d.faqs || []));
     } catch {
       setListError('Failed to load FAQs');
     } finally {
@@ -5760,7 +5763,7 @@ function FaqPanel() {
     if (!question.trim() || !answer.trim()) { setFormError('Question and answer are required'); return; }
     setSubmitting(true);
     try {
-      const r = await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'create', question, answer, published }) });
+      const r = await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'create', question, answer, category, published }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed to add FAQ');
       setQuestion(''); setAnswer(''); setPublished(true);
@@ -5775,12 +5778,12 @@ function FaqPanel() {
   async function patch(id, fields) {
     const r = await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'update', id, ...fields }) });
     const { faq } = await r.json();
-    if (faq) setFaqs((list) => list.map((x) => (x.id === id ? { ...x, ...faq } : x)));
+    if (faq) setFaqs((list) => sortFaqs(list.map((x) => (x.id === id ? { ...x, ...faq } : x))));
   }
 
   async function saveEdit(faq) {
     setEditSaving(true);
-    await patch(faq.id, { question: editQuestion, answer: editAnswer });
+    await patch(faq.id, { question: editQuestion, answer: editAnswer, category: editCategory });
     setEditingId(null);
     setEditSaving(false);
   }
@@ -5791,13 +5794,20 @@ function FaqPanel() {
     setFaqs((list) => list.filter((x) => x.id !== faq.id));
   }
 
-  async function move(index, dir) {
-    const target = index + dir;
-    if (target < 0 || target >= faqs.length) return;
+  // Move within the FAQ's own category, then re-save the full ordering.
+  async function move(faq, dir) {
+    const group = faqs.filter((f) => f.category === faq.category);
+    const gi = group.findIndex((f) => f.id === faq.id);
+    const other = group[gi + dir];
+    if (!other) return;
+    const a = faqs.findIndex((f) => f.id === faq.id);
+    const b = faqs.findIndex((f) => f.id === other.id);
     const next = [...faqs];
-    [next[index], next[target]] = [next[target], next[index]];
-    setFaqs(next);
-    await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'reorder', ids: next.map((f) => f.id) }) });
+    [next[a], next[b]] = [next[b], next[a]];
+    // Re-number so sort_order matches the new on-screen order
+    const renumbered = next.map((f, i) => ({ ...f, sort_order: (i + 1) * 10 }));
+    setFaqs(renumbered);
+    await fetch(URL, { method: 'POST', headers: hdrs(), body: JSON.stringify({ action: 'reorder', ids: renumbered.map((f) => f.id) }) });
   }
 
   const inputSt = { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' };
@@ -5816,6 +5826,12 @@ function FaqPanel() {
           <div style={{ marginBottom: '16px' }}>
             <label style={labelSt}>Question</label>
             <input style={inputSt} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Do you offer free consultations?" />
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelSt}>Category</label>
+            <select style={inputSt} value={category} onChange={(e) => setCategory(e.target.value)}>
+              {FAQ_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelSt}>Answer</label>
@@ -5843,16 +5859,28 @@ function FaqPanel() {
         ) : faqs.length === 0 ? (
           <p style={{ color: '#9ca3af' }}>No FAQs yet.</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {faqs.map((faq, i) => (
+          <div>
+            {[...FAQ_CATEGORIES, ...new Set(faqs.map((f) => f.category).filter((c) => !FAQ_CATEGORIES.includes(c)))].map((cat) => {
+              const group = faqs.filter((f) => f.category === cat);
+              if (group.length === 0) return null;
+              return (
+              <div key={cat} style={{ marginBottom: '22px' }}>
+                <h3 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: '700', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {cat} <span style={{ fontWeight: '400', color: '#9ca3af' }}>({group.length})</span>
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {group.map((faq, i) => (
               <div key={faq.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '14px', border: '1px solid #f3f4f6', borderRadius: '8px', background: '#fafafa', opacity: faq.published ? 1 : 0.6 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
-                  <button aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === 0 ? 0.35 : 1 }}>▲</button>
-                  <button aria-label="Move down" disabled={i === faqs.length - 1} onClick={() => move(i, 1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === faqs.length - 1 ? 0.35 : 1 }}>▼</button>
+                  <button aria-label="Move up" disabled={i === 0} onClick={() => move(faq, -1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === 0 ? 0.35 : 1 }}>▲</button>
+                  <button aria-label="Move down" disabled={i === group.length - 1} onClick={() => move(faq, 1)} style={{ ...smallBtn, padding: '2px 8px', opacity: i === group.length - 1 ? 0.35 : 1 }}>▼</button>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {editingId === faq.id ? (
                     <div style={{ display: 'grid', gap: '8px' }}>
+                      <select style={inputSt} value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+                        {FAQ_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
                       <input style={inputSt} value={editQuestion} onChange={(e) => setEditQuestion(e.target.value)} />
                       <textarea style={{ ...inputSt, minHeight: '90px', resize: 'vertical' }} value={editAnswer} onChange={(e) => setEditAnswer(e.target.value)} />
                     </div>
@@ -5882,13 +5910,17 @@ function FaqPanel() {
                     </>
                   ) : (
                     <>
-                      <button onClick={() => { setEditingId(faq.id); setEditQuestion(faq.question); setEditAnswer(faq.answer); }} style={smallBtn}>Edit</button>
+                      <button onClick={() => { setEditingId(faq.id); setEditQuestion(faq.question); setEditAnswer(faq.answer); setEditCategory(faq.category); }} style={smallBtn}>Edit</button>
                       <button onClick={() => handleDelete(faq)} style={{ ...smallBtn, border: '1px solid #fca5a5', color: '#b91c1c' }}>Delete</button>
                     </>
                   )}
                 </div>
               </div>
             ))}
+                </div>
+              </div>
+              );
+            })}
           </div>
         )}
       </div>

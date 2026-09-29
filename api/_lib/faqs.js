@@ -25,6 +25,11 @@ export async function handleFaqs(req, res) {
     if (!includeAll) q = q.eq('published', true);
     const { data, error } = await q;
     if (error) return res.status(500).json({ error: error.message });
+    // Public list: let Vercel's edge cache serve it (admin edits show up within ~1 min).
+    // Skipped for the admin view (?all=1) so the admin always sees live data.
+    if (req.query?.all !== '1') {
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    }
     return res.status(200).json({ faqs: data || [] });
   }
 

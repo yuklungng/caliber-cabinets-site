@@ -152,8 +152,16 @@ async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoic
   const qbTotal = Number(invoice.TotalAmt) || 0;
   const currentTotal = orderedRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
+  // A group whose whole amount sits on ONE stage (e.g. 100/0/0 — left behind by an
+  // earlier link/unlink or a manual edit) isn't a deliberate split: on a 3-stage
+  // invoice it makes the deposit stage need 100% of the invoice before it can be
+  // "Paid", so a customer who has paid the 50% deposit shows "Partially Paid".
+  // Treat that as unpriced and re-split using the default percentages.
+  const nonZeroStages = orderedRows.filter((r) => (Number(r.amount) || 0) > 0).length;
+  const isDegenerateSplit = orderedRows.length > 1 && nonZeroStages <= 1;
+
   let newAmounts;
-  if (currentTotal > 0) {
+  if (currentTotal > 0 && !isDegenerateSplit) {
     const ratio = qbTotal / currentTotal;
     newAmounts = orderedRows.map((r) => Math.round((Number(r.amount) || 0) * ratio * 100) / 100);
   } else {

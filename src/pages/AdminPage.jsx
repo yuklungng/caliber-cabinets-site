@@ -2,6 +2,7 @@ import { createContext, Fragment, useContext, useEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
 import { FileDropZone } from '../components/FileDropZone.jsx';
+import { WinLossInsights } from '../components/WinLossInsights.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
 import { FAQ_CATEGORIES, DEFAULT_FAQ_CATEGORY, sortFaqs } from '../lib/faqCategories.js';
 
@@ -4598,6 +4599,9 @@ function PerformanceView() {
           Monthly trends, stage-by-stage velocity, and lead-type breakdowns.
         </p>
       </div>
+
+      {/* ── Win / Loss Analysis (executive view) ── */}
+      <WinLossInsights leads={leads} lostReasonOptions={LOST_REASON_OPTIONS} />
 
       {/* ── Cashflow Forecast ── */}
       {!isLoading && (

@@ -4581,6 +4581,21 @@ function PerformanceView() {
     leadsCount:  leadsByDay[date]               ?? 0,
   }));
 
+  // Trailing 7-day CTR and click→lead rates. Daily ratios are too noisy at this
+  // volume (a few clicks and ~0–1 leads per day), so each point sums its last 7 days.
+  const ROLL = 7;
+  mktDailyData.forEach((row, i) => {
+    row.ctr7 = null;
+    row.clickToLead7 = null;
+    if (i < ROLL - 1) return;
+    const win = mktDailyData.slice(i - ROLL + 1, i + 1);
+    const imps = win.reduce((s, d) => s + (d.impressions ?? 0), 0);
+    const clks = win.reduce((s, d) => s + (d.clicks ?? 0), 0);
+    const lds  = win.reduce((s, d) => s + d.leadsCount, 0);
+    if (imps > 0) row.ctr7 = Math.round((clks / imps) * 1000) / 10;
+    if (clks > 0) row.clickToLead7 = Math.round((lds / clks) * 1000) / 10;
+  });
+
   // Derived funnel rates
   const organicCTR         = gscTotal.ctr ?? null;                         // % impressions→clicks
   const clickToLeadRate    = (gscTotal.clicks > 0 && leads28 > 0)
@@ -4601,7 +4616,7 @@ function PerformanceView() {
       </div>
 
       {/* ── Win / Loss Analysis (executive view) ── */}
-      <WinLossInsights leads={leads} lostReasonOptions={LOST_REASON_OPTIONS} />
+      <WinLossInsights leads={leads} lostReasonOptions={LOST_REASON_OPTIONS} WithTip={WithTip} />
 
       {/* ── Cashflow Forecast ── */}
       {!isLoading && (
@@ -4984,6 +4999,32 @@ function PerformanceView() {
                 />
               : <EmptyFrame label={ga?.configured ? 'No GA data yet' : 'Connect Google Analytics'} />,
           )}
+        </div>
+
+        {/* Conversion-rate trends: CTR and click → lead, trailing 7 days */}
+        <div style={{ marginBottom: '12px' }}>
+          {chartCard(
+            'Conversion Rate Trends',
+            gsc?.configured
+              ? <>
+                  <span style={{ color: '#059669', fontWeight: '700' }}>■</span> CTR % (clicks ÷ impressions)&nbsp;&nbsp;
+                  <span style={{ color: '#c2410c', fontWeight: '700' }}>■</span> Click → lead % (form leads ÷ clicks) · trailing 7-day, last 28 days
+                </>
+              : 'Google Search Console not connected',
+            gsc?.configured && mktDailyData.some((d) => d.ctr7 !== null || d.clickToLead7 !== null)
+              ? <MonthlyLineChart
+                  data={mktDailyData}
+                  lines={[
+                    { key: 'ctr7',          label: 'CTR',          color: '#059669' },
+                    { key: 'clickToLead7',  label: 'Click → lead', color: '#c2410c' },
+                  ]}
+                  formatTip={(v) => `${v}%`}
+                />
+              : <EmptyFrame label={gsc?.configured ? 'Needs at least 7 days of Search Console data' : 'Connect Google Search Console'} />,
+          )}
+          <p style={{ margin: '6px 4px 0', fontSize: '11px', color: '#9ca3af' }}>
+            Each point covers the 7 days ending that day, which smooths out day-to-day noise at low volumes. Each line is scaled to its own maximum, so compare direction, not height; hover for exact values.
+          </p>
         </div>
 
         {/* Traffic sources + top pages */}

@@ -124,14 +124,16 @@ function Card({ title, sub, right, children, style }) {
   );
 }
 
-function Kpi({ label, value, sub, color = C.ink, accent }) {
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.line}`, borderTop: `3px solid ${accent ?? C.line}`, borderRadius: '10px', padding: '14px 18px' }}>
+function Kpi({ label, value, sub, color = C.ink, accent, tip, WithTip }) {
+  const card = (
+    <div style={{ background: '#fff', border: `1px solid ${C.line}`, borderTop: `3px solid ${accent ?? C.line}`, borderRadius: '10px', padding: '14px 16px', height: '100%', boxSizing: 'border-box', cursor: tip ? 'help' : 'default' }}>
       <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</p>
-      <p style={{ margin: '6px 0 2px', fontSize: '28px', fontWeight: 700, color, lineHeight: 1.05, letterSpacing: '-0.02em' }}>{value}</p>
+      <p style={{ margin: '6px 0 2px', fontSize: '26px', fontWeight: 700, color, lineHeight: 1.05, letterSpacing: '-0.02em' }}>{value}</p>
       <p style={{ margin: 0, fontSize: '11px', color: C.muted }}>{sub}</p>
     </div>
   );
+  // Hover explanation uses the admin panel's shared tooltip when provided.
+  return tip && WithTip ? <WithTip tip={tip} style={{ height: '100%' }}>{card}</WithTip> : card;
 }
 
 function Segmented({ options, value, onChange }) {
@@ -345,7 +347,7 @@ function QuoteStrip({ deals }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function WinLossInsights({ leads, lostReasonOptions = ['Competitor', 'Pricing', 'Value', 'Other'] }) {
+export function WinLossInsights({ leads, lostReasonOptions = ['Competitor', 'Pricing', 'Value', 'Other'], WithTip }) {
   const [range, setRange] = useState('all');
   const [segmentId, setSegmentId] = useState('quote');
 
@@ -485,12 +487,17 @@ export function WinLossInsights({ leads, lostReasonOptions = ['Competitor', 'Pri
       ) : (
         <div style={{ display: 'grid', gap: '14px' }}>
           {/* KPI strip */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px' }}>
-            <Kpi label="Closed deals" value={closed.length} sub={`${won.length} won · ${lost.length} lost`} accent={C.brand} />
-            <Kpi label="Win rate" value={`${rate}%`} sub="Won ÷ (won + lost)" color={rate >= 40 ? C.won : C.lost} accent={rate >= 40 ? C.won : C.lost} />
-            <Kpi label="Won value" value={money(wonValue)} sub={`${withQuote.filter((d) => d.won).length} won deals with a quote`} color={C.won} accent={C.won} />
-            <Kpi label="Lost value" value={money(lostValue)} sub={`${withQuote.filter((d) => !d.won).length} lost deals with a quote`} color={C.lost} accent={C.lost} />
-            <Kpi label="Lost to pricing" value={pricingShare === null ? '—' : `${pricingShare}%`} sub={`${pricingCount} of ${lost.length} lost deals`} accent="#ea580c" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: '10px' }}>
+            <Kpi WithTip={WithTip} label="Closed deals" value={closed.length} sub={`${won.length} won · ${lost.length} lost`} accent={C.brand}
+              tip="Deals that reached a final outcome, Closed Won or Closed Lost, in the selected date range. Open and Declined deals are not counted." />
+            <Kpi WithTip={WithTip} label="Win rate" value={`${rate}%`} sub="Won ÷ (won + lost)" color={rate >= 40 ? C.won : C.lost} accent={rate >= 40 ? C.won : C.lost}
+              tip="Won deals ÷ total closed (Won + Lost). Only fully closed deals count; leads still in the pipeline aren't included yet. Green at 40% or above." />
+            <Kpi WithTip={WithTip} label="Won value" value={money(wonValue)} sub={`${withQuote.filter((d) => d.won).length} of ${won.length} won deals quoted`} color={C.won} accent={C.won}
+              tip="Total quote amount of won deals. Only deals with a quote amount recorded are included, so this can understate real revenue." />
+            <Kpi WithTip={WithTip} label="Lost value" value={money(lostValue)} sub={`${withQuote.filter((d) => !d.won).length} of ${lost.length} lost deals quoted`} color={C.lost} accent={C.lost}
+              tip="Total quote amount of lost deals: the revenue that was quoted but not won. Only lost deals that reached a quote have an amount." />
+            <Kpi WithTip={WithTip} label="Lost to pricing" value={pricingShare === null ? '—' : `${pricingShare}%`} sub={`${pricingCount} of ${lost.length} lost deals`} accent="#ea580c"
+              tip="Share of lost deals where the recorded loss reason is Pricing. Lost deals with no reason on file count in the denominator but not as Pricing." />
           </div>
 
           {/* Key findings */}

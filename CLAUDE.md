@@ -8,7 +8,8 @@ Marketing site and internal admin/CRM panel for Caliber Cabinets, Inc. (custom c
 
 - Machine: Windows 11, **PowerShell** is the primary shell. Working repo: `D:\dev\caliber-cabinets` (not OneDrive-synced). `…\Website Redesign\project-dev` under OneDrive is an **old, stale clone** (HEAD from July) — do not edit or deploy from it.
 - Deploys: push to `main` on `github.com/yuklungng/caliber-cabinets-site` auto-deploys to Vercel (live in ~30s). There is no staging branch in normal use, so every push is a production deploy.
-- **Morris commits and pushes from his own PowerShell. Do not try to commit/push from the sandbox shell.** Git from the sandbox intermittently fails with `index.lock` / `HEAD.lock` errors, and the sandbox cannot delete files in the repo (`rm: Operation not permitted`). File edits via Edit/Write land fine; only commit/push is unreliable. Give him the commands, first try, in this form:
+- **Claude commits and pushes from the session shell, with Morris's OK each time.** Verified 2026-10-01: commit and push both worked first try from the desktop-app Git Bash session (no lock files). Ask before every push, since each push to `main` is a production deploy; a "yes" covers that commit only. Report commits by their message, not the hash. Commit messages end with the Co-Authored-By line from the session's attribution reminder.
+- **Fallback to Morris's PowerShell** if git fails with `index.lock` / `HEAD.lock` errors (seen in the older sandbox shell) or a file must be deleted (`rm: Operation not permitted`). Don't retry in a loop; hand him the commands in this form:
   ```powershell
   cd "D:\dev\caliber-cabinets"
   Remove-Item ".git\index.lock" -Force -ErrorAction SilentlyContinue

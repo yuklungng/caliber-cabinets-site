@@ -5194,11 +5194,133 @@ function SetupScreen({ onComplete }) {
   );
 }
 
+const AUTH_INPUT_STYLE = { padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' };
+const AUTH_BUTTON_STYLE = { padding: '10px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' };
+const AUTH_LINK_STYLE = { background: 'none', border: 0, padding: 0, color: '#78350f', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textDecoration: 'underline' };
+
+// "Forgot password": asks the API to email a one-hour, single-use reset link.
+function ForgotPasswordForm({ initialEmail, onBack }) {
+  const [email, setEmail] = useState(initialEmail);
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const r = await fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'forgot', email }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error ?? 'Something went wrong. Please try again.'); setLoading(false); return; }
+      setSent(true);
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  }
+
+  if (sent) {
+    return (
+      <div style={{ display: 'grid', gap: '14px' }}>
+        <p style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: '#111827' }}>Check your email</p>
+        <p style={{ margin: 0, fontSize: '14px', color: '#374151', lineHeight: 1.5 }}>
+          If <strong>{email}</strong> has an admin account, we've sent a link to reset your password. It expires in 1 hour. Check your spam folder if it doesn't arrive in a few minutes.
+        </p>
+        <button type="button" onClick={onBack} style={AUTH_LINK_STYLE}>← Back to sign in</button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
+      <div>
+        <p style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: '600', color: '#111827' }}>Reset your password</p>
+        <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>Enter your account email and we'll send you a reset link.</p>
+      </div>
+      <div style={{ display: 'grid', gap: '5px' }}>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Email</label>
+        <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={AUTH_INPUT_STYLE} />
+      </div>
+      {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
+      <button type="submit" disabled={loading} style={{ ...AUTH_BUTTON_STYLE, opacity: loading ? 0.6 : 1 }}>
+        {loading ? 'Sending…' : 'Send reset link'}
+      </button>
+      <button type="button" onClick={onBack} style={{ ...AUTH_LINK_STYLE, justifySelf: 'start' }}>← Back to sign in</button>
+    </form>
+  );
+}
+
+// Landing page for the emailed link (/admin?reset=<token>).
+function ResetPasswordScreen({ token, onDone }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (password !== confirm) { setError('Passwords do not match.'); return; }
+    setLoading(true);
+    try {
+      const r = await fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset', token, password }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error ?? 'Could not reset password.'); setLoading(false); return; }
+      setSuccess(true);
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <AuthShell>
+      {success ? (
+        <div style={{ display: 'grid', gap: '14px' }}>
+          <p style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: '#166534' }}>✓ Password updated</p>
+          <p style={{ margin: 0, fontSize: '14px', color: '#374151' }}>You've been signed out of other devices. Sign in with your new password.</p>
+          <button type="button" onClick={onDone} style={AUTH_BUTTON_STYLE}>Go to sign in</button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
+          <p style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: '#111827' }}>Choose a new password</p>
+          <div style={{ display: 'grid', gap: '5px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>New password</label>
+            <PasswordInput required autoFocus value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" style={AUTH_INPUT_STYLE} />
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>At least 8 characters.</span>
+          </div>
+          <div style={{ display: 'grid', gap: '5px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Confirm new password</label>
+            <PasswordInput required value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" style={AUTH_INPUT_STYLE} />
+          </div>
+          {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
+          <button type="submit" disabled={loading} style={{ ...AUTH_BUTTON_STYLE, opacity: loading ? 0.6 : 1 }}>
+            {loading ? 'Saving…' : 'Set new password'}
+          </button>
+          <button type="button" onClick={onDone} style={{ ...AUTH_LINK_STYLE, justifySelf: 'start' }}>Back to sign in</button>
+        </form>
+      )}
+    </AuthShell>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState('login'); // 'login' | 'forgot'
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -5214,6 +5336,14 @@ function LoginScreen({ onLogin }) {
     onLogin(d.token, d.user);
   }
 
+  if (mode === 'forgot') {
+    return (
+      <AuthShell>
+        <ForgotPasswordForm initialEmail={email} onBack={() => setMode('login')} />
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell>
       <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
@@ -5222,7 +5352,10 @@ function LoginScreen({ onLogin }) {
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
         </div>
         <div style={{ display: 'grid', gap: '5px' }}>
-          <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Password</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Password</label>
+            <button type="button" onClick={() => { setError(''); setMode('forgot'); }} style={AUTH_LINK_STYLE}>Forgot password?</button>
+          </div>
           <PasswordInput required value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
         </div>
         {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
@@ -7605,6 +7738,14 @@ export function AdminPage() {
   const [activeView, setActiveView] = useState('leads');
   const [navWinRate, setNavWinRate] = useState(null); // bubbled up from LeadsView, shown in nav on all tabs
   const [qbBanner, setQbBanner] = useState(null); // { type: 'success' | 'error', message }
+  // Token from a password-reset email link (/admin?reset=<token>). Read once, then
+  // stripped from the URL so it isn't left in the address bar or browser history.
+  const [resetToken, setResetToken] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('reset'); } catch { return null; }
+  });
+  useEffect(() => {
+    if (resetToken) window.history.replaceState({}, '', window.location.pathname);
+  }, [resetToken]);
 
   // Dark mode — per-browser preference (each person's own toggle, stored locally).
   // Implemented as a CSS filter invert rather than per-element theming, since this
@@ -7676,6 +7817,7 @@ export function AdminPage() {
 
   const isMobile = useIsMobile();
 
+  if (resetToken) return <ResetPasswordScreen token={resetToken} onDone={() => { setResetToken(null); setAuthState('login'); }} />;
   if (authState === 'loading') return null;
   if (authState === 'setup') return <SetupScreen onComplete={() => setAuthState('login')} />;
   if (authState === 'login') return <LoginScreen onLogin={handleLogin} />;

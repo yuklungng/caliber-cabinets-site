@@ -1,6 +1,7 @@
 import { createContext, Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
+import { Eye, EyeOff } from 'lucide-react';
 import { FileDropZone } from '../components/FileDropZone.jsx';
 import { WinLossInsights } from '../components/WinLossInsights.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
@@ -2156,12 +2157,13 @@ function UsersPanel({ currentUser }) {
                 </div>
                 {resetId === u.id && (
                   <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                    <input
-                      type="password"
+                    <PasswordInput
                       placeholder="New password"
                       value={resetPassword}
                       onChange={(e) => setResetPassword(e.target.value)}
-                      style={{ flex: 1, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                      autoComplete="new-password"
+                      wrapperStyle={{ flex: 1 }}
+                      style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
                     />
                     <button onClick={() => resetPw(u.id)} style={{ padding: '7px 16px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
                       Save
@@ -2189,7 +2191,7 @@ function UsersPanel({ currentUser }) {
               </div>
               <div style={{ display: 'grid', gap: '5px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Temporary password</label>
-                <input required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <PasswordInput required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>
                 <input type="checkbox" checked={form.is_super_admin} onChange={(e) => setForm({ ...form, is_super_admin: e.target.checked })} />
@@ -5122,6 +5124,36 @@ function AuthShell({ children }) {
   );
 }
 
+// Password field with a show/hide (eye) toggle. Use for every password entry in
+// the admin panel so people can verify what they typed.
+function PasswordInput({ style, wrapperStyle, ...props }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div style={{ position: 'relative', display: 'flex', ...wrapperStyle }}>
+      <input
+        {...props}
+        type={visible ? 'text' : 'password'}
+        style={{ width: '100%', boxSizing: 'border-box', ...style, paddingRight: '40px' }}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        onMouseDown={(e) => e.preventDefault()}
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
+        title={visible ? 'Hide password' : 'Show password'}
+        style={{
+          position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)',
+          width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 0, borderRadius: '6px', color: '#6b7280', cursor: 'pointer', padding: 0,
+        }}
+      >
+        {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
+      </button>
+    </div>
+  );
+}
+
 function SetupScreen({ onComplete }) {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState('');
@@ -5148,7 +5180,9 @@ function SetupScreen({ onComplete }) {
         {[['name', 'Full name', 'text'], ['email', 'Email', 'email'], ['password', 'Password', 'password']].map(([key, label, type]) => (
           <div key={key} style={{ display: 'grid', gap: '5px' }}>
             <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{label}</label>
-            <input type={type} required value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+            {type === 'password'
+              ? <PasswordInput required value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} autoComplete="new-password" style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              : <input type={type} required value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />}
           </div>
         ))}
         {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
@@ -5189,7 +5223,7 @@ function LoginScreen({ onLogin }) {
         </div>
         <div style={{ display: 'grid', gap: '5px' }}>
           <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Password</label>
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+          <PasswordInput required value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
         </div>
         {error && <p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{error}</p>}
         <button type="submit" disabled={loading} style={{ padding: '10px', background: '#78350f', color: '#fff', border: 0, borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>

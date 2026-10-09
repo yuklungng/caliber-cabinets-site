@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
-import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbQuery, qbGetInvoice, qbGetPaymentsForCustomer } from './_lib/quickbooks.js';
+import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbQuery, qbGetInvoice, qbGetEstimate, qbGetInvoicesForCustomer, qbGetPaymentsForCustomer } from './_lib/quickbooks.js';
 
 // QuickBooks connection actions (qb-status/qb-connect/qb-disconnect) and the
 // OAuth callback (?qbcallback=1) live in this file rather than their own
@@ -236,6 +236,182 @@ async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoic
   return results.map((r) => r.data);
 }
 
+/**
+ * Estimate-linked (progressive invoicing) counterpart to syncRoomGroupFromQbo.
+ *
+ * Here the QuickBooks ESTIMATE is the contract and each invoice created from it
+ * (typically 50% / 45% / 5%) is one payment stage. Invoices are matched to
+ * stages in the order they were created (Initial Deposit, Production, Final);
+ * each invoiced stage takes its own amount, date, balance and payments from
+ * its own invoice. Stages with no invoice yet keep a PLANNED amount: what is
+ * left of the contract total, split by the default stage percentages.
+ *
+ * Contract total = the lead's Quote Amount when this is the deal's only
+ * split, otherwise the estimate's own total. Mismatches come back as warnings
+ * (and the estimate total is stored so the UI can flag it later too).
+ *
+ * Returns { rows, warnings }. Throws on QuickBooks/DB failure.
+ */
+async function syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id }) {
+  const estimate = await qbGetEstimate(qb_estimate_id);
+  if (!estimate) throw new Error('QuickBooks estimate not found — it may have been deleted.');
+  const estimateTotal = Number(estimate.TotalAmt) || 0;
+  const customerId = estimate.CustomerRef?.value;
+  const money = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Invoices created from this estimate: listed on the estimate itself, plus
+  // any customer invoice whose LinkedTxn points back at it (belt and braces
+  // in case one side of the link lags).
+  const linkedIds = (estimate.LinkedTxn ?? []).filter((t) => t.TxnType === 'Invoice').map((t) => t.TxnId);
+  const invoicesById = new Map();
+  let payments = [];
+  if (customerId) {
+    const [customerInvoices, allPayments] = await Promise.all([
+      qbGetInvoicesForCustomer(customerId),
+      qbGetPaymentsForCustomer(customerId),
+    ]);
+    for (const inv of customerInvoices) {
+      const fromEstimate = (inv.LinkedTxn ?? []).some((t) => t.TxnType === 'Estimate' && t.TxnId === estimate.Id);
+      if (fromEstimate || linkedIds.includes(inv.Id)) invoicesById.set(inv.Id, inv);
+    }
+    payments = allPayments;
+  }
+  for (const id of linkedIds) {
+    if (!invoicesById.has(id)) invoicesById.set(id, await qbGetInvoice(id));
+  }
+  // Voided invoices come back with a zero total; they aren't a billing stage.
+  const invoices = [...invoicesById.values()]
+    .filter((inv) => inv && (Number(inv.TotalAmt) || 0) > 0)
+    .sort((a, b) => String(a.TxnDate ?? '').localeCompare(String(b.TxnDate ?? '')) || Number(a.Id) - Number(b.Id));
+
+  const { data: dealRows, error: dealRowsErr } = await supabase
+    .from('payment_schedule').select('*').eq('hubspot_deal_id', hubspot_deal_id);
+  if (dealRowsErr) throw dealRowsErr;
+  const rows = (dealRows ?? [])
+    .filter((r) => (r.room ?? null) === (room ?? null))
+    .sort((a, b) => STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage));
+  if (rows.length === 0) throw new Error('No payment schedule rows found for that deal/room.');
+  const groupCount = new Set((dealRows ?? []).map((r) => r.room ?? '')).size;
+
+  const { data: lead } = await supabase.from('leads').select('fields').eq('hubspot_deal_id', hubspot_deal_id).maybeSingle();
+  const quote = Number(lead?.fields?.quote_amount) || 0;
+  const quoteGoverns = groupCount === 1 && quote > 0;
+  const contractTotal = quoteGoverns ? quote : estimateTotal;
+
+  const { data: settingsRows } = await supabase
+    .from('admin_settings').select('value').eq('key', 'payment_schedule_defaults').limit(1);
+  const defaults = { ...DEFAULT_SCHEDULE_SETTINGS, ...(settingsRows?.[0]?.value ?? {}) };
+  const pctByStage = {
+    initial_deposit: Number(defaults.initialDepositPct) || 0,
+    production_payment: Number(defaults.productionPaymentPct) || 0,
+    final_payment: Number(defaults.finalPaymentPct) || 0,
+  };
+
+  const warnings = [];
+  if (quoteGoverns && Math.abs(estimateTotal - quote) > 0.01) {
+    warnings.push(`The QuickBooks estimate total (${money(estimateTotal)}) doesn't match this lead's Quote Amount (${money(quote)}). Update whichever is out of date. Planned amounts use the Quote Amount.`);
+  }
+  if (invoices.length > rows.length) {
+    warnings.push(`${invoices.length} invoices exist for this estimate but there are only ${rows.length} payment stages here. The extra ${invoices.length - rows.length} aren't tracked.`);
+  }
+
+  // Payments applied to ONE invoice; paid_date is when it became fully covered.
+  const appliedTo = (invoiceId) => payments
+    .map((p) => ({
+      date: p.TxnDate,
+      amount: (p.Line ?? [])
+        .filter((line) => (line.LinkedTxn ?? []).some((lt) => lt.TxnId === invoiceId && lt.TxnType === 'Invoice'))
+        .reduce((sum, l) => sum + (Number(l.Amount) || 0), 0),
+    }))
+    .filter((p) => p.amount > 0)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const invoicedFor = rows.map((_, i) => invoices[i] ?? null);
+  const invoicedSum = invoicedFor.reduce((sum, inv) => sum + (inv ? Number(inv.TotalAmt) : 0), 0);
+
+  // Planned amounts for stages that don't have an invoice yet.
+  const openIdx = invoicedFor.map((inv, i) => (inv ? -1 : i)).filter((i) => i !== -1);
+  const remaining = Math.round((contractTotal - invoicedSum) * 100) / 100;
+  const planned = new Map();
+  if (openIdx.length > 0) {
+    const pool = Math.max(0, remaining);
+    const weights = openIdx.map((i) => pctByStage[rows[i].stage] || 0);
+    const weightSum = weights.reduce((a, b) => a + b, 0);
+    let given = 0;
+    openIdx.forEach((rowIdx, k) => {
+      const isLast = k === openIdx.length - 1;
+      const share = weightSum > 0 ? weights[k] / weightSum : 1 / openIdx.length;
+      const amt = isLast ? Math.round((pool - given) * 100) / 100 : Math.round(pool * share * 100) / 100;
+      given += amt;
+      planned.set(rowIdx, amt);
+    });
+    if (remaining < -0.01) warnings.push(`Invoices already total more (${money(invoicedSum)}) than the contract total (${money(contractTotal)}).`);
+  } else if (Math.abs(invoicedSum - contractTotal) > 0.05) {
+    warnings.push(`All stages are invoiced (${money(invoicedSum)}) but the contract total is ${money(contractTotal)}.`);
+  }
+
+  invoicedFor.forEach((inv, i) => {
+    if (!inv || estimateTotal <= 0) return;
+    const pct = (Number(inv.TotalAmt) / estimateTotal) * 100;
+    const expected = pctByStage[rows[i].stage];
+    if (expected && Math.abs(pct - expected) > 2) {
+      warnings.push(`Invoice #${inv.DocNumber ?? inv.Id} is ${Math.round(pct * 10) / 10}% of the estimate; ${STAGE_LABELS[rows[i].stage]} is normally ${expected}%.`);
+    }
+  });
+
+  const syncedAt = new Date().toISOString();
+  const updates = rows.map((r, i) => {
+    const inv = invoicedFor[i];
+    const base = {
+      qb_estimate_id: estimate.Id,
+      qb_estimate_number: estimate.DocNumber ?? null,
+      qb_estimate_total: estimateTotal,
+      qb_synced_at: syncedAt,
+    };
+    if (!inv) {
+      // Not invoiced yet: planned amount. Only wipe dates if this row used to
+      // carry an invoice that has since been deleted or voided in QuickBooks.
+      return {
+        id: r.id,
+        patch: {
+          ...base,
+          amount: planned.get(i) ?? 0,
+          ...(r.qb_invoice_id ? { invoice_date: null, paid_date: null } : {}),
+          qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_paid_amount: null,
+        },
+      };
+    }
+    const total = Number(inv.TotalAmt) || 0;
+    let running = 0;
+    let paidDate = null;
+    for (const p of appliedTo(inv.Id)) {
+      running += p.amount;
+      if (paidDate === null && running >= total - 0.01) paidDate = p.date;
+    }
+    return {
+      id: r.id,
+      patch: {
+        ...base,
+        amount: total,
+        invoice_date: inv.TxnDate ?? null,
+        paid_date: paidDate,
+        qb_paid_amount: Math.round(Math.min(total, running) * 100) / 100,
+        qb_invoice_id: inv.Id,
+        qb_invoice_number: inv.DocNumber ?? null,
+        qb_total: total,
+        qb_balance: Number(inv.Balance) || 0,
+      },
+    };
+  });
+
+  const results = await Promise.all(
+    updates.map(({ id, patch }) => supabase.from('payment_schedule').update(patch).eq('id', id).select().single())
+  );
+  const failed = results.find((r) => r.error);
+  if (failed) throw failed.error;
+  return { rows: results.map((r) => r.data), warnings };
+}
+
 function dealDisplayName(lead) {
   const f = lead.fields ?? {};
   const contactName = [f.firstName, f.lastName].filter(Boolean).join(' ');
@@ -442,10 +618,10 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
     const groups = new Map();
     for (const rowsForDeal of Object.values(rowsByDeal)) {
       for (const row of rowsForDeal) {
-        if (!row.qb_invoice_id) continue;
+        if (!row.qb_invoice_id && !row.qb_estimate_id) continue;
         const key = `${row.hubspot_deal_id} ${row.room ?? ''}`;
         if (!groups.has(key)) {
-          groups.set(key, { hubspot_deal_id: row.hubspot_deal_id, room: row.room ?? null, qb_invoice_id: row.qb_invoice_id, qb_synced_at: row.qb_synced_at });
+          groups.set(key, { hubspot_deal_id: row.hubspot_deal_id, room: row.room ?? null, qb_invoice_id: row.qb_invoice_id, qb_estimate_id: row.qb_estimate_id ?? null, qb_synced_at: row.qb_synced_at });
         }
       }
     }
@@ -453,7 +629,9 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
     const now = Date.now();
     const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > STALE_MS);
     if (toSync.length > 0) {
-      const results = await Promise.allSettled(toSync.map((g) => syncRoomGroupFromQbo(supabase, g)));
+      const results = await Promise.allSettled(toSync.map((g) => (g.qb_estimate_id
+        ? syncRoomGroupFromEstimate(supabase, g).then((r) => r.rows)
+        : syncRoomGroupFromQbo(supabase, g))));
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') {
           for (const updatedRow of r.value) {
@@ -491,6 +669,9 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
       qb_balance: row.qb_balance != null ? Number(row.qb_balance) : null,
       qb_paid_amount: row.qb_paid_amount != null ? Number(row.qb_paid_amount) : null,
       qb_synced_at: row.qb_synced_at ?? null,
+      qb_estimate_id: row.qb_estimate_id ?? null,
+      qb_estimate_number: row.qb_estimate_number ?? null,
+      qb_estimate_total: row.qb_estimate_total != null ? Number(row.qb_estimate_total) : null,
     }));
     const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
     // Credit qb_paid_amount (the real, waterfall-allocated received portion)
@@ -575,61 +756,77 @@ export default async function handler(req, res) {
   // super admin), since this is Brianna's day-to-day bookkeeping task, not an
   // account-level connection change. One invoice per deal/room group; see
   // scopeToRoomGroup above. ──────────────────────────────────────────────────
-  // ── TEMPORARY, read-only: shows how a QuickBooks Estimate and its progressive
-  // invoices link together in the API, so the Estimate-linked payment schedule
-  // can be built against real data. Super admin only. Returns structure and
-  // amounts only (no customer name, address, email, or line descriptions).
-  // Remove once the Estimate linking ships. ──────────────────────────────────
-  if (req.method === 'GET' && action === 'qb-inspect') {
-    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
-    const clean = (v) => String(v ?? '').trim();
-    const estimateNo = clean(req.query?.estimate);
-    const invoiceNo = clean(req.query?.invoice);
-    const okDoc = (v) => /^[A-Za-z0-9-]{1,20}$/.test(v);
-    if ((!estimateNo && !invoiceNo) || (estimateNo && !okDoc(estimateNo)) || (invoiceNo && !okDoc(invoiceNo))) {
-      return res.status(400).json({ error: 'Provide ?estimate= and/or ?invoice= (letters, digits, dashes only)' });
-    }
-    const shapeLines = (lines) => (lines ?? []).map((l) => ({
-      detailType: l.DetailType ?? null,
-      amount: l.Amount ?? null,
-      hasDescription: !!l.Description,
-      linkedTxn: l.LinkedTxn ?? undefined,
-    }));
-    const shapeInvoice = async (inv) => {
-      const payments = [];
-      if (inv.CustomerRef?.value) {
-        for (const p of await qbGetPaymentsForCustomer(inv.CustomerRef.value)) {
-          const applied = (p.Line ?? [])
-            .filter((l) => (l.LinkedTxn ?? []).some((lt) => lt.TxnId === inv.Id && lt.TxnType === 'Invoice'))
-            .reduce((sum, l) => sum + (Number(l.Amount) || 0), 0);
-          if (applied > 0) payments.push({ date: p.TxnDate ?? null, appliedToThisInvoice: applied });
-        }
-      }
-      return {
-        id: inv.Id, docNumber: inv.DocNumber ?? null, txnDate: inv.TxnDate ?? null, dueDate: inv.DueDate ?? null,
-        totalAmt: inv.TotalAmt ?? null, balance: inv.Balance ?? null,
-        linkedTxn: inv.LinkedTxn ?? [], lines: shapeLines(inv.Line), payments,
-      };
-    };
+  // ── QuickBooks ESTIMATE linking (progressive invoicing) — open to every
+  // Financial-view role like invoice linking. The estimate is the contract;
+  // each invoice created from it becomes one payment stage. See
+  // syncRoomGroupFromEstimate. ───────────────────────────────────────────────
+  if (req.method === 'GET' && action === 'qb-search-estimates') {
+    const q = (req.query?.q ?? '').trim();
+    if (!q) return res.status(400).json({ error: 'Missing search query' });
     try {
-      const out = {};
-      if (estimateNo) {
-        const ests = await qbQuery(`SELECT * FROM Estimate WHERE DocNumber = '${qbEscape(estimateNo)}'`, 'Estimate');
-        out.estimates = await Promise.all(ests.map(async (e) => {
-          const linkedInvoiceIds = (e.LinkedTxn ?? []).filter((t) => t.TxnType === 'Invoice').map((t) => t.TxnId);
-          const linked = await Promise.all(linkedInvoiceIds.map((id) => qbGetInvoice(id).then(shapeInvoice)));
-          return {
-            id: e.Id, docNumber: e.DocNumber ?? null, txnDate: e.TxnDate ?? null, txnStatus: e.TxnStatus ?? null,
-            totalAmt: e.TotalAmt ?? null, linkedTxn: e.LinkedTxn ?? [], lines: shapeLines(e.Line),
-            invoicesLinkedToEstimate: linked,
-          };
+      const esc = qbEscape(q);
+      const [byDocNumber, matchingCustomers] = await Promise.all([
+        qbQuery(`SELECT * FROM Estimate WHERE DocNumber LIKE '%${esc}%' ORDERBY TxnDate DESC MAXRESULTS 20`, 'Estimate'),
+        qbQuery(`SELECT * FROM Customer WHERE DisplayName LIKE '%${esc}%' MAXRESULTS 10`, 'Customer'),
+      ]);
+      let byCustomer = [];
+      if (matchingCustomers.length > 0) {
+        const perCustomer = await Promise.all(
+          matchingCustomers.map((c) =>
+            qbQuery(`SELECT * FROM Estimate WHERE CustomerRef = '${c.Id}' ORDERBY TxnDate DESC MAXRESULTS 20`, 'Estimate')
+          )
+        );
+        byCustomer = perCustomer.flat();
+      }
+      const merged = new Map();
+      for (const est of [...byDocNumber, ...byCustomer]) merged.set(est.Id, est);
+      const estimates = [...merged.values()]
+        .sort((a, b) => new Date(b.TxnDate || 0) - new Date(a.TxnDate || 0))
+        .slice(0, 25)
+        .map((est) => ({
+          id: est.Id,
+          docNumber: est.DocNumber ?? null,
+          customerName: est.CustomerRef?.name ?? null,
+          txnDate: est.TxnDate ?? null,
+          totalAmt: est.TotalAmt ?? 0,
+          status: est.TxnStatus ?? null,
         }));
+      return res.status(200).json({ estimates });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (req.method === 'POST' && action === 'link-estimate') {
+    const { hubspot_deal_id, room, qb_estimate_id } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    if (!qb_estimate_id) return res.status(400).json({ error: 'Missing qb_estimate_id' });
+    try {
+      const { data: groupRows, error: groupErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('id, amount, invoice_date, paid_date, qb_invoice_id, qb_estimate_id').eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      );
+      if (groupErr) throw groupErr;
+      if (!groupRows?.length) return res.status(400).json({ error: 'No payment schedule rows found for that deal/room.' });
+      if (groupRows.some((r) => r.qb_invoice_id && !r.qb_estimate_id)) {
+        return res.status(400).json({ error: 'This section is linked to a single QuickBooks invoice. Unlink it first, then link the estimate.' });
       }
-      if (invoiceNo) {
-        const invs = await qbQuery(`SELECT * FROM Invoice WHERE DocNumber = '${qbEscape(invoiceNo)}'`, 'Invoice');
-        out.invoices = await Promise.all(invs.map(shapeInvoice));
-      }
-      return res.status(200).json(out);
+
+      // Same safety net as link-invoice: remember what was typed in by hand so
+      // Unlink can put it back. Rows already linked to an estimate keep their
+      // original snapshot (re-linking to a different estimate).
+      const stampResults = await Promise.all(groupRows.map((r) =>
+        supabase.from('payment_schedule').update(
+          r.qb_estimate_id
+            ? { qb_estimate_id }
+            : { pre_qb_amount: r.amount, pre_qb_invoice_date: r.invoice_date, pre_qb_paid_date: r.paid_date, qb_estimate_id },
+        ).eq('id', r.id)
+      ));
+      const stampErr = stampResults.find((r) => r.error)?.error;
+      if (stampErr) throw stampErr;
+
+      const { rows, warnings } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id });
+      return res.status(200).json({ rows, warnings });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -677,6 +874,15 @@ export default async function handler(req, res) {
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     if (!qb_invoice_id) return res.status(400).json({ error: 'Missing qb_invoice_id' });
     try {
+      const { data: guardRows, error: guardErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('qb_estimate_id').eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      );
+      if (guardErr) throw guardErr;
+      if ((guardRows ?? []).some((r) => r.qb_estimate_id)) {
+        return res.status(400).json({ error: 'This section is linked to a QuickBooks estimate. Unlink it first to link a single invoice instead.' });
+      }
+
       // Snapshot each row's current amount/invoice_date/paid_date into
       // pre_qb_* columns BEFORE the sync below overwrites them, so
       // unlink-invoice can restore exactly what was there rather than
@@ -727,6 +933,7 @@ export default async function handler(req, res) {
       const restored = await Promise.all((rowsToRestore ?? []).map(async (r) => {
         const { data, error } = await supabase.from('payment_schedule').update({
           qb_invoice_id: null, qb_invoice_number: null, qb_total: null, qb_balance: null, qb_synced_at: null,
+          qb_paid_amount: null, qb_estimate_id: null, qb_estimate_number: null, qb_estimate_total: null,
           amount: r.pre_qb_amount ?? 0,
           invoice_date: r.pre_qb_invoice_date ?? null,
           paid_date: r.pre_qb_paid_date ?? null,
@@ -745,14 +952,22 @@ export default async function handler(req, res) {
     const { hubspot_deal_id, room } = req.body ?? {};
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     try {
-      const { data: existing, error: lookupErr } = await scopeToRoomGroup(
-        supabase.from('payment_schedule').select('qb_invoice_id').eq('hubspot_deal_id', hubspot_deal_id).not('qb_invoice_id', 'is', null).limit(1),
+      const { data: groupRows, error: lookupErr } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('qb_invoice_id, qb_estimate_id').eq('hubspot_deal_id', hubspot_deal_id),
         room,
-      ).maybeSingle();
+      );
       if (lookupErr) throw lookupErr;
-      if (!existing?.qb_invoice_id) return res.status(400).json({ error: 'No linked invoice to refresh' });
 
-      const rows = await syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id: existing.qb_invoice_id });
+      // Estimate-linked section: re-pull the estimate and all its invoices.
+      const estimateId = (groupRows ?? []).find((r) => r.qb_estimate_id)?.qb_estimate_id;
+      if (estimateId) {
+        const { rows, warnings } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id: estimateId });
+        return res.status(200).json({ rows, warnings });
+      }
+
+      const invoiceId = (groupRows ?? []).find((r) => r.qb_invoice_id)?.qb_invoice_id;
+      if (!invoiceId) return res.status(400).json({ error: 'No linked invoice to refresh' });
+      const rows = await syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id: invoiceId });
       return res.status(200).json({ rows });
     } catch (err) {
       return res.status(500).json({ error: err.message });

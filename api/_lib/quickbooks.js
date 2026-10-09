@@ -296,6 +296,25 @@ export async function qbGetInvoice(id) {
   return data?.Invoice ?? null;
 }
 
+/** Fetch a single Estimate by its QBO id. Throws on failure (including "not found"). */
+export async function qbGetEstimate(id) {
+  const res = await qbFetch(`/estimate/${id}?minorversion=65`);
+  if (!res.ok) {
+    throw new Error(`QuickBooks estimate lookup ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json();
+  return data?.Estimate ?? null;
+}
+
+/**
+ * Every Invoice for a customer. QBO can't filter invoices by what they were
+ * created from (LinkedTxn), so callers fetch the customer's invoices and keep
+ * the ones whose LinkedTxn points at a given Estimate.
+ */
+export async function qbGetInvoicesForCustomer(customerId) {
+  return qbQuery(`SELECT * FROM Invoice WHERE CustomerRef = '${customerId}' ORDERBY TxnDate ASC MAXRESULTS 200`, 'Invoice');
+}
+
 /**
  * Every Payment recorded against a given customer. QBO's query language
  * can't filter by a Payment's nested Line[].LinkedTxn[] (which is how a

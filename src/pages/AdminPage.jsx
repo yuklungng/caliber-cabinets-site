@@ -6784,43 +6784,62 @@ function AddRoomSplitForm({ dealId, onAdded, isMobile }) {
   );
 }
 
-// One QuickBooks invoice per deal/room group (Brianna's model — the 3 stages
-// are partial payments against a single invoice, not 3 separate invoices), so
-// this renders once per room section and links/unlinks/refreshes all 3 stage
-// rows in that group at once via the group-scoped backend actions.
-function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
-  const linked = rows[0]?.qb_invoice_id;
+// Links a deal/room section to QuickBooks. Two ways:
+//  - Estimate (progressive invoicing): the estimate is the contract and each
+//    invoice created from it (50/45/5) becomes one stage, with its own paid status.
+//  - Single invoice (legacy): one invoice whose payments are spread across the
+//    3 stages. Kept for jobs that were already linked this way.
+// Both link/unlink/refresh all stage rows in the section at once via the
+// group-scoped backend actions.
+function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, singleSection }) {
+  const estimateRow = rows.find((r) => r.qb_estimate_id);
+  const linked = !estimateRow && rows[0]?.qb_invoice_id;
   const [searching, setSearching] = useState(false);
+  const [mode, setMode] = useState('estimate'); // 'estimate' | 'invoice'
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  function startSearch(nextMode) {
+    setMode(nextMode);
+    setResults(null);
+    setQuery('');
+    setSearching(true);
+  }
+
+  function showWarnings(lead, warnings) {
+    if (warnings?.length) alert(`${lead}\n\nPlease check:\n• ${warnings.join('\n• ')}`);
+  }
 
   async function runSearch() {
     if (!query.trim()) return;
     setBusy(true);
     try {
-      const r = await apiCall(`/api/admin-cashflow?action=qb-search-invoices&q=${encodeURIComponent(query.trim())}`);
+      const action = mode === 'estimate' ? 'qb-search-estimates' : 'qb-search-invoices';
+      const r = await apiCall(`/api/admin-cashflow?action=${action}&q=${encodeURIComponent(query.trim())}`);
       if (!r.ok) { alert('QuickBooks search failed — please try again.'); return; }
-      const { invoices } = await r.json();
-      setResults(invoices);
+      const data = await r.json();
+      setResults(mode === 'estimate' ? data.estimates : data.invoices);
     } finally {
       setBusy(false);
     }
   }
 
-  async function pick(invoiceId) {
+  async function pick(id) {
     setBusy(true);
     try {
-      const r = await apiCall('/api/admin-cashflow?action=link-invoice', {
+      const isEstimate = mode === 'estimate';
+      const r = await apiCall(`/api/admin-cashflow?action=${isEstimate ? 'link-estimate' : 'link-invoice'}`, {
         method: 'POST',
-        body: { hubspot_deal_id: dealId, room: room || null, qb_invoice_id: invoiceId },
+        body: { hubspot_deal_id: dealId, room: room || null, ...(isEstimate ? { qb_estimate_id: id } : { qb_invoice_id: id }) },
       });
-      if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? 'Failed to link invoice.'); return; }
-      const { rows: updated } = await r.json();
+      if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? `Failed to link ${isEstimate ? 'estimate' : 'invoice'}.`); return; }
+      const { rows: updated, warnings } = await r.json();
       onSynced(dealId, updated);
       setSearching(false);
       setQuery('');
       setResults(null);
+      showWarnings('Estimate linked.', warnings);
     } finally {
       setBusy(false);
     }
@@ -6834,15 +6853,17 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
         body: { hubspot_deal_id: dealId, room: room || null },
       });
       if (!r.ok) { alert('Failed to refresh from QuickBooks.'); return; }
-      const { rows: updated } = await r.json();
+      const { rows: updated, warnings } = await r.json();
       onSynced(dealId, updated);
+      showWarnings('Refreshed from QuickBooks.', warnings);
     } finally {
       setBusy(false);
     }
   }
 
   async function unlink() {
-    if (!window.confirm('Unlink this QuickBooks invoice? (This only removes the reference here — nothing changes in QuickBooks.)')) return;
+    const what = estimateRow ? 'estimate' : 'invoice';
+    if (!window.confirm(`Unlink this QuickBooks ${what}? (This only removes the reference here — nothing changes in QuickBooks. Amounts and dates go back to what they were before linking.)`)) return;
     setBusy(true);
     try {
       const r = await apiCall('/api/admin-cashflow?action=unlink-invoice', {
@@ -6857,32 +6878,68 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
     }
   }
 
+  const badgeStyle = { fontWeight: '700', color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '5px', padding: '3px 8px' };
+  const iconBtn = { border: 'none', background: 'none', cursor: busy ? 'wait' : 'pointer', fontSize: '13px', padding: 0 };
+  const unlinkBtn = { border: 'none', background: 'none', color: '#b91c1c', cursor: busy ? 'wait' : 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' };
+
+  if (estimateRow) {
+    const invoicedRows = rows.filter((r) => r.qb_invoice_id);
+    const invoicedTotal = invoicedRows.reduce((sum, r) => sum + (Number(r.qb_total) || 0), 0);
+    const openBalance = invoicedRows.reduce((sum, r) => sum + (Number(r.qb_balance) || 0), 0);
+    const mismatch = singleSection && contractAmount > 0 && estimateRow.qb_estimate_total != null
+      && Math.abs(estimateRow.qb_estimate_total - contractAmount) > 0.01;
+    return (
+      <div style={{ display: 'grid', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+          <span style={badgeStyle}>QB Estimate #{estimateRow.qb_estimate_number ?? estimateRow.qb_estimate_id}</span>
+          <span style={{ color: '#374151' }}>
+            Contract {formatMoney(estimateRow.qb_estimate_total)} · Invoiced {formatMoney(invoicedTotal)} ({invoicedRows.length} of {rows.length}) · Open balance {formatMoney(openBalance)}
+          </span>
+          <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={iconBtn}>🔄</button>
+          <button onClick={unlink} disabled={busy} style={unlinkBtn}>Unlink</button>
+        </div>
+        {mismatch && (
+          <p style={{ margin: 0, fontSize: '11px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', padding: '4px 8px' }}>
+            ⚠ The QuickBooks estimate ({formatMoney(estimateRow.qb_estimate_total)}) doesn't match this lead's Quote Amount ({formatMoney(contractAmount)}). Update whichever is out of date, then refresh.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   if (linked) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
-        <span style={{ fontWeight: '700', color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '5px', padding: '3px 8px' }}>
+        <span style={badgeStyle}>
           QB #{rows[0].qb_invoice_number ?? rows[0].qb_invoice_id}
         </span>
         <span style={{ color: '#374151' }}>Total {formatMoney(rows[0].qb_total)} · Balance {formatMoney(rows[0].qb_balance)}</span>
-        <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={{ border: 'none', background: 'none', cursor: busy ? 'wait' : 'pointer', fontSize: '13px', padding: 0 }}>🔄</button>
-        <button onClick={unlink} disabled={busy} style={{ border: 'none', background: 'none', color: '#b91c1c', cursor: busy ? 'wait' : 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Unlink</button>
+        <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={iconBtn}>🔄</button>
+        <button onClick={unlink} disabled={busy} style={unlinkBtn}>Unlink</button>
       </div>
     );
   }
 
   if (!searching) {
+    const dashed = { border: '1px dashed #d1d5db', background: 'none', color: '#78350f', cursor: 'pointer', fontSize: '12px', padding: '3px 8px', borderRadius: '5px' };
     return (
-      <button onClick={() => setSearching(true)} style={{ border: '1px dashed #d1d5db', background: 'none', color: '#78350f', cursor: 'pointer', fontSize: '12px', padding: '3px 8px', borderRadius: '5px' }}>
-        + Link QuickBooks Invoice
-      </button>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button onClick={() => startSearch('estimate')} style={dashed} title="Progressive invoicing: the estimate is the contract and each invoice created from it is one stage">
+          + Link QuickBooks Estimate
+        </button>
+        <button onClick={() => startSearch('invoice')} style={dashed} title="One QuickBooks invoice covering all three stages">
+          + Link single Invoice
+        </button>
+      </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '420px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '460px' }}>
       <div style={{ display: 'flex', gap: '6px' }}>
         <input
-          placeholder="Customer name or invoice #"
+          autoFocus
+          placeholder={mode === 'estimate' ? 'Customer name or estimate #' : 'Customer name or invoice #'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
@@ -6897,17 +6954,19 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
       </div>
       {results && (
         results.length === 0 ? (
-          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>No matching invoices in QuickBooks.</p>
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>No matching {mode === 'estimate' ? 'estimates' : 'invoices'} in QuickBooks.</p>
         ) : (
           <div style={{ display: 'grid', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
-            {results.map((inv) => (
+            {results.map((item) => (
               <button
-                key={inv.id}
-                onClick={() => pick(inv.id)}
+                key={item.id}
+                onClick={() => pick(item.id)}
                 disabled={busy}
                 style={{ textAlign: 'left', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: '5px', background: '#f9fafb', cursor: busy ? 'wait' : 'pointer', fontSize: '12px' }}
               >
-                <strong>#{inv.docNumber ?? inv.id}</strong> — {inv.customerName ?? 'Unknown customer'} — {formatMoney(inv.totalAmt)} (bal {formatMoney(inv.balance)}){inv.txnDate ? ` · ${inv.txnDate}` : ''}
+                <strong>#{item.docNumber ?? item.id}</strong> — {item.customerName ?? 'Unknown customer'} — {formatMoney(item.totalAmt)}
+                {mode === 'estimate' ? (item.status ? ` · ${item.status}` : '') : ` (bal ${formatMoney(item.balance)})`}
+                {item.txnDate ? ` · ${item.txnDate}` : ''}
               </button>
             ))}
           </div>
@@ -6915,6 +6974,14 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced }) {
       )}
     </div>
   );
+}
+
+// Small caption under a stage name when its section is linked to an estimate.
+function stageEstimateHint(s) {
+  if (!s.qb_estimate_id) return null;
+  if (!s.qb_invoice_id) return 'Planned · not invoiced yet';
+  const pct = s.qb_estimate_total > 0 && s.qb_total != null ? Math.round((s.qb_total / s.qb_estimate_total) * 1000) / 10 : null;
+  return `Inv #${s.qb_invoice_number ?? s.qb_invoice_id}${pct != null ? ` · ${pct}% of estimate` : ''}`;
 }
 
 function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced }) {
@@ -6969,7 +7036,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
               </div>
             )}
             <div style={{ marginTop: showRoomLabels ? '6px' : 0, marginBottom: '8px' }}>
-              <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} />
+              <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
             </div>
             <div style={{ display: 'grid', gap: '10px' }}>
               {rows.map((s) => {
@@ -6977,7 +7044,10 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                 return (
                   <div key={s.id} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                      <span style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                        {stageEstimateHint(s) && <span style={{ fontSize: '10.5px', color: '#6b7280' }}>{stageEstimateHint(s)}</span>}
+                      </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
                         <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '13px', lineHeight: 1 }}>🗑️</span>
@@ -7033,14 +7103,17 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
             </div>
           )}
           <div style={{ marginBottom: '8px' }}>
-            <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} />
+            <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: SCHEDULE_GRID_COLS, gap: '10px', alignItems: 'center' }}>
             {rows.map((s) => {
               const status = stagePaymentStatus(s);
               return (
                 <Fragment key={s.id}>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                  <span style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
+                    {stageEstimateHint(s) && <span style={{ fontSize: '10.5px', color: '#6b7280' }}>{stageEstimateHint(s)}</span>}
+                  </span>
                   <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} locked={!!s.qb_invoice_id} />
                   <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
                   <StageDateInput value={s.invoice_date} onSave={(v) => saveField(s.id, { invoice_date: v })} accent="#b45309" locked={!!s.qb_invoice_id} />
@@ -7078,6 +7151,8 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
 //    making every future stage look overdue the moment the first one is
 //    billed. est_date is what actually represents Caliber's 50/45/5 payment
 //    schedule for a linked deal.
+//  - Estimate-linked (progressive invoicing) → each stage has its OWN invoice,
+//    so invoice_date is a real billing event and follows the manual rule.
 // Paid stages never appear here; there's nothing left to act on.
 function parseLocalDateAM(dateStr) {
   if (!dateStr) return null;
@@ -7115,7 +7190,7 @@ function computeActionItems(deals) {
               : `Invoice due in ${days} day${days !== 1 ? 's' : ''}`,
           sortDate: est,
         });
-      } else if (stage.qb_invoice_id) {
+      } else if (stage.qb_invoice_id && !stage.qb_estimate_id) {
         const est = parseLocalDateAM(stage.est_date);
         if (!est) continue;
         const days = Math.round((est - today) / 86400000);
@@ -7341,6 +7416,9 @@ function FinancialView() {
           qb_balance: u.qb_balance != null ? Number(u.qb_balance) : null,
           qb_paid_amount: u.qb_paid_amount != null ? Number(u.qb_paid_amount) : null,
           qb_synced_at: u.qb_synced_at ?? null,
+          qb_estimate_id: u.qb_estimate_id ?? null,
+          qb_estimate_number: u.qb_estimate_number ?? null,
+          qb_estimate_total: u.qb_estimate_total != null ? Number(u.qb_estimate_total) : null,
         };
       });
       const { invoiced, received } = computeInvoicedReceived(stages);

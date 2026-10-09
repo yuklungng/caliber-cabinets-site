@@ -6662,6 +6662,40 @@ function StageAmountInput({ value, onSave, locked = false }) {
   );
 }
 
+// Free-text reminder on a payment stage (e.g. "Zelle expected 10/15 for $5,000").
+// Unlike amount/dates, this stays editable on QuickBooks-linked rows because QBO
+// doesn't own it.
+function StageNoteInput({ value, onSave }) {
+  const [local, setLocal] = useState(value ?? '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setLocal(value ?? ''); }, [value]);
+
+  async function commit() {
+    if (local.trim() === (value ?? '').trim()) return;
+    setSaving(true);
+    try { await onSave(local.trim()); } finally { setSaving(false); }
+  }
+
+  return (
+    <input
+      type="text"
+      value={local}
+      disabled={saving}
+      maxLength={500}
+      placeholder="Add a note (e.g. Zelle expected 10/15)"
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      title="Notes stay in CC Live only (not sent to QuickBooks or HubSpot)"
+      style={{
+        width: '100%', padding: '5px 8px', border: '1px solid #e5e7eb', borderRadius: '5px', boxSizing: 'border-box',
+        fontSize: '12px', color: '#374151', outline: 'none',
+        background: local ? '#fffbeb' : (saving ? '#f9fafb' : '#fff'),
+      }}
+    />
+  );
+}
+
 function stagePaymentStatus(stage) {
   if (stage.paid_date) return { label: 'Paid', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' };
   // A stage can be partly covered by an overpayment on an earlier stage
@@ -6967,6 +7001,9 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                         <StageDateInput value={s.paid_date} onSave={(v) => saveField(s.id, { paid_date: v })} accent="#15803d" locked={!!s.qb_invoice_id} />
                       </div>
                     </div>
+                    <div style={{ marginTop: '8px' }}>
+                      <StageNoteInput value={s.note} onSave={(v) => saveField(s.id, { note: v })} />
+                    </div>
                   </div>
                 );
               })}
@@ -7012,6 +7049,9 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                     <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}`, whiteSpace: 'nowrap' }}>{status.label}</span>
                     <span onClick={() => handleDelete(s.id)} title="Delete this row" style={{ cursor: 'pointer', fontSize: '14px', lineHeight: 1, flexShrink: 0 }}>🗑️</span>
                   </span>
+                  <div style={{ gridColumn: '1 / -1', marginTop: '-4px', marginBottom: '4px' }}>
+                    <StageNoteInput value={s.note} onSave={(v) => saveField(s.id, { note: v })} />
+                  </div>
                 </Fragment>
               );
             })}
@@ -7245,6 +7285,7 @@ function FinancialView() {
         paid_date: updatedRow.paid_date,
         room: updatedRow.room ?? s.room,
         label: updatedRow.label ?? s.label,
+        note: updatedRow.note ?? '',
       } : s));
       const { invoiced, received } = computeInvoicedReceived(stages);
       return { ...d, stages, invoiced, received, balance: d.contract_amount - received };

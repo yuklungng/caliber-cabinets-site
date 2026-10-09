@@ -575,6 +575,66 @@ export default async function handler(req, res) {
   // super admin), since this is Brianna's day-to-day bookkeeping task, not an
   // account-level connection change. One invoice per deal/room group; see
   // scopeToRoomGroup above. ──────────────────────────────────────────────────
+  // ── TEMPORARY, read-only: shows how a QuickBooks Estimate and its progressive
+  // invoices link together in the API, so the Estimate-linked payment schedule
+  // can be built against real data. Super admin only. Returns structure and
+  // amounts only (no customer name, address, email, or line descriptions).
+  // Remove once the Estimate linking ships. ──────────────────────────────────
+  if (req.method === 'GET' && action === 'qb-inspect') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    const clean = (v) => String(v ?? '').trim();
+    const estimateNo = clean(req.query?.estimate);
+    const invoiceNo = clean(req.query?.invoice);
+    const okDoc = (v) => /^[A-Za-z0-9-]{1,20}$/.test(v);
+    if ((!estimateNo && !invoiceNo) || (estimateNo && !okDoc(estimateNo)) || (invoiceNo && !okDoc(invoiceNo))) {
+      return res.status(400).json({ error: 'Provide ?estimate= and/or ?invoice= (letters, digits, dashes only)' });
+    }
+    const shapeLines = (lines) => (lines ?? []).map((l) => ({
+      detailType: l.DetailType ?? null,
+      amount: l.Amount ?? null,
+      hasDescription: !!l.Description,
+      linkedTxn: l.LinkedTxn ?? undefined,
+    }));
+    const shapeInvoice = async (inv) => {
+      const payments = [];
+      if (inv.CustomerRef?.value) {
+        for (const p of await qbGetPaymentsForCustomer(inv.CustomerRef.value)) {
+          const applied = (p.Line ?? [])
+            .filter((l) => (l.LinkedTxn ?? []).some((lt) => lt.TxnId === inv.Id && lt.TxnType === 'Invoice'))
+            .reduce((sum, l) => sum + (Number(l.Amount) || 0), 0);
+          if (applied > 0) payments.push({ date: p.TxnDate ?? null, appliedToThisInvoice: applied });
+        }
+      }
+      return {
+        id: inv.Id, docNumber: inv.DocNumber ?? null, txnDate: inv.TxnDate ?? null, dueDate: inv.DueDate ?? null,
+        totalAmt: inv.TotalAmt ?? null, balance: inv.Balance ?? null,
+        linkedTxn: inv.LinkedTxn ?? [], lines: shapeLines(inv.Line), payments,
+      };
+    };
+    try {
+      const out = {};
+      if (estimateNo) {
+        const ests = await qbQuery(`SELECT * FROM Estimate WHERE DocNumber = '${qbEscape(estimateNo)}'`, 'Estimate');
+        out.estimates = await Promise.all(ests.map(async (e) => {
+          const linkedInvoiceIds = (e.LinkedTxn ?? []).filter((t) => t.TxnType === 'Invoice').map((t) => t.TxnId);
+          const linked = await Promise.all(linkedInvoiceIds.map((id) => qbGetInvoice(id).then(shapeInvoice)));
+          return {
+            id: e.Id, docNumber: e.DocNumber ?? null, txnDate: e.TxnDate ?? null, txnStatus: e.TxnStatus ?? null,
+            totalAmt: e.TotalAmt ?? null, linkedTxn: e.LinkedTxn ?? [], lines: shapeLines(e.Line),
+            invoicesLinkedToEstimate: linked,
+          };
+        }));
+      }
+      if (invoiceNo) {
+        const invs = await qbQuery(`SELECT * FROM Invoice WHERE DocNumber = '${qbEscape(invoiceNo)}'`, 'Invoice');
+        out.invoices = await Promise.all(invs.map(shapeInvoice));
+      }
+      return res.status(200).json(out);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   if (req.method === 'GET' && action === 'qb-search-invoices') {
     const q = (req.query?.q ?? '').trim();
     if (!q) return res.status(400).json({ error: 'Missing search query' });

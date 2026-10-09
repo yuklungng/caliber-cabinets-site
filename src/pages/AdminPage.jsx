@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
 import { FileDropZone } from '../components/FileDropZone.jsx';
 import { WinLossInsights } from '../components/WinLossInsights.jsx';
+import { VersionTag } from '../components/VersionTag.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
 import { FAQ_CATEGORIES, DEFAULT_FAQ_CATEGORY, sortFaqs } from '../lib/faqCategories.js';
 
@@ -5120,6 +5121,7 @@ function AuthShell({ children }) {
           <div style={{ padding: '28px 32px' }}>{children}</div>
         </div>
       </div>
+      <VersionTag />
     </div>
   );
 }
@@ -7974,6 +7976,7 @@ export function AdminPage() {
       minHeight: '100vh', background: '#f5f4f0', fontFamily: 'Arial, Helvetica, sans-serif',
       ...(darkMode ? { filter: 'invert(1) hue-rotate(180deg)' } : {}),
     }}>
+      <VersionTag />
       {/* Header */}
       <header style={{ background: '#78350f', padding: '0 16px', display: 'flex', alignItems: 'center', height: '52px', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
         <img

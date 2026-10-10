@@ -6801,6 +6801,7 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState(null); // invoice #s matched by the last link/refresh
 
   function startSearch(nextMode) {
     setMode(nextMode);
@@ -6836,8 +6837,9 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
         body: { hubspot_deal_id: dealId, room: room || null, ...(isEstimate ? { qb_estimate_id: id } : { qb_invoice_id: id }) },
       });
       if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? `Failed to link ${isEstimate ? 'estimate' : 'invoice'}.`); return; }
-      const { rows: updated, warnings } = await r.json();
+      const { rows: updated, warnings, invoiceNumbers } = await r.json();
       onSynced(dealId, updated);
+      setFound(invoiceNumbers ?? null);
       setSearching(false);
       setQuery('');
       setResults(null);
@@ -6854,9 +6856,14 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
         method: 'POST',
         body: { hubspot_deal_id: dealId, room: room || null },
       });
-      if (!r.ok) { alert('Failed to refresh from QuickBooks.'); return; }
-      const { rows: updated, warnings } = await r.json();
+      if (!r.ok) {
+        const err = (await r.json().catch(() => ({}))).error;
+        alert(`Failed to refresh from QuickBooks.${err ? `\n\n${err}` : ''}`);
+        return;
+      }
+      const { rows: updated, warnings, invoiceNumbers } = await r.json();
       onSynced(dealId, updated);
+      setFound(invoiceNumbers ?? null);
       showWarnings('Refreshed from QuickBooks.', warnings);
     } finally {
       setBusy(false);
@@ -6882,6 +6889,7 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
 
   const badgeStyle = { fontWeight: '700', color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '5px', padding: '3px 8px' };
   const iconBtn = { border: 'none', background: 'none', cursor: busy ? 'wait' : 'pointer', fontSize: '13px', padding: 0 };
+  const refreshBtn = { border: '1px solid #99f6e4', background: '#f0fdfa', color: '#0f766e', borderRadius: '5px', cursor: busy ? 'wait' : 'pointer', fontSize: '11px', fontWeight: '700', padding: '3px 8px' };
   const unlinkBtn = { border: 'none', background: 'none', color: '#b91c1c', cursor: busy ? 'wait' : 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' };
 
   if (estimateRow) {
@@ -6897,9 +6905,15 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
           <span style={{ color: '#374151' }}>
             Contract {formatMoney(estimateRow.qb_estimate_total)} · Invoiced {formatMoney(invoicedTotal)} ({invoicedRows.length} of {rows.length}) · Open balance {formatMoney(openBalance)}
           </span>
-          <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={iconBtn}>🔄</button>
+          <button onClick={refresh} disabled={busy} title="Check QuickBooks for new invoices and payments on this estimate" style={refreshBtn}>
+            {busy ? 'Checking…' : '🔄 Refresh from QuickBooks'}
+          </button>
           <button onClick={unlink} disabled={busy} style={unlinkBtn}>Unlink</button>
         </div>
+        <p style={{ margin: 0, fontSize: '11px', color: '#6b7280' }}>
+          {syncedLabel(estimateRow.qb_synced_at)}
+          {found ? ` · QuickBooks invoices found on this estimate: ${found.length === 0 ? 'none yet' : found.map((n) => `#${n}`).join(', ')}` : ''}
+        </p>
         {mismatch && (
           <p style={{ margin: 0, fontSize: '11px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', padding: '4px 8px' }}>
             ⚠ The QuickBooks estimate ({formatMoney(estimateRow.qb_estimate_total)}) doesn't match this lead's Quote Amount ({formatMoney(contractAmount)}). Update whichever is out of date, then refresh.
@@ -6976,6 +6990,16 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
       )}
     </div>
   );
+}
+
+// "Last checked QuickBooks 5 min ago" style label from a qb_synced_at timestamp.
+function syncedLabel(ts) {
+  if (!ts) return 'Not synced from QuickBooks yet';
+  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (mins < 1) return 'Checked QuickBooks just now';
+  if (mins < 60) return `Checked QuickBooks ${mins} min ago`;
+  if (mins < 60 * 24) return `Checked QuickBooks ${Math.round(mins / 60)} h ago`;
+  return `Checked QuickBooks on ${new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
 
 // Small caption under a stage name when its section is linked to an estimate.

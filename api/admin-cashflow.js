@@ -409,7 +409,7 @@ async function syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_e
   );
   const failed = results.find((r) => r.error);
   if (failed) throw failed.error;
-  return { rows: results.map((r) => r.data), warnings };
+  return { rows: results.map((r) => r.data), warnings, invoiceNumbers: invoices.map((inv) => inv.DocNumber ?? inv.Id) };
 }
 
 function dealDisplayName(lead) {
@@ -623,11 +623,13 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
         if (!groups.has(key)) {
           groups.set(key, { hubspot_deal_id: row.hubspot_deal_id, room: row.room ?? null, qb_invoice_id: row.qb_invoice_id, qb_estimate_id: row.qb_estimate_id ?? null, qb_synced_at: row.qb_synced_at });
         }
+        if (row.qb_estimate_id && !row.qb_invoice_id) groups.get(key).awaitingInvoice = true;
       }
     }
     const STALE_MS = 24 * 60 * 60 * 1000; // one auto-sync per group per day
+    const AWAITING_STALE_MS = 15 * 60 * 1000; // estimate sections still waiting on an invoice: every 15 min
     const now = Date.now();
-    const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > STALE_MS);
+    const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > (g.awaitingInvoice ? AWAITING_STALE_MS : STALE_MS));
     if (toSync.length > 0) {
       const results = await Promise.allSettled(toSync.map((g) => (g.qb_estimate_id
         ? syncRoomGroupFromEstimate(supabase, g).then((r) => r.rows)
@@ -825,8 +827,8 @@ export default async function handler(req, res) {
       const stampErr = stampResults.find((r) => r.error)?.error;
       if (stampErr) throw stampErr;
 
-      const { rows, warnings } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id });
-      return res.status(200).json({ rows, warnings });
+      const { rows, warnings, invoiceNumbers } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id });
+      return res.status(200).json({ rows, warnings, invoiceNumbers });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -961,8 +963,8 @@ export default async function handler(req, res) {
       // Estimate-linked section: re-pull the estimate and all its invoices.
       const estimateId = (groupRows ?? []).find((r) => r.qb_estimate_id)?.qb_estimate_id;
       if (estimateId) {
-        const { rows, warnings } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id: estimateId });
-        return res.status(200).json({ rows, warnings });
+        const { rows, warnings, invoiceNumbers } = await syncRoomGroupFromEstimate(supabase, { hubspot_deal_id, room, qb_estimate_id: estimateId });
+        return res.status(200).json({ rows, warnings, invoiceNumbers });
       }
 
       const invoiceId = (groupRows ?? []).find((r) => r.qb_invoice_id)?.qb_invoice_id;

@@ -70,6 +70,19 @@ function addDays(dateInput, days) {
   return d.toISOString().slice(0, 10);
 }
 
+// Calendar-date math that doesn't depend on the server's time zone (dates are plain YYYY-MM-DD strings).
+function isValidDateString(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+function shiftDate(value, days) {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
 function formatNoteDate(dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
@@ -674,6 +687,9 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
       qb_estimate_id: row.qb_estimate_id ?? null,
       qb_estimate_number: row.qb_estimate_number ?? null,
       qb_estimate_total: row.qb_estimate_total != null ? Number(row.qb_estimate_total) : null,
+      delivery_date: row.delivery_date ?? null,
+      install_date: row.install_date ?? null,
+      completion_date: row.completion_date ?? null,
     }));
     const invoiced = stages.filter((s) => s.invoice_date).reduce((sum, s) => sum + s.amount, 0);
     // Credit qb_paid_amount (the real, waterfall-allocated received portion)
@@ -993,6 +1009,9 @@ export default async function handler(req, res) {
             est_date: s.est_date ?? '',
             invoice_date: s.invoice_date ?? '',
             paid_date: s.paid_date ?? '',
+            delivery_date: s.delivery_date ?? '',
+            install_date: s.install_date ?? '',
+            completion_date: s.completion_date ?? '',
             status: s.paid_date ? 'Paid' : (s.qb_paid_amount > 0 ? 'Partially Paid' : (s.invoice_date ? 'Invoiced' : 'Pending')),
           });
         }
@@ -1026,6 +1045,65 @@ export default async function handler(req, res) {
   //    separately with its own timing. This is the primary way splits get
   //    created now — add-row below still exists for adding a single stray
   //    stage row, but the UI drives everything through add-room. ─────────
+  // ── POST ?action=set-milestones — delivery / installation / substantial-completion dates for one deal/room section.
+  // Contract 7.3: the Production Payment (45%) is due three weeks before scheduled delivery, and the Final Payment (5%) is due
+  // at Substantial Completion (the signed acceptance form, 7.4). So these dates also move the expected payment dates, which
+  // drive the Action Items reminders and the cash forecast. They can still be overridden by editing a stage's Est. Date.
+  // Stored on the rows that use them: delivery_date on the Production row; install_date and completion_date on the Final row.
+  if (req.method === 'POST' && action === 'set-milestones') {
+    const { hubspot_deal_id, room } = req.body ?? {};
+    if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
+    const changes = {};
+    for (const field of ['delivery_date', 'install_date', 'completion_date']) {
+      const value = req.body?.[field];
+      if (value === undefined) continue;
+      if (value !== null && value !== '' && !isValidDateString(value)) {
+        return res.status(400).json({ error: `${field.replace('_', ' ')} must be a valid date (YYYY-MM-DD)` });
+      }
+      changes[field] = value || null;
+    }
+    if (Object.keys(changes).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+    try {
+      const { data: rows, error } = await scopeToRoomGroup(
+        supabase.from('payment_schedule').select('*').eq('hubspot_deal_id', hubspot_deal_id),
+        room,
+      );
+      if (error) throw error;
+      const production = (rows ?? []).find((r) => r.stage === 'production_payment');
+      const final = (rows ?? []).find((r) => r.stage === 'final_payment');
+      if ('delivery_date' in changes && !production) {
+        return res.status(400).json({ error: 'This section has no Production Payment row to hold the delivery date.' });
+      }
+      if (('install_date' in changes || 'completion_date' in changes) && !final) {
+        return res.status(400).json({ error: 'This section has no Final Payment row to hold the installation dates.' });
+      }
+
+      const now = new Date().toISOString();
+      const saves = [];
+      if ('delivery_date' in changes) {
+        const patch = { delivery_date: changes.delivery_date, updated_at: now };
+        if (changes.delivery_date) patch.est_date = shiftDate(changes.delivery_date, -21);
+        saves.push(supabase.from('payment_schedule').update(patch).eq('id', production.id).select().single());
+      }
+      if ('install_date' in changes || 'completion_date' in changes) {
+        const patch = { updated_at: now };
+        if ('install_date' in changes) patch.install_date = changes.install_date;
+        if ('completion_date' in changes) patch.completion_date = changes.completion_date;
+        // Final is due at Substantial Completion; until that is signed, the install date is the best estimate.
+        const dueDate = ('completion_date' in changes ? changes.completion_date : final.completion_date)
+          || ('install_date' in changes ? changes.install_date : final.install_date);
+        if (dueDate) patch.est_date = dueDate;
+        saves.push(supabase.from('payment_schedule').update(patch).eq('id', final.id).select().single());
+      }
+      const results = await Promise.all(saves);
+      const failed = results.find((r) => r.error);
+      if (failed) throw failed.error;
+      return res.status(200).json({ rows: results.map((r) => r.data) });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   if (req.method === 'POST' && action === 'add-room') {
     const { hubspot_deal_id, room } = req.body ?? {};
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });

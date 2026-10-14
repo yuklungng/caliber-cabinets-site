@@ -6698,6 +6698,73 @@ function StageNoteInput({ value, onSave }) {
   );
 }
 
+// Delivery / installation / substantial-completion dates for one deal/room section. The contract ties the Production
+// Payment to delivery (due 3 weeks before) and the Final Payment to Substantial Completion, so setting these dates also
+// moves the Est. Dates below; any Est. Date can still be edited by hand afterwards.
+function MilestoneDates({ dealId, room, rows, onSaved }) {
+  const production = rows.find((r) => r.stage === 'production_payment');
+  const final = rows.find((r) => r.stage === 'final_payment');
+
+  async function save(patch) {
+    const r = await apiCall('/api/admin-cashflow?action=set-milestones', {
+      method: 'POST',
+      body: { hubspot_deal_id: dealId, room: room || null, ...patch },
+    });
+    if (!r.ok) { alert((await r.json().catch(() => ({}))).error ?? 'Could not save that date — please try again.'); return; }
+    const { rows: updated } = await r.json();
+    onSaved(dealId, updated);
+  }
+
+  const cell = (label, tip, value, key, accent, disabled) => (
+    <label title={tip} style={{ display: 'grid', gap: '3px', minWidth: '132px', flex: '1 1 132px', maxWidth: '190px' }}>
+      <span style={{ fontSize: '10px', fontWeight: '700', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      {disabled
+        ? <span style={{ fontSize: '12px', color: '#9ca3af' }}>No row for this</span>
+        : <StageDateInput value={value} accent={accent} onSave={(v) => save({ [key]: v })} />}
+    </label>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', padding: '8px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px' }}>
+      {cell('Delivery', 'Scheduled delivery date. Production payment is due 3 weeks before this.', production?.delivery_date, 'delivery_date', '#92400e', !production)}
+      {cell('Installation', 'Scheduled installation date.', final?.install_date, 'install_date', '#92400e', !final)}
+      {cell('Substantial completion', 'Date the client signed the Substantial Completion form. Final payment is due then, and the 1-year warranty starts.', final?.completion_date, 'completion_date', '#15803d', !final)}
+      <span style={{ flex: '1 1 180px', fontSize: '10.5px', color: '#78350f', lineHeight: 1.35 }}>
+        Optional. Delivery sets Production&rsquo;s est. date to 3 weeks earlier; Installation or Substantial completion sets Final&rsquo;s.
+      </span>
+    </div>
+  );
+}
+
+// Short date for chips and reminders, e.g. "Oct 20" (with the year only when it isn't this year).
+function shortMilestoneDate(dateStr) {
+  const d = parseLocalDateAM(dateStr);
+  if (!d) return null;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+}
+
+// One-line summary of a deal's milestone dates for its card header ("Delivery Oct 20 · Install Oct 27").
+function milestoneSummary(stages) {
+  const distinct = (key) => [...new Set((stages ?? []).map((s) => s[key]).filter(Boolean))].sort();
+  const list = (dates) => dates.slice(0, 2).map(shortMilestoneDate).join(', ') + (dates.length > 2 ? ` +${dates.length - 2}` : '');
+  const parts = [];
+  const delivery = distinct('delivery_date'), install = distinct('install_date'), done = distinct('completion_date');
+  if (delivery.length) parts.push(`Delivery ${list(delivery)}`);
+  if (install.length) parts.push(`Install ${list(install)}`);
+  if (done.length) parts.push(`Completed ${list(done)}`);
+  return parts.join(' · ');
+}
+
+// What a stage is waiting on, for the Action Items text ("delivery Oct 20").
+function milestoneNote(stage) {
+  if (stage.stage === 'production_payment' && stage.delivery_date) return `delivery ${shortMilestoneDate(stage.delivery_date)}`;
+  if (stage.stage === 'final_payment') {
+    if (stage.completion_date) return `substantial completion ${shortMilestoneDate(stage.completion_date)}`;
+    if (stage.install_date) return `install ${shortMilestoneDate(stage.install_date)}`;
+  }
+  return null;
+}
+
 function stagePaymentStatus(stage) {
   if (stage.paid_date) return { label: 'Paid', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' };
   // A stage can be partly covered by an overpayment on an earlier stage
@@ -7010,7 +7077,7 @@ function stageEstimateHint(s) {
   return `Inv #${s.qb_invoice_number ?? s.qb_invoice_id}${pct != null ? ` · ${pct}% of estimate` : ''}`;
 }
 
-function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced }) {
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced, onMilestonesSaved }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
@@ -7062,7 +7129,10 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
               </div>
             )}
             <div style={{ marginTop: showRoomLabels ? '6px' : 0, marginBottom: '8px' }}>
-              <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} />
+                <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
+              </div>
             </div>
             <div style={{ display: 'grid', gap: '10px' }}>
               {rows.map((s) => {
@@ -7129,7 +7199,10 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
             </div>
           )}
           <div style={{ marginBottom: '8px' }}>
-            <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
+            <div style={{ display: 'grid', gap: '8px' }}>
+                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} />
+                <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
+              </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: SCHEDULE_GRID_COLS, gap: '10px', alignItems: 'center' }}>
             {rows.map((s) => {
@@ -7207,6 +7280,7 @@ function computeActionItems(deals) {
           dealName: deal.name,
           stageLabel: stage.label,
           amount: stage.amount,
+          milestone: milestoneNote(stage),
           urgency,
           action: 'Send invoice',
           message: days < 0
@@ -7227,6 +7301,7 @@ function computeActionItems(deals) {
           dealName: deal.name,
           stageLabel: stage.label,
           amount: stage.amount,
+          milestone: milestoneNote(stage),
           urgency,
           action: 'Follow up on payment',
           message: days < 0
@@ -7247,6 +7322,7 @@ function computeActionItems(deals) {
           dealName: deal.name,
           stageLabel: stage.label,
           amount: stage.amount,
+          milestone: milestoneNote(stage),
           urgency,
           action: 'Follow up on payment',
           message: daysSince <= 0
@@ -7303,7 +7379,7 @@ function ActionItemsList({ deals, onSelectDeal }) {
                     {item.action} — {item.dealName}
                   </p>
                   <p style={{ margin: 0, fontSize: '12px', color: s.text }}>
-                    {item.stageLabel} ({formatMoney(item.amount)}) · {item.message}
+                    {item.stageLabel} ({formatMoney(item.amount)}) · {item.message}{item.milestone ? ` · ${item.milestone}` : ''}
                   </p>
                 </div>
                 <span style={{ fontSize: '9px', fontWeight: '800', color: s.text, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', marginTop: '3px' }}>
@@ -7373,6 +7449,21 @@ function FinancialView() {
       return sum + (s.paid_date ? s.amount : 0);
     }, 0);
     return { invoiced, received };
+  }
+
+  // Milestone dates also move the stages' est. dates, so merge those fields for the rows the API returned.
+  function handleMilestonesSaved(dealId, updatedRows) {
+    setDeals((prev) => prev.map((d) => {
+      if (d.hubspot_deal_id !== dealId) return d;
+      const byId = new Map((updatedRows ?? []).map((r) => [r.id, r]));
+      return {
+        ...d,
+        stages: d.stages.map((s) => {
+          const u = byId.get(s.id);
+          return u ? { ...s, est_date: u.est_date ?? null, delivery_date: u.delivery_date ?? null, install_date: u.install_date ?? null, completion_date: u.completion_date ?? null } : s;
+        }),
+      };
+    }));
   }
 
   function handleRowSaved(dealId, updatedRow) {
@@ -7630,6 +7721,7 @@ function FinancialView() {
                   <div>
                     <p style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#111827' }}>{d.name}</p>
                     <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>Closed {formatDate(d.closed_at)}</p>
+                    {milestoneSummary(d.stages) && <p style={{ margin: '3px 0 0', fontSize: '11.5px', fontWeight: '600', color: '#92400e' }}>{milestoneSummary(d.stages)}</p>}
                   </div>
                   {!isMobile && (
                     <>
@@ -7659,7 +7751,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} onMilestonesSaved={handleMilestonesSaved} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>

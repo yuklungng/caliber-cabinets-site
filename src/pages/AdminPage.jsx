@@ -6701,7 +6701,7 @@ function StageNoteInput({ value, onSave }) {
 // Delivery / installation / substantial-completion dates for one deal/room section. The contract ties the Production
 // Payment to delivery (due 3 weeks before) and the Final Payment to Substantial Completion, so setting these dates also
 // moves the Est. Dates below; any Est. Date can still be edited by hand afterwards.
-function MilestoneDates({ dealId, room, rows, onSaved }) {
+function MilestoneDates({ dealId, room, rows, onSaved, canEdit }) {
   const production = rows.find((r) => r.stage === 'production_payment');
   const final = rows.find((r) => r.stage === 'final_payment');
 
@@ -6720,7 +6720,9 @@ function MilestoneDates({ dealId, room, rows, onSaved }) {
       <span style={{ fontSize: '10px', fontWeight: '700', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
       {disabled
         ? <span style={{ fontSize: '12px', color: '#9ca3af' }}>No row for this</span>
-        : <StageDateInput value={value} accent={accent} onSave={(v) => save({ [key]: v })} />}
+        : !canEdit
+          ? <span style={{ fontSize: '13px', fontWeight: value ? '600' : '400', color: value ? accent : '#9ca3af', padding: '6px 0' }}>{value ? shortMilestoneDate(value) : 'Not scheduled yet'}</span>
+          : <StageDateInput value={value} accent={accent} onSave={(v) => save({ [key]: v })} />}
     </label>
   );
 
@@ -6730,7 +6732,9 @@ function MilestoneDates({ dealId, room, rows, onSaved }) {
       {cell('Installation', 'Scheduled installation date.', final?.install_date, 'install_date', '#92400e', !final)}
       {cell('Substantial completion', 'Date the client signed the Substantial Completion form. Final payment is due then, and the 1-year warranty starts.', final?.completion_date, 'completion_date', '#15803d', !final)}
       <span style={{ flex: '1 1 180px', fontSize: '10.5px', color: '#78350f', lineHeight: 1.35 }}>
-        Optional. Delivery sets Production&rsquo;s est. date to 3 weeks earlier; Installation or Substantial completion sets Final&rsquo;s.
+        {canEdit
+          ? 'Delivery sets Production\u2019s due date to 3 weeks earlier; Installation or Substantial completion sets Final\u2019s.'
+          : 'Set by Mike from the shop schedule. The Production and Final due dates below follow these dates.'}
       </span>
     </div>
   );
@@ -6753,6 +6757,26 @@ function milestoneSummary(stages) {
   if (install.length) parts.push(`Install ${list(install)}`);
   if (done.length) parts.push(`Completed ${list(done)}`);
   return parts.join(' · ');
+}
+
+// "Due date" basis shown under a stage name: is its Est. Date a real scheduled date or just a guess?
+function dueBasis(stage) {
+  if (stage.paid_date || stage.invoice_date) return null; // already billed: the basis no longer matters
+  if (stage.stage === 'production_payment') {
+    return stage.delivery_date ? { text: 'due date from delivery date', real: true } : { text: 'due date is an estimate', real: false };
+  }
+  if (stage.stage === 'final_payment') {
+    if (stage.completion_date) return { text: 'due at substantial completion', real: true };
+    if (stage.install_date) return { text: 'due date from install date', real: true };
+    return { text: 'due date is an estimate', real: false };
+  }
+  return null;
+}
+
+function DueBasisCaption({ stage }) {
+  const basis = dueBasis(stage);
+  if (!basis) return null;
+  return <span style={{ fontSize: '10.5px', color: basis.real ? '#15803d' : '#b45309', fontStyle: basis.real ? 'normal' : 'italic' }}>{basis.text}</span>;
 }
 
 // What a stage is waiting on, for the Action Items text ("delivery Oct 20").
@@ -7077,7 +7101,7 @@ function stageEstimateHint(s) {
   return `Inv #${s.qb_invoice_number ?? s.qb_invoice_id}${pct != null ? ` · ${pct}% of estimate` : ''}`;
 }
 
-function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced, onMilestonesSaved }) {
+function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDeleted, onRoomDeleted, onInvoiceSynced, onMilestonesSaved, canEditMilestones }) {
   async function saveField(rowId, patch) {
     const r = await apiCall('/api/admin-cashflow', { method: 'PATCH', body: { id: rowId, ...patch } });
     if (!r.ok) { alert('Failed to save — please try again.'); return; }
@@ -7130,7 +7154,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
             )}
             <div style={{ marginTop: showRoomLabels ? '6px' : 0, marginBottom: '8px' }}>
               <div style={{ display: 'grid', gap: '8px' }}>
-                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} />
+                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} canEdit={canEditMilestones} />
                 <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
               </div>
             </div>
@@ -7143,6 +7167,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                       <span style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '13px', fontWeight: '700', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
                         {stageEstimateHint(s) && <span style={{ fontSize: '10.5px', color: '#6b7280' }}>{stageEstimateHint(s)}</span>}
+                        <DueBasisCaption stage={s} />
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '999px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
@@ -7200,7 +7225,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
           )}
           <div style={{ marginBottom: '8px' }}>
             <div style={{ display: 'grid', gap: '8px' }}>
-                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} />
+                <MilestoneDates dealId={deal.hubspot_deal_id} room={room} rows={rows} onSaved={onMilestonesSaved} canEdit={canEditMilestones} />
                 <QbInvoiceLinkControl dealId={deal.hubspot_deal_id} room={room} rows={rows} onSynced={onInvoiceSynced} contractAmount={deal.contract_amount} singleSection={groups.length === 1} />
               </div>
           </div>
@@ -7212,6 +7237,7 @@ function PaymentScheduleTable({ deal, isMobile, onRowSaved, onRoomAdded, onRowDe
                   <span style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{FORECAST_STAGE_LABELS[s.stage] ?? s.stage}</span>
                     {stageEstimateHint(s) && <span style={{ fontSize: '10.5px', color: '#6b7280' }}>{stageEstimateHint(s)}</span>}
+                        <DueBasisCaption stage={s} />
                   </span>
                   <StageAmountInput value={s.amount} onSave={(v) => saveField(s.id, { amount: v })} locked={!!s.qb_invoice_id} />
                   <StageDateInput value={s.est_date} onSave={(v) => saveField(s.id, { est_date: v })} />
@@ -7281,6 +7307,7 @@ function computeActionItems(deals) {
           stageLabel: stage.label,
           amount: stage.amount,
           milestone: milestoneNote(stage),
+          estimated: dueBasis(stage)?.real === false,
           urgency,
           action: 'Send invoice',
           message: days < 0
@@ -7302,6 +7329,7 @@ function computeActionItems(deals) {
           stageLabel: stage.label,
           amount: stage.amount,
           milestone: milestoneNote(stage),
+          estimated: dueBasis(stage)?.real === false,
           urgency,
           action: 'Follow up on payment',
           message: days < 0
@@ -7323,6 +7351,7 @@ function computeActionItems(deals) {
           stageLabel: stage.label,
           amount: stage.amount,
           milestone: milestoneNote(stage),
+          estimated: dueBasis(stage)?.real === false,
           urgency,
           action: 'Follow up on payment',
           message: daysSince <= 0
@@ -7379,7 +7408,7 @@ function ActionItemsList({ deals, onSelectDeal }) {
                     {item.action} — {item.dealName}
                   </p>
                   <p style={{ margin: 0, fontSize: '12px', color: s.text }}>
-                    {item.stageLabel} ({formatMoney(item.amount)}) · {item.message}{item.milestone ? ` · ${item.milestone}` : ''}
+                    {item.stageLabel} ({formatMoney(item.amount)}) · {item.message}{item.milestone ? ` · ${item.milestone}` : ''}{item.estimated ? ' · estimated date' : ''}
                   </p>
                 </div>
                 <span style={{ fontSize: '9px', fontWeight: '800', color: s.text, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', marginTop: '3px' }}>
@@ -7394,7 +7423,7 @@ function ActionItemsList({ deals, onSelectDeal }) {
   );
 }
 
-function FinancialView() {
+function FinancialView({ isSuperAdmin = false }) {
   const isMobile = useIsMobile();
   const [deals, setDeals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -7751,7 +7780,7 @@ function FinancialView() {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} onMilestonesSaved={handleMilestonesSaved} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} onMilestonesSaved={handleMilestonesSaved} canEditMilestones={isSuperAdmin} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>
@@ -8065,14 +8094,14 @@ export function AdminPage() {
   function renderView() {
     const settingsViews = ['notifications', 'confirmations', 'financial-settings', 'users', 'backup'];
     if (settingsViews.includes(activeView) && !isSuperAdmin) {
-      return isBookkeeper ? <FinancialView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
     // Bookkeeper role only ever sees Financial Management — redirect away from anything else,
     // regardless of how activeView got set (e.g. a stale nav state).
     const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects', 'faqs'];
-    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView />;
+    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView isSuperAdmin={isSuperAdmin} />;
     switch (activeView) {
-      case 'cashflow': return <FinancialView />;
+      case 'cashflow': return <FinancialView isSuperAdmin={isSuperAdmin} />;
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
@@ -8082,7 +8111,7 @@ export function AdminPage() {
       case 'projects': return <ProjectsPanel />;
       case 'faqs': return <FaqPanel />;
       case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
-      default: return isBookkeeper ? <FinancialView /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      default: return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }
 

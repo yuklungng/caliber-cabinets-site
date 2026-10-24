@@ -64,6 +64,38 @@ Visible to Mike and Morris in the portal, not buried in logs: missing job number
 
 Emergency edits: unprotect the mirror, edit, and re-import afterward by a written procedure. Without it, the sheet and the app drift apart.
 
+## Purchasing and cost capture (later phase, separate scope)
+
+Not part of the five review stages. Recorded here so the production tables leave room for it.
+
+Why: QuickBooks does not track inventory. Parts are in the item catalog but never counted. Job cost exists only where a bill was assigned to a customer, and the first read-only report (2026-10-24) found most spend carries no job. The exact baseline is in the OneDrive findings doc, not here, because this repo is public. Pricing, cash flow and estimating all depend on knowing what a job actually cost.
+
+Design:
+
+- Order capture. A photo of a handwritten order becomes text, tied to a job number. Mike or Carlos confirms it on a review screen before anything is created. Parsed text is never trusted on its own.
+- One owner per fact. The module owns what was ordered and for which job. QuickBooks owns the money. Each order stores its QuickBooks purchase order ID, and the PO carries the order number, so either side can find the other.
+- Purchase orders, never bills. A QuickBooks PO does not post to the books. When the vendor invoice arrives, the bookkeeper converts the PO to a bill, and the difference between PO and bill is the reconciliation. The module never writes bills.
+- Prices. An order has no price when it is written. The PO amount is an estimate from the catalog or the last price paid. Actual cost arrives with the bill.
+- Failure behavior. If QuickBooks is down or the token refresh fails, the order still saves and the PO is queued and retried. Ordering never waits on accounting.
+- No duplicates. One PO per order, with a stored idempotency key.
+- Safe development. The write path is built and tested only against an Intuit sandbox company, behind its own env flag. Nothing writes to Caliber's live books until Mike approves a go-live.
+
+Gates:
+
+1. Read only. Capture orders in the module and show them next to QuickBooks bills. No writes.
+2. Sandbox POs.
+3. Live POs, each approved by Mike.
+4. PO to bill variance report, and cost data feeding estimates (including comparing our quote with a competitor's number from the lost-deal fields).
+
+Measure of success: the share of spend that carries a job, from the same report, before and after. It is a number Mike can see, and it needs no one to be blamed.
+
+Before this phase starts:
+
+- Confirm Caliber's QuickBooks plan supports purchase orders.
+- Learn how each major vendor is actually ordered (portal, email, phone) and who places the order. If most orders happen outside the notebook, the module records after the fact and gets weaker.
+- Get Brianna involved before Mike. Converting PO to bill is her step, and her adoption decides whether the data is complete.
+- Break down the untagged spend by account and vendor, and group the report by job number, not customer, before any conclusion about the books or about margin.
+
 ## Open items
 
 1. Sheet ownership. The files are owned by Morris's personal Gmail, with Mike as Editor. Move them to a Mike-owned account before the sync is wired up, because the service account and the cutover export both point at specific file IDs.
@@ -74,3 +106,5 @@ Emergency edits: unprotect the mirror, edit, and re-import afterward by a writte
    - Every date shows its state, Proposed or Confirmed, everywhere it appears. The Financial tab treats Proposed as an estimate and Confirmed as real.
    - Nudge: an unconfirmed delivery date within 4 weeks raises an item in Action Items for Mike. The Production payment falls due 3 weeks before delivery (contract §7.3), so the date has to be confirmed before then. Install and completion dates get the same nudge on a shorter window. The windows are starting values, tuned with Mike.
 5. OCR scan-to-text screen: accuracy bar and cost per scan, tested on about 30 real orders before building.
+6. Purchasing and cost capture (section above): scope and price separately once the open questions there are answered. Cost capture and estimating go well beyond the production-sheets price.
+7. Free-text fields: the QuickBooks Sales Type on invoices has four spellings of Lump Sum. The module uses a fixed list.

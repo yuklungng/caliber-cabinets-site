@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';
-import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbQuery, qbGetInvoice, qbGetEstimate, qbGetInvoicesForCustomer, qbGetPaymentsForCustomer } from './_lib/quickbooks.js';
+import { startConnect, completeConnect, getConnectionStatus, disconnect as qbDisconnect, qbFetch, qbQuery, qbGetInvoice, qbGetEstimate, qbGetInvoicesForCustomer, qbGetPaymentsForCustomer } from './_lib/quickbooks.js';
 
 // QuickBooks connection actions (qb-status/qb-connect/qb-disconnect) and the
 // OAuth callback (?qbcallback=1) live in this file rather than their own
@@ -750,6 +750,87 @@ export default async function handler(req, res) {
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
+  }
+  // TEMPORARY, read-only: reports how the books use inventory, job costing and
+  // numbering, so the production module can be designed around real usage.
+  // Counts and item names only (no customer data). Remove once the answer is
+  // recorded, same as the earlier qb-inspect action.
+  if (req.method === 'GET' && action === 'qb-audit') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    const count = async (q) => {
+      const r = await qbFetch(`/query?query=${encodeURIComponent(q)}&minorversion=65`);
+      if (!r.ok) return `error ${r.status}`;
+      return (await r.json())?.QueryResponse?.totalCount ?? 0;
+    };
+    const section = async (fn) => {
+      try { return await fn(); } catch (err) { return { error: err.message }; }
+    };
+    const since = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const [prefs, items, bills, invoices] = await Promise.all([
+      section(async () => {
+        const r = await qbFetch('/preferences?minorversion=65');
+        const p = (await r.json())?.Preferences ?? {};
+        return {
+          productsAndServices: p.ProductsAndServicesPrefs ?? null,
+          classTracking: p.AccountingInfoPrefs?.ClassTrackingPerTxn ?? null,
+          trackDepartments: p.AccountingInfoPrefs?.TrackDepartments ?? null,
+          salesCustomFields: (p.SalesFormsPrefs?.CustomField ?? []).map((c) => c.CustomField?.filter((f) => f.StringValue).map((f) => f.Name)),
+        };
+      }),
+      section(async () => {
+        const [inventory, nonInventory, service, category] = await Promise.all([
+          count("SELECT COUNT(*) FROM Item WHERE Type = 'Inventory'"),
+          count("SELECT COUNT(*) FROM Item WHERE Type = 'NonInventory'"),
+          count("SELECT COUNT(*) FROM Item WHERE Type = 'Service'"),
+          count("SELECT COUNT(*) FROM Item WHERE Type = 'Category'"),
+        ]);
+        const inv = await qbQuery("SELECT Id, Name, QtyOnHand, TrackQtyOnHand, ReorderPoint FROM Item WHERE Type = 'Inventory' MAXRESULTS 100", 'Item');
+        const other = await qbQuery("SELECT Name, Type FROM Item WHERE Type IN ('NonInventory','Service') MAXRESULTS 40", 'Item');
+        return {
+          counts: { inventory, nonInventory, service, category },
+          inventoryTracked: inv.filter((i) => i.TrackQtyOnHand).length,
+          inventoryWithStock: inv.filter((i) => Number(i.QtyOnHand) > 0).length,
+          inventorySample: inv.slice(0, 15).map((i) => ({ name: i.Name, qty: i.QtyOnHand, reorder: i.ReorderPoint ?? null })),
+          otherItemNames: other.map((i) => `${i.Type}: ${i.Name}`),
+        };
+      }),
+      section(async () => {
+        const [billCount, poCount, purchaseCount] = await Promise.all([
+          count(`SELECT COUNT(*) FROM Bill WHERE TxnDate >= '${since}'`),
+          count(`SELECT COUNT(*) FROM PurchaseOrder WHERE TxnDate >= '${since}'`),
+          count(`SELECT COUNT(*) FROM Purchase WHERE TxnDate >= '${since}'`),
+        ]);
+        const recent = await qbQuery(`SELECT * FROM Bill WHERE TxnDate >= '${since}' ORDERBY TxnDate DESC MAXRESULTS 100`, 'Bill');
+        let lines = 0, withCustomer = 0, itemBased = 0;
+        for (const b of recent) {
+          for (const l of b.Line ?? []) {
+            lines += 1;
+            const d = l.ItemBasedExpenseLineDetail ?? l.AccountBasedExpenseLineDetail;
+            if (l.ItemBasedExpenseLineDetail) itemBased += 1;
+            if (d?.CustomerRef) withCustomer += 1;
+          }
+        }
+        return { last12Months: { bills: billCount, purchaseOrders: poCount, expenses: purchaseCount }, sampledBillLines: lines, linesAssignedToCustomer: withCustomer, linesUsingItems: itemBased };
+      }),
+      section(async () => {
+        const recent = await qbQuery('SELECT * FROM Invoice ORDERBY TxnDate DESC MAXRESULTS 40', 'Invoice');
+        const names = new Map();
+        for (const inv of recent) {
+          for (const l of inv.Line ?? []) {
+            const n = l.SalesItemLineDetail?.ItemRef?.name;
+            if (n) names.set(n, (names.get(n) ?? 0) + 1);
+          }
+        }
+        return {
+          sampled: recent.length,
+          docNumberRange: recent.length ? [recent[recent.length - 1].DocNumber, recent[0].DocNumber] : null,
+          customFieldsInUse: [...new Set(recent.flatMap((i) => (i.CustomField ?? []).filter((f) => f.StringValue).map((f) => f.Name)))],
+          withClass: recent.filter((i) => (i.Line ?? []).some((l) => l.SalesItemLineDetail?.ClassRef)).length,
+          topLineItems: [...names.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
+        };
+      }),
+    ]);
+    return res.status(200).json({ prefs, items, bills, invoices });
   }
   if (req.method === 'POST' && action === 'qb-connect') {
     if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });

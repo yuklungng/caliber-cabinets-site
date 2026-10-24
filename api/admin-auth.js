@@ -47,6 +47,32 @@ async function sendResetEmail(to, name, link) {
 }
 
 export default async function handler(req, res) {
+  // TEMPORARY, preview-only diagnostic (never runs in production): reports which
+  // Supabase host this deployment points at and whether it can reach it. No
+  // secrets, only the host name, string lengths and an error code. Remove once
+  // the preview sign-in problem is understood.
+  if (req.method === 'GET' && req.query?.diag === '1' && process.env.VERCEL_ENV === 'preview') {
+    const raw = process.env.SUPABASE_URL ?? '';
+    let host = raw ? 'invalid-url' : 'unset';
+    try { host = new URL(raw.trim()).host; } catch { /* keep default */ }
+    const out = {
+      env: process.env.VERCEL_ENV, region: process.env.VERCEL_REGION ?? null, supabaseHost: host,
+      urlLength: raw.length, urlHasWhitespace: raw !== raw.trim(),
+      serviceKeyLength: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').length,
+      adminPasswordSet: Boolean(process.env.ADMIN_PASSWORD),
+    };
+    try {
+      const r = await fetch(`${raw.trim()}/rest/v1/admin_users?select=id&limit=1`, {
+        headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''}` },
+      });
+      out.restStatus = r.status;
+    } catch (e) {
+      out.fetchError = String(e);
+      out.fetchCause = e?.cause?.code ?? e?.cause?.message ?? null;
+    }
+    return res.status(200).json(out);
+  }
+
   const supabase = db();
 
   // GET — check if first-time setup is needed (no users in DB yet)

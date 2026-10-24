@@ -9,13 +9,22 @@
   body { font: 16px/1.4 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; }
   h1 { font-size: 20px; margin: 0 0 8px; }
   p { margin: 8px 0; }
-  button, a.btn { display: inline-block; font: inherit; padding: 10px 16px; margin: 4px 8px 4px 0; border: 1px solid #888; border-radius: 8px; background: #f4f4f4; color: #111; text-decoration: none; }
+  [hidden] { display: none !important; }
+  input, button, a.btn { font: inherit; padding: 10px 14px; margin: 4px 8px 4px 0; border: 1px solid #888; border-radius: 8px; background: #fff; color: #111; text-decoration: none; display: inline-block; box-sizing: border-box; }
+  input { width: 100%; max-width: 320px; display: block; }
+  button, a.btn { background: #f4f4f4; cursor: pointer; }
   pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; background: #f7f7f7; padding: 12px; border-radius: 8px; }
 </style>
 </head>
 <body>
 <h1>QuickBooks job cost</h1>
-<p id="status">Running (this can take 10 to 20 seconds)...</p>
+<p id="status">Starting...</p>
+<form id="login" hidden>
+  <p>Sign in with your admin email and password (a super admin account).</p>
+  <input id="email" type="email" placeholder="Email" autocomplete="username" required>
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+  <button type="submit">Sign in and run</button>
+</form>
 <p><button id="copy" hidden>Copy result</button><a class="btn" href="/admin">Back to admin</a></p>
 <pre id="out"></pre>
 <script>
@@ -23,20 +32,40 @@
   var status = document.getElementById('status');
   var out = document.getElementById('out');
   var copy = document.getElementById('copy');
-  var token = '';
-  try { token = sessionStorage.getItem('admin_token') || ''; } catch (e) {}
-  if (!token) {
-    status.textContent = 'Not signed in on this tab. Open /admin in this same tab, sign in as a super admin, then change the address to /qb-job-cost.html in the same tab.';
-    return;
+  var form = document.getElementById('login');
+
+  function getToken() { try { return sessionStorage.getItem('admin_token') || ''; } catch (e) { return ''; } }
+
+  function run(token) {
+    form.hidden = true;
+    status.textContent = 'Running (this can take 10 to 20 seconds)...';
+    fetch('/api/admin-cashflow?action=qb-job-cost', { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function (res) {
+        status.textContent = res.ok ? 'Done. Copy the result below and paste it into the chat.' : 'Failed (' + res.status + ').';
+        out.textContent = JSON.stringify(res.body, null, 2);
+        copy.hidden = false;
+      })
+      .catch(function (err) { status.textContent = 'Error: ' + err.message; });
   }
-  fetch('/api/admin-cashflow?action=qb-job-cost', { headers: { Authorization: 'Bearer ' + token } })
-    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
-    .then(function (res) {
-      status.textContent = res.ok ? 'Done. Copy the result below and paste it into the chat.' : 'Failed (' + res.status + ').';
-      out.textContent = JSON.stringify(res.body, null, 2);
-      copy.hidden = false;
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    status.textContent = 'Signing in...';
+    fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', email: document.getElementById('email').value, password: document.getElementById('password').value })
     })
-    .catch(function (err) { status.textContent = 'Error: ' + err.message; });
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body.token) { status.textContent = (res.body && res.body.error) || 'Sign-in failed.'; form.hidden = false; return; }
+        try { sessionStorage.setItem('admin_token', res.body.token); } catch (e2) {}
+        run(res.body.token);
+      })
+      .catch(function (err) { status.textContent = 'Error: ' + err.message; form.hidden = false; });
+  });
+
   copy.addEventListener('click', function () {
     var done = function () { copy.textContent = 'Copied'; };
     if (navigator.clipboard) { navigator.clipboard.writeText(out.textContent).then(done); }
@@ -46,6 +75,10 @@
       document.execCommand('copy'); done();
     }
   });
+
+  var token = getToken();
+  if (token) { run(token); }
+  else { status.textContent = 'Not signed in on this tab.'; form.hidden = false; }
 })();
 </script>
 </body>

@@ -327,8 +327,31 @@ export default async function handler(req, res) {
 
   // PATCH — update deal stage in HubSpot and persist to Supabase
   if (req.method === 'PATCH') {
-    const { dealId, stageId, stageLabel, lostReason, lostReasonDetail, declinedReason, declinedReasonDetail } = req.body ?? {};
+    const { dealId, stageId, stageLabel, lostReason, lostReasonDetail, lostExtras, declinedReason, declinedReasonDetail } = req.body ?? {};
     if (!dealId || !stageId) return res.status(400).json({ error: 'Missing dealId or stageId' });
+
+    // Price-loss detail (Pricing / Competitor losses): our quote, the number we
+    // lost to, what kind of number it was, and whether we could have matched it.
+    // Only "could we have matched it" is required, and only for Pricing, so the
+    // form stays a one-tap job. Everything is optional otherwise.
+    const MATCH_CHOICES = new Set(['Yes', 'No', 'Unsure']);
+    const NUMBER_KINDS = new Set(['Competing quote', 'Stated budget', 'Not sure']);
+    const toMoney = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(String(v).replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+    };
+    const priceExtras = (stageId === 'closedlost' && lostExtras && typeof lostExtras === 'object')
+      ? {
+          lost_our_quote: toMoney(lostExtras.ourQuote),
+          lost_their_number: toMoney(lostExtras.theirNumber),
+          lost_their_number_kind: NUMBER_KINDS.has(lostExtras.theirNumberKind) ? lostExtras.theirNumberKind : null,
+          lost_could_match: MATCH_CHOICES.has(lostExtras.couldMatch) ? lostExtras.couldMatch : null,
+        }
+      : null;
+    if (stageId === 'closedlost' && lostReason === 'Pricing' && !priceExtras?.lost_could_match) {
+      return res.status(400).json({ error: 'For a pricing loss, please say whether you could have matched the price (Yes, No or Unsure).' });
+    }
 
     // Lost Deal requires a reason — Competitor / Pricing / Value / Other.
     // "Other" requires the free-text detail to actually say something.
@@ -387,8 +410,15 @@ export default async function handler(req, res) {
 
       // Add a HubSpot note recording who made the stage change
       try {
+        const priceNote = priceExtras
+          ? [
+              priceExtras.lost_our_quote != null ? `our quote $${priceExtras.lost_our_quote}` : null,
+              priceExtras.lost_their_number != null ? `${(priceExtras.lost_their_number_kind ?? 'their number').toLowerCase()} $${priceExtras.lost_their_number}` : null,
+              priceExtras.lost_could_match ? `could match: ${priceExtras.lost_could_match}` : null,
+            ].filter(Boolean).join(', ')
+          : '';
         const reasonNote = stageId === 'closedlost' && lostReason
-          ? ` — Reason: ${lostReason}${lostReasonDetail?.trim() ? ` (${lostReasonDetail.trim()})` : ''}`
+          ? ` — Reason: ${lostReason}${lostReasonDetail?.trim() ? ` (${lostReasonDetail.trim()})` : ''}${priceNote ? ` [${priceNote}]` : ''}`
           : stageId === DECLINED_STAGE_ID && declinedReason
           ? ` — Reason: ${declinedReason}${declinedReasonDetail?.trim() ? ` (${declinedReasonDetail.trim()})` : ''}`
           : '';
@@ -418,6 +448,17 @@ export default async function handler(req, res) {
         .update(stageUpdate)
         .eq('hubspot_deal_id', dealId);
       if (stageErr) console.error('[admin-leads] Supabase stage sync error (non-fatal):', stageErr.message);
+
+      // Price-loss detail goes in its own update on purpose: if these columns
+      // are not in the database yet, only this write fails (and the detail is
+      // still in the HubSpot note above), never the stage sync.
+      if (priceExtras && Object.values(priceExtras).some((v) => v !== null)) {
+        const { error: extrasErr } = await supabase
+          .from('leads')
+          .update(priceExtras)
+          .eq('hubspot_deal_id', dealId);
+        if (extrasErr) console.error('[admin-leads] Supabase price-loss detail error (non-fatal):', extrasErr.message);
+      }
 
       return res.status(200).json({ success: true });
     } catch (err) {

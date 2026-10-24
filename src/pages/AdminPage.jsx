@@ -91,6 +91,8 @@ const HS_EXIT_STAGES = [
 
 // Reasons captured when a deal is moved to the "Lost Deal" stage — required.
 const LOST_REASON_OPTIONS = ['Competitor', 'Pricing', 'Value', 'Other'];
+// Lost reasons that also ask for the numbers behind the loss (see ReasonPromptModal).
+const PRICE_LOSS_REASONS = ['Pricing', 'Competitor'];
 
 // Reasons captured when a deal is moved to the "Declined" stage — required.
 // Declined is not a competitive loss (see HS_EXIT_STAGES note above), so it
@@ -341,7 +343,7 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
   // Actually commits a stage change to the API + local state. `reason`/`detail`
   // are only sent for the closedlost and Declined stages, which each map to
   // their own pair of API fields and Supabase/HubSpot columns.
-  async function commitStageChange(stage, reason, detail) {
+  async function commitStageChange(stage, reason, detail, extras) {
     setSaving(true);
     try {
       const isLost     = stage.id === 'closedlost';
@@ -350,12 +352,18 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
         method: 'PATCH',
         body: {
           dealId: lead.hubspot_deal_id, stageId: stage.id, stageLabel: stage.label,
-          ...(isLost && reason ? { lostReason: reason, lostReasonDetail: detail } : {}),
+          ...(isLost && reason ? { lostReason: reason, lostReasonDetail: detail, ...(extras ? { lostExtras: extras } : {}) } : {}),
           ...(isDeclined && reason ? { declinedReason: reason, declinedReasonDetail: detail } : {}),
         },
       });
       const localUpdate = isLost && reason
-        ? { lost_reason: reason, lost_reason_detail: detail?.trim() || null }
+        ? {
+            lost_reason: reason, lost_reason_detail: detail?.trim() || null,
+            ...(extras ? {
+              lost_our_quote: extras.ourQuote || null, lost_their_number: extras.theirNumber || null,
+              lost_their_number_kind: extras.theirNumberKind || null, lost_could_match: extras.couldMatch || null,
+            } : {}),
+          }
         : isDeclined && reason
         ? { declined_reason: reason, declined_reason_detail: detail?.trim() || null }
         : undefined;
@@ -454,11 +462,12 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
             : 'A reason is required so this shows up correctly in the lost-deal breakdown.'}
           options={exitReasonPrompt.id === DECLINED_STAGE_ID ? DECLINED_REASON_OPTIONS : LOST_REASON_OPTIONS}
           confirmLabel={exitReasonPrompt.id === DECLINED_STAGE_ID ? 'Confirm Declined' : 'Confirm Lost Deal'}
+          priceReasons={exitReasonPrompt.id === DECLINED_STAGE_ID ? undefined : PRICE_LOSS_REASONS}
           onCancel={() => setExitReasonPrompt(null)}
-          onConfirm={async (reason, detail) => {
+          onConfirm={async (reason, detail, extras) => {
             const stage = exitReasonPrompt;
             setExitReasonPrompt(null);
-            await commitStageChange(stage, reason, detail);
+            await commitStageChange(stage, reason, detail, extras);
           }}
         />
       )}
@@ -469,18 +478,27 @@ function StagePicker({ lead, pipelineStages, exitStages, onStageChange }) {
 // ─── Reason prompt modal — required when a deal moves to the Lost Deal or ───
 // ─── Declined stage. Same UX, different heading/options per stage.        ───
 
-function ReasonPromptModal({ heading, subheading, options, confirmLabel, initialReason = null, initialDetail = '', onCancel, onConfirm }) {
+function ReasonPromptModal({ heading, subheading, options, confirmLabel, priceReasons, initialReason = null, initialDetail = '', onCancel, onConfirm }) {
   const [reason, setReason] = useState(initialReason);
   const [detail, setDetail] = useState(initialDetail);
+  const [ourQuote, setOurQuote] = useState('');
+  const [theirNumber, setTheirNumber] = useState('');
+  const [theirNumberKind, setTheirNumberKind] = useState('Competing quote');
+  const [couldMatch, setCouldMatch] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const needsDetail = reason === 'Other';
-  const canConfirm = reason !== null && (!needsDetail || detail.trim().length > 0);
+  // Pricing and Competitor losses also ask for the numbers behind the loss.
+  // Only "could we have matched it" is required, and only for Pricing.
+  const showPrice = Boolean(priceReasons) && priceReasons.includes(reason);
+  const needsMatch = showPrice && reason === 'Pricing';
+  const canConfirm = reason !== null && (!needsDetail || detail.trim().length > 0) && (!needsMatch || couldMatch !== '');
 
   async function handleConfirm() {
     if (!canConfirm || submitting) return;
     setSubmitting(true);
-    await onConfirm(reason, detail);
+    const extras = showPrice ? { ourQuote, theirNumber, theirNumberKind: theirNumber ? theirNumberKind : '', couldMatch } : undefined;
+    await onConfirm(reason, detail, extras);
   }
 
   return (
@@ -491,7 +509,7 @@ function ReasonPromptModal({ heading, subheading, options, confirmLabel, initial
         <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#6b7280' }}>
           {subheading}
         </p>
-        <div style={{ display: 'grid', gap: '8px', marginBottom: needsDetail ? '14px' : '22px' }}>
+        <div style={{ display: 'grid', gap: '8px', marginBottom: needsDetail || showPrice ? '14px' : '22px' }}>
           {options.map((opt) => (
             <label
               key={opt}
@@ -527,6 +545,49 @@ function ReasonPromptModal({ heading, subheading, options, confirmLabel, initial
               rows={3}
               style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
             />
+          </div>
+        )}
+        {showPrice && (
+          <div style={{ marginBottom: '22px', display: 'grid', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>
+                Our quote ($)
+                <input
+                  type="text" inputMode="decimal" value={ourQuote} onChange={(e) => setOurQuote(e.target.value)} placeholder="optional"
+                  style={{ width: '100%', marginTop: '4px', padding: '9px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
+                />
+              </label>
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>
+                The number we lost to ($)
+                <input
+                  type="text" inputMode="decimal" value={theirNumber} onChange={(e) => setTheirNumber(e.target.value)} placeholder="optional"
+                  style={{ width: '100%', marginTop: '4px', padding: '9px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
+                />
+              </label>
+            </div>
+            {theirNumber.trim() !== '' && (
+              <select
+                value={theirNumberKind} onChange={(e) => setTheirNumberKind(e.target.value)}
+                style={{ padding: '9px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '14px', background: '#fff' }}
+              >
+                <option>Competing quote</option>
+                <option>Stated budget</option>
+                <option>Not sure</option>
+              </select>
+            )}
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>
+                Could we have matched it and kept a fair margin?{needsMatch ? ' *' : ''}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {['Yes', 'No', 'Unsure'].map((c) => (
+                  <button
+                    key={c} type="button" onClick={() => setCouldMatch(c)}
+                    style={{ flex: 1, padding: '9px 0', borderRadius: '6px', fontSize: '14px', fontWeight: couldMatch === c ? '700' : '500', cursor: 'pointer', border: `1.5px solid ${couldMatch === c ? '#78350f' : '#e5e7eb'}`, background: couldMatch === c ? '#fff7ed' : '#fff', color: '#111827' }}
+                  >{c}</button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -1636,7 +1697,12 @@ function LeadCard({ lead, isExpanded, onToggle, onDelete, isStale, pipelineStage
           <StagePicker lead={lead} pipelineStages={pipelineStages ?? []} exitStages={exitStages ?? []} onStageChange={onStageChange} />
           {lead.hs_stage_id === 'closedlost' && lead.lost_reason && (
             <span
-              title={lead.lost_reason_detail ? `Lost reason: ${lead.lost_reason} — ${lead.lost_reason_detail}` : `Lost reason: ${lead.lost_reason}`}
+              title={[
+                lead.lost_reason_detail ? `Lost reason: ${lead.lost_reason} — ${lead.lost_reason_detail}` : `Lost reason: ${lead.lost_reason}`,
+                lead.lost_our_quote != null ? `Our quote $${Number(lead.lost_our_quote).toLocaleString()}` : null,
+                lead.lost_their_number != null ? `${lead.lost_their_number_kind ?? 'Their number'} $${Number(lead.lost_their_number).toLocaleString()}` : null,
+                lead.lost_could_match ? `Could match: ${lead.lost_could_match}` : null,
+              ].filter(Boolean).join(' · ')}
               style={{ fontSize: '11px', fontWeight: '600', color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', padding: '2px 8px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               Lost: {lead.lost_reason}{lead.lost_reason_detail ? ` — ${lead.lost_reason_detail}` : ''}

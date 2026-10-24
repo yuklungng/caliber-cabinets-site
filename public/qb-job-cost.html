@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>QuickBooks job cost (temporary)</title>
+<style>
+  body { font: 16px/1.4 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 8px 0; }
+  button, a.btn { display: inline-block; font: inherit; padding: 10px 16px; margin: 4px 8px 4px 0; border: 1px solid #888; border-radius: 8px; background: #f4f4f4; color: #111; text-decoration: none; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; background: #f7f7f7; padding: 12px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>QuickBooks job cost</h1>
+<p id="status">Running (this can take 10 to 20 seconds)...</p>
+<p><button id="copy" hidden>Copy result</button><a class="btn" href="/admin">Back to admin</a></p>
+<pre id="out"></pre>
+<script>
+(function () {
+  var status = document.getElementById('status');
+  var out = document.getElementById('out');
+  var copy = document.getElementById('copy');
+  var token = '';
+  try { token = sessionStorage.getItem('admin_token') || ''; } catch (e) {}
+  if (!token) {
+    status.textContent = 'Not signed in on this tab. Open /admin in this same tab, sign in as a super admin, then change the address to /qb-job-cost.html in the same tab.';
+    return;
+  }
+  fetch('/api/admin-cashflow?action=qb-job-cost', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+    .then(function (res) {
+      status.textContent = res.ok ? 'Done. Copy the result below and paste it into the chat.' : 'Failed (' + res.status + ').';
+      out.textContent = JSON.stringify(res.body, null, 2);
+      copy.hidden = false;
+    })
+    .catch(function (err) { status.textContent = 'Error: ' + err.message; });
+  copy.addEventListener('click', function () {
+    var done = function () { copy.textContent = 'Copied'; };
+    if (navigator.clipboard) { navigator.clipboard.writeText(out.textContent).then(done); }
+    else {
+      var r = document.createRange(); r.selectNodeContents(out);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      document.execCommand('copy'); done();
+    }
+  });
+})();
+</script>
+</body>
+</html>

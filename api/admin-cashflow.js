@@ -751,6 +751,110 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: err.message });
     }
   }
+  // TEMPORARY, read-only: job-cost report from QuickBooks. For each customer
+  // with an invoice in the window it adds up what was billed and what bills and
+  // expenses were assigned to that customer, then reports margin before labor.
+  // Job numbers only (no customer names). Remove once the answer is recorded.
+  if (req.method === 'GET' && action === 'qb-job-cost') {
+    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+    try {
+      const months = 18;
+      const since = new Date(Date.now() - months * 30.4 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      const paged = async (entity) => {
+        const out = [];
+        for (let start = 1; ; start += 1000) {
+          const rows = await qbQuery(`SELECT * FROM ${entity} WHERE TxnDate >= '${since}' ORDERBY Id STARTPOSITION ${start} MAXRESULTS 1000`, entity);
+          out.push(...rows);
+          if (rows.length < 1000) break;
+        }
+        return out;
+      };
+      const [invoices, bills, purchases] = await Promise.all([paged('Invoice'), paged('Bill'), paged('Purchase')]);
+
+      const jobs = new Map();
+      for (const inv of invoices) {
+        const cid = inv.CustomerRef?.value;
+        if (!cid) continue;
+        const j = jobs.get(cid) ?? { docs: [], revenue: 0, open: 0, type: null, bills: 0, expenses: 0 };
+        j.docs.push(Number(inv.DocNumber) || inv.DocNumber);
+        j.revenue += (inv.TotalAmt ?? 0) - (inv.TxnTaxDetail?.TotalTax ?? 0);
+        j.open += inv.Balance ?? 0;
+        j.type = (inv.CustomField ?? []).find((f) => f.Name === 'Sales Type')?.StringValue || j.type;
+        jobs.set(cid, j);
+      }
+
+      const vendors = new Map();
+      const accounts = new Map();
+      let assigned = 0;
+      let unassigned = 0;
+      const addLines = (txn, kind, vendorName, sign) => {
+        for (const l of txn.Line ?? []) {
+          const d = l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail;
+          if (!d) continue;
+          const amt = (l.Amount ?? 0) * sign;
+          const cid = d.CustomerRef?.value;
+          if (cid) {
+            assigned += amt;
+            vendors.set(vendorName, (vendors.get(vendorName) ?? 0) + amt);
+            const acct = d.AccountRef?.name ?? d.ItemRef?.name ?? 'Unknown';
+            accounts.set(acct, (accounts.get(acct) ?? 0) + amt);
+            const j = jobs.get(cid);
+            if (j) j[kind] += amt;
+          } else {
+            unassigned += amt;
+          }
+        }
+      };
+      for (const b of bills) addLines(b, 'bills', b.VendorRef?.name ?? 'Unknown', 1);
+      for (const p of purchases) addLines(p, 'expenses', p.EntityRef?.name ?? 'Unknown', p.Credit ? -1 : 1);
+
+      const r0 = (n) => Math.round(n);
+      const pct = (num, den) => (den > 0 ? Math.round((num / den) * 1000) / 10 : null);
+      const rows = [...jobs.values()].map((j) => {
+        const cost = j.bills + j.expenses;
+        const nums = j.docs.filter((d) => typeof d === 'number');
+        return {
+          job: nums.length ? Math.min(...nums) : 0,
+          invoices: j.docs.length,
+          type: j.type,
+          complete: j.open < 1,
+          revenue: r0(j.revenue),
+          cost: r0(cost),
+          marginPct: pct(j.revenue - cost, j.revenue),
+        };
+      }).sort((a, b) => b.job - a.job);
+
+      const done = rows.filter((r) => r.complete && r.cost > 0);
+      const margins = done.map((r) => r.marginPct).filter((m) => m !== null).sort((a, b) => a - b);
+      const q = (p) => (margins.length ? margins[Math.min(margins.length - 1, Math.floor(p * margins.length))] : null);
+      const byType = {};
+      for (const r of done) {
+        const t = r.type ?? '(none)';
+        byType[t] ??= { jobs: 0, revenue: 0, cost: 0 };
+        byType[t].jobs += 1; byType[t].revenue += r.revenue; byType[t].cost += r.cost;
+      }
+      for (const t of Object.values(byType)) t.marginPct = pct(t.revenue - t.cost, t.revenue);
+      const top = (m, n) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => [k, r0(v)]);
+
+      return res.status(200).json({
+        window: { since, months },
+        counts: { invoices: invoices.length, bills: bills.length, expenses: purchases.length, jobs: rows.length, completeJobsWithCost: done.length, completeJobsNoCost: rows.filter((r) => r.complete && r.cost === 0).length },
+        spend: { assignedToJobs: r0(assigned), notAssigned: r0(unassigned), assignedSharePct: pct(assigned, assigned + unassigned) },
+        completeJobs: {
+          revenue: r0(done.reduce((s, r) => s + r.revenue, 0)),
+          cost: r0(done.reduce((s, r) => s + r.cost, 0)),
+          weightedMarginPct: pct(done.reduce((s, r) => s + r.revenue - r.cost, 0), done.reduce((s, r) => s + r.revenue, 0)),
+          marginP25: q(0.25), marginMedian: q(0.5), marginP75: q(0.75),
+          byType,
+        },
+        topVendors: top(vendors, 15),
+        topAccounts: top(accounts, 12),
+        jobs: rows.slice(0, 150),
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
   if (req.method === 'POST' && action === 'qb-connect') {
     if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
     try {

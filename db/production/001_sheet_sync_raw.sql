@@ -1,5 +1,5 @@
 -- Production module, step 1: raw copy of the production sheets and the sync bookkeeping.
--- NOT APPLIED. See README.md. Names carry the dev_ prefix until go-live.
+-- Applied 2026-10-26 (migration production_001_sheet_sync_raw). See README.md. Names carry the dev_ prefix until go-live.
 
 create table if not exists public.dev_sheet_rows_raw (
   id            uuid primary key default gen_random_uuid(),

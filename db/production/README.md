@@ -1,6 +1,6 @@
 # Production module SQL
 
-These files are applied by hand, in order, and are never run by the app. Nothing here has been applied yet.
+These files are applied by hand, in order, and are never run by the app. Record each one in the table below when it is applied.
 
 Rules:
 
@@ -10,6 +10,6 @@ Rules:
 - Each file is safe to run twice (`if not exists`).
 - Rollback: `drop table` for the `dev_` tables. Nothing else depends on them.
 
-| File | What it creates |
-|---|---|
-| `001_sheet_sync_raw.sql` | raw sheet rows, row history, sync runs and sync exceptions |
+| File | What it creates | Applied |
+|---|---|---|
+| `001_sheet_sync_raw.sql` | raw sheet rows, row history, sync runs and sync exceptions | 2026-10-26 to Caliber's live project (`jqgjgwrwrxmtdamjpctg`) as migration `production_001_sheet_sync_raw`; four empty `dev_` tables, RLS on, existing tables untouched |

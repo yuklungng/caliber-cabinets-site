@@ -1,4 +1,5 @@
 /* global process */
+import './_lib/readonly.js';
 import { createClient } from '@supabase/supabase-js';
 import { batchGetDealStages, createDealNote, getAllPipelineDeals } from './_lib/hubspot.js';
 import { checkAuth } from './_lib/auth.js';

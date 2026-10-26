@@ -66,15 +66,18 @@ Emergency edits: unprotect the mirror, edit, and re-import afterward by a writte
 
 ## Development isolation (decided 2026-10-26)
 
-The module must not be able to affect Mike's live site while it is being built.
+The module must not be able to affect Mike's live site or books while it is being built. First plan was a separate dev Supabase project. It was dropped: Morris's free org is full at two projects, and a project in Mike's org would add to his bill. The plan below uses Caliber's own database with new `dev_` tables and a read-only switch.
 
-- Database: a separate free Supabase project in Morris's own org ("Caliber Dev"). The preview deployment points at it, never at Caliber's live project. The preview has a small sanitized sample of leads and payments for testing the Financial-tab link. Creating the project needs the Supabase connector authorized to Morris's org; it is currently authorized to Caliber's org only, and a project created there would bill Mike.
-- Credentials: no live QuickBooks or HubSpot keys on the preview. QuickBooks development uses an Intuit sandbox company.
+- Tables: every module table is new and named `dev_<name>` (for example `dev_sheet_rows_raw`, `dev_production_jobs`, `dev_job_links`), with RLS on and no policies. They are created only by SQL kept in `db/production/` and applied by hand. Nothing is ever added to an existing table for dev, because live code reads those with `select('*')` and the CSV export and backup restore include every column. Go-live is a table rename or one env change for the prefix. A table-name helper adds `dev_` by default, so a mistake lands in dev.
+- Read-only preview: the Hobby preview runs with `READ_ONLY_PREVIEW=1`. `api/_lib/readonly.js`, imported by every `api/*.js`, refuses every Supabase, HubSpot and QuickBooks write except writes to `dev_*` tables and `admin_sessions` (so sign-in works), HubSpot POSTs that are searches or batch reads, and QuickBooks POSTs to `/query`. It also blocks QuickBooks token refresh and revoke, because Intuit rotates the refresh token on every use and a new token that cannot be saved would break Mike's connection. `lead-submit` returns 403 so no email or HubSpot write happens. `node scripts/test-readonly.mjs` checks it. The flag is never set on Mike's project.
+- Consequence: the existing admin on the preview can be browsed but not edited, and write-path fixes to existing features cannot be tested there. QuickBooks calls on the preview work only while the stored access token is valid.
+- Credentials: remove the live QuickBooks and HubSpot keys from the Hobby project anyway. QuickBooks development uses an Intuit sandbox company.
 - Code: everything sits behind `PRODUCTION_MODULE_ENABLED`, default off. With the flag off the admin tab is not rendered and the module's API endpoint returns 404. Small pieces merge to `main` dark. Mike's project gets the flag only at a stage review.
-- Schema: additive only (new tables, no changes to existing ones), so rollback is flag off. The SQL is kept in `db/production/` in the repo and applied by hand to dev first, then live. This is the one exception to "no migration files", because there are now two databases and we need a record of what ran where.
+- Schema: additive only (new tables, no changes to existing ones), so rollback is flag off and dropping the `dev_` tables. This is the one exception to "no migration files", because we need a record of what ran.
 - Cron: the sync schedule is added to `vercel.json` only when a stage needs it, behind `PRODUCTION_SYNC_ENABLED`, default off. Vercel runs crons only on production deployments.
-- Sheets: developed against a copy that Morris owns. Mike's originals are touched only at cutover, after ownership moves to Mike.
-- Verification: after each change, the commit hash shown in the admin corner stamp is checked on both sites (preview and Mike's), so everyone knows what is actually deployed where.
+- Sheets: developed against a copy that Morris owns. Mike's originals are touched only at cutover, after ownership moves to Mike. Because the data lands in Mike's own database, stage reviews can use real jobs and no customer data leaves his account.
+- Verification: after each change, the commit hash in the admin corner stamp is checked on both sites (preview and Mike's), so everyone knows what is deployed where.
+- What is given up: this is not a hard boundary. The preview still holds the live service-role key, so keeping to `dev_` depends on code, and the read-only switch is the safety net. A stronger version is a Postgres role limited to read plus `dev_` tables, used by the preview in place of the service key. That needs database work on the live project and is not planned.
 
 ## Purchasing and cost capture (later phase, separate scope)
 

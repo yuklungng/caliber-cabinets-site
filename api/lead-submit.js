@@ -1,5 +1,6 @@
 /* global process */
 
+import { isReadOnlyPreview } from './_lib/readonly.js';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { buildHtmlEmail } from './_lib/email-template.js';
@@ -35,6 +36,11 @@ async function geocodeAddress(addressStr) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Previews that point at live data must not create leads, send email or write to HubSpot.
+  if (isReadOnlyPreview()) {
+    return res.status(403).json({ error: 'Read-only preview: submissions are disabled.' });
   }
 
   const { formType, fields, turnstileToken } = req.body;

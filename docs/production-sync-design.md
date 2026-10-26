@@ -64,6 +64,18 @@ Visible to Mike and Morris in the portal, not buried in logs: missing job number
 
 Emergency edits: unprotect the mirror, edit, and re-import afterward by a written procedure. Without it, the sheet and the app drift apart.
 
+## Development isolation (decided 2026-10-26)
+
+The module must not be able to affect Mike's live site while it is being built.
+
+- Database: a separate free Supabase project in Morris's own org ("Caliber Dev"). The preview deployment points at it, never at Caliber's live project. The preview has a small sanitized sample of leads and payments for testing the Financial-tab link. Creating the project needs the Supabase connector authorized to Morris's org; it is currently authorized to Caliber's org only, and a project created there would bill Mike.
+- Credentials: no live QuickBooks or HubSpot keys on the preview. QuickBooks development uses an Intuit sandbox company.
+- Code: everything sits behind `PRODUCTION_MODULE_ENABLED`, default off. With the flag off the admin tab is not rendered and the module's API endpoint returns 404. Small pieces merge to `main` dark. Mike's project gets the flag only at a stage review.
+- Schema: additive only (new tables, no changes to existing ones), so rollback is flag off. The SQL is kept in `db/production/` in the repo and applied by hand to dev first, then live. This is the one exception to "no migration files", because there are now two databases and we need a record of what ran where.
+- Cron: the sync schedule is added to `vercel.json` only when a stage needs it, behind `PRODUCTION_SYNC_ENABLED`, default off. Vercel runs crons only on production deployments.
+- Sheets: developed against a copy that Morris owns. Mike's originals are touched only at cutover, after ownership moves to Mike.
+- Verification: after each change, the commit hash shown in the admin corner stamp is checked on both sites (preview and Mike's), so everyone knows what is actually deployed where.
+
 ## Purchasing and cost capture (later phase, separate scope)
 
 Not part of the five review stages. Recorded here so the production tables leave room for it.

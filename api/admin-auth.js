@@ -1,5 +1,5 @@
 /* global process */
-import './_lib/readonly.js';
+import { isReadOnlyPreview } from './_lib/readonly.js';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -61,6 +61,7 @@ export default async function handler(req, res) {
       urlLength: raw.length, urlHasWhitespace: raw !== raw.trim(),
       serviceKeyLength: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').length,
       adminPasswordSet: Boolean(process.env.ADMIN_PASSWORD),
+      readOnlyPreview: isReadOnlyPreview(),
     };
     try {
       const r = await fetch(`${raw.trim()}/rest/v1/admin_users?select=id&limit=1`, {

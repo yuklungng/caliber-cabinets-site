@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
@@ -7,6 +7,7 @@ import { WinLossInsights } from '../components/WinLossInsights.jsx';
 import { VersionTag } from '../components/VersionTag.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
 import { FAQ_CATEGORIES, DEFAULT_FAQ_CATEGORY, sortFaqs } from '../lib/faqCategories.js';
+const ProductionView = lazy(() => import('../components/production/ProductionView.jsx'));
 
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -7873,6 +7874,7 @@ const NAV_ITEMS = [
   { key: 'performance', label: 'Performance', section: null, bookkeeperHidden: true },
   { key: 'site-stats', label: 'Site Stats', section: null, bookkeeperHidden: true },
   { key: 'cashflow', label: 'Financial', section: null },
+  { key: 'production', label: 'Production', section: null, superAdminOnly: true, bookkeeperHidden: true, flag: 'productionModule' },
   { key: 'projects', label: 'Projects', section: 'Content', bookkeeperHidden: true },
   { key: 'faqs', label: 'FAQs', section: 'Content', bookkeeperHidden: true },
   { key: 'backup', label: 'Backup', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
@@ -7882,13 +7884,14 @@ const NAV_ITEMS = [
   { key: 'users', label: 'User Access', section: 'Settings', superAdminOnly: true, bookkeeperHidden: true },
 ];
 
-function Sidebar({ activeView, onNavigate, currentUser, winRate }) {
+function Sidebar({ activeView, onNavigate, currentUser, winRate, flags }) {
   const isMobile = useIsMobile();
   const [winTipOpen, setWinTipOpen] = useState(false);
   const isSuperAdmin = currentUser?.is_super_admin;
   const isBookkeeper = !isSuperAdmin && currentUser?.role === 'bookkeeper';
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
+    if (item.flag && !flags?.[item.flag]) return false;
     if (isBookkeeper && item.bookkeeperHidden) return false;
     return true;
   });
@@ -8069,6 +8072,7 @@ export function AdminPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeView, setActiveView] = useState('leads');
   const [navWinRate, setNavWinRate] = useState(null); // bubbled up from LeadsView, shown in nav on all tabs
+  const [flags, setFlags] = useState({}); // server feature flags (e.g. the Production module), empty until loaded
   const [qbBanner, setQbBanner] = useState(null); // { type: 'success' | 'error', message }
   // Token from a password-reset email link (/admin?reset=<token>). Read once, then
   // stripped from the URL so it isn't left in the address bar or browser history.
@@ -8147,6 +8151,12 @@ export function AdminPage() {
     window.history.replaceState({}, '', window.location.pathname);
   }, [authState]);
 
+  // Feature flags are fetched once signed in; a failed fetch just leaves every flagged item hidden.
+  useEffect(() => {
+    if (authState !== 'authed') return;
+    apiCall('/api/admin-settings?resource=flags').then((r) => (r.ok ? r.json() : {})).then(setFlags).catch(() => {});
+  }, [authState]);
+
   const isMobile = useIsMobile();
 
   if (resetToken) return <ResetPasswordScreen token={resetToken} onDone={() => { setResetToken(null); setAuthState('login'); }} />;
@@ -8168,6 +8178,7 @@ export function AdminPage() {
     if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView isSuperAdmin={isSuperAdmin} />;
     switch (activeView) {
       case 'cashflow': return <FinancialView isSuperAdmin={isSuperAdmin} />;
+      case 'production': return flags.productionModule && isSuperAdmin ? <Suspense fallback={null}><ProductionView /></Suspense> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
       case 'confirmations': return <ConfirmationsPanel />;
@@ -8216,7 +8227,7 @@ export function AdminPage() {
 
       {/* Body */}
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '12px' : '24px 16px', gap: isMobile ? '12px' : '24px', alignItems: 'flex-start' }}>
-        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} winRate={navWinRate} />
+        <Sidebar activeView={activeView} onNavigate={setActiveView} currentUser={currentUser} winRate={navWinRate} flags={flags} />
         <main style={{ flex: 1, minWidth: 0, width: '100%' }}>
           {renderView()}
         </main>

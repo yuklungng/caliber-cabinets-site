@@ -2,10 +2,15 @@
 import './_lib/readonly.js';
 import { createClient } from '@supabase/supabase-js';
 import { checkAuth } from './_lib/auth.js';
+import { handleProduction, publicFlags } from './_lib/production.js';
 
 export default async function handler(req, res) {
   const auth = await checkAuth(req);
   if (!auth.ok) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Production module: feature flags for the admin UI, and the module's own endpoint (404 while its flag is off).
+  if (req.method === 'GET' && req.query?.resource === 'flags') return res.status(200).json(publicFlags());
+  if (req.query?.resource === 'production') return handleProduction(req, res, auth);
 
   const supabase = createClient(
     process.env.SUPABASE_URL,

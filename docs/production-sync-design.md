@@ -2,6 +2,18 @@
 
 Draft, 2026-10-23. For Morris to review before anything is built.
 
+## Product requirements (major, decided 2026-10-30)
+
+Not a spreadsheet replica. Moving the old data across is a data requirement. Copying how the sheets work is not a goal. The module exists to bring better UX/UI and a better process, and every design decision is tested against that.
+
+- Screens start from a person's question, not a sheet's columns. Carlos: what must I order or chase today. Installer: where am I tomorrow, with address, time and site notes. Mike: what is at risk this week. Anna: which quotes are waiting on whom. Chris: what is in my queue.
+- Enter once. Customer, job number, amounts and payment status come from HubSpot, QuickBooks and the Financial tab. Dates are proposed by the system and confirmed by Mike. Nobody re-types a fact that exists elsewhere.
+- Exceptions first. A role's home screen lists what needs action (late, blocked, unconfirmed, unpaid, missing part), not rows to scan.
+- Phone first. One-handed use, big tap targets, a photo instead of typing, works on weak shop wifi.
+- Columns nobody uses are not carried over. Mike confirms the field and stage list at stage 1.
+- Measured, not asserted. Before and after: time to find a job, fields typed per job, places a fact is stored, items found late. Sheet parity is never an acceptance test.
+- Process before screens. Stage 1 starts with half a day each with Mike, Carlos, Anna, Chris and the installer, watching and asking what they do when they start the day. Each role's home screen is shown to Mike as a clickable prototype before it is built. The sheet sync is plumbing and can proceed in parallel, but no screen is designed from the sheet.
+
 ## Rule
 
 Google Sheets stay the system of record until cutover. Until then the sync is one way, Sheets into Supabase. The app never edits a sheet, with one exception: it writes a row ID into a hidden column (see Row identity). Every review stage runs on Mike's live data.
@@ -64,6 +76,33 @@ Visible to Mike and Morris in the portal, not buried in logs: missing job number
 
 Emergency edits: unprotect the mirror, edit, and re-import afterward by a written procedure. Without it, the sheet and the app drift apart.
 
+## Design pipeline and Dropbox (decided 2026-10-30)
+
+The module also takes over the design pipeline that runs in Dropbox today, so a job is one record from the first drawing to the finished install.
+
+Today (10/29 review): each job is a Dropbox folder, and its stage is which folder it sits in: New jobs, In design (Chris), Mike's review, Waiting for quote, Quote center, Waiting on customer, Info requested, Approved, In shop, Archives, and Lost quotes. Anna moves folders by hand. A folder that is open elsewhere refuses the move. The counts drift from the admin dashboard (25 in Waiting on customer against 19 quotes sent, six not moved). "Info requested" means we do not know materials or wall sizes, so we cannot quote. "Waiting on customer" means the quote and drawing were sent and the customer owes an answer.
+
+Target:
+
+- The stage lives in the app, in one place. Dropbox holds only files (drawings, photos, signed documents). Nobody moves a folder to change a stage.
+- HubSpot stays the source for the sales stage. The design sub-status (in design, Mike's review, ready to price) and the assigned designer live in the module and sit inside HubSpot's Qualified stage.
+- Changing a stage in the app creates, renames or moves the job's Dropbox folder and keeps the link on the job. Opening a job opens its folder.
+- A queue for each person: Chris sees his design queue and its age, Mike sees what waits on his review, Anna sees which quotes wait on whom.
+- Hand-off at Approved: the job gets its job number and enters production with its folder already linked. Completed jobs archive themselves.
+- During the transition, a reconciliation view lists jobs whose folder and app status disagree.
+
+Build in this order, each step approved by Mike:
+
+1. Read only. List the folders, match each to a HubSpot deal, show the drift. No writes.
+2. Link a folder to each job and show it in the job.
+3. Writes: create and move folders from stage changes, behind a flag.
+
+Development rules: a separate Dropbox app with the smallest scopes, its token in env vars; development against a test Dropbox folder, not Mike's real folders; the read-only preview guard must be extended to Dropbox hosts. Dropbox's API uses POST for reads as well as writes, so the guard needs an allowlist of read endpoints (list, metadata, shared-link listing) and blocks create, move, delete and upload.
+
+Open questions: who owns the Dropbox account and on what plan; whether an app can be created and by whom; the folder naming rule today (customer name, job number, both); where Cabinet Vision files live; who can move folders; whether the stage names above are final.
+
+Scope: this is well beyond the production-sheets price. It is priced as its own phase after the process discovery.
+
 ## Development isolation (decided 2026-10-26)
 
 The module must not be able to affect Mike's live site or books while it is being built. First plan was a separate dev Supabase project. It was dropped: Morris's free org is full at two projects, and a project in Mike's org would add to his bill. The plan below uses Caliber's own database with new `dev_` tables and a read-only switch.
@@ -123,3 +162,7 @@ Before this phase starts:
 5. OCR scan-to-text screen: accuracy bar and cost per scan, tested on about 30 real orders before building.
 6. Purchasing and cost capture (section above): scope and price separately once the open questions there are answered. Cost capture and estimating go well beyond the production-sheets price.
 7. Free-text fields: the QuickBooks Sales Type on invoices has four spellings of Lump Sum. The module uses a fixed list.
+8. Design pipeline and Dropbox (section above): account, API access, folder rules and price.
+9. Process discovery before screen design (Product requirements): schedule half a day per role with Mike, Carlos, Anna, Chris and the installer.
+10. Punch List is a core screen (Mike named it among the four most used sheets): item, job, part status (ready, not ready, on order, need to order), assigned person from the staff roster, time, confirmed. "Need to order" feeds the order queue.
+11. Install payment checkmarks and due dates are shown read-only from the Financial tab, not entered. Payment stages must be configurable, since Mike is weighing 10/40/45/5; nothing is built for that until it is decided and reviewed legally.

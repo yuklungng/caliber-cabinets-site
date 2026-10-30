@@ -80,7 +80,9 @@ Emergency edits: unprotect the mirror, edit, and re-import afterward by a writte
 
 The module also takes over the design pipeline that runs in Dropbox today, so a job is one record from the first drawing to the finished install.
 
-Today (10/29 review): each job is a Dropbox folder, and its stage is which folder it sits in: New jobs, In design (Chris), Mike's review, Waiting for quote, Quote center, Waiting on customer, Info requested, Approved, In shop, Archives, and Lost quotes. Anna moves folders by hand. A folder that is open elsewhere refuses the move. The counts drift from the admin dashboard (25 in Waiting on customer against 19 quotes sent, six not moved). "Info requested" means we do not know materials or wall sizes, so we cannot quote. "Waiting on customer" means the quote and drawing were sent and the customer owes an answer.
+How a design job runs today (from the 10/07 and 10/14 meetings): a lead comes in; Anna schedules a showroom meeting with Mike first, then puts the job in Chris's queue. Chris collects what he needs from the customer's emails and Mike's notes, asks the customer for anything missing (materials, heights, site photos), then draws in Cabinet Vision (plans, elevations, 2D and 3D, printed sheets) and prepares the cut and CNC code. He works on Mike's computer through TeamViewer, and batches drawings in one block and pricing in another. Mike reviews, the quote goes out, and the job waits on the customer. The first drawing and quote are free, two revisions are included, then $195 an hour (contract). A revision takes at least about two hours. A "HOT, Revisions Needed" box jumps the queue, because those customers are closest to a deposit. September numbers: 15 new drawings, about 15 revisions, 25 drawings and codes sent, 20 customers waiting in the queue.
+
+Folders today (10/14 review): each job is a Dropbox folder, and its stage is which folder it sits in: New jobs, In design (Chris), Mike's review, Waiting for quote, Quote center, Waiting on customer, Info requested, Approved, In shop, Archives, and Lost quotes. Anna moves folders by hand. A folder that is open elsewhere refuses the move. The counts drift from the admin dashboard (25 in Waiting on customer against 19 quotes sent, six not moved). "Info requested" means we do not know materials or wall sizes, so we cannot quote. "Waiting on customer" means the quote and drawing were sent and the customer owes an answer.
 
 Target:
 
@@ -88,6 +90,7 @@ Target:
 - HubSpot stays the source for the sales stage. The design sub-status (in design, Mike's review, ready to price) and the assigned designer live in the module and sit inside HubSpot's Qualified stage.
 - Changing a stage in the app creates, renames or moves the job's Dropbox folder and keeps the link on the job. Opening a job opens its folder.
 - A queue for each person: Chris sees his design queue and its age, Mike sees what waits on his review, Anna sees which quotes wait on whom.
+- Design fields the module tracks: queue position and age, a HOT flag that jumps the queue, missing-information requests sent (what was asked, when, still open), the revision count with a flag when the next revision is chargeable, who the job waits on (Chris, Mike, customer for a decision, customer for information), and links to the drawings and the Cabinet Vision files.
 - Hand-off at Approved: the job gets its job number and enters production with its folder already linked. Completed jobs archive themselves.
 - During the transition, a reconciliation view lists jobs whose folder and app status disagree.
 
@@ -102,6 +105,23 @@ Development rules: a separate Dropbox app with the smallest scopes, its token in
 Open questions: who owns the Dropbox account and on what plan; whether an app can be created and by whom; the folder naming rule today (customer name, job number, both); where Cabinet Vision files live; who can move folders; whether the stage names above are final.
 
 Scope: this is well beyond the production-sheets price. It is priced as its own phase after the process discovery.
+
+## Shop flow and just-in-time ordering (10/29 meeting)
+
+Mike deliberately does not order everything for a job at once: a large bill (his example, $80,000) landing ahead of the invoices that pay for it (about $40,000) hurts cash. So Carlos tells Mike roughly three days before he runs out of work ("I need a job in three days"), and Mike orders then. Doors are the critical path at about a week; hardware arrives the next day. Carlos cuts, edge-bands and CNCs while the doors are on their way, and assembles when they arrive. A job also cannot enter the shop until Mike has settled colors and similar details, which means phone calls. If Mike misses by a day or two, other things slip.
+
+Today Mike orders by filling out a form, scanning the paperwork and sending it to the vendor. Morris's picture of the module, which Mike accepted: Carlos taps a button for "I need my next job". The module shows the next prioritized job and what is ready or missing for it (colors confirmed, doors ordered with an arrival date, hardware ordered), what to order and when given each part's lead time, and drafts the vendor order email with its attachments into Mike's outbox, where he reviews it before sending. The module lays out the production process from the estimate.
+
+Features this implies:
+
+- Shop runway: days of work left in the shop, from the stages of the jobs in it.
+- Next-job readiness: a checklist per job (colors, doors with ETA, hardware, drawings final) so the question "can this job enter the shop" has a visible answer.
+- A "next job" request from Carlos that notifies Mike, and a prioritized order queue with lead times by part type (doors about a week, hardware next day). Ordering windows are suggested, never automatic.
+- Cash-aware ordering: show planned orders against expected invoiced receipts from the Financial tab, so ordering matches cash coming in.
+- Drafted vendor emails with the form attached, reviewed by Mike before sending. This is the first step of the later purchasing phase.
+- One job record by job number (the QuickBooks invoice number; the estimate number is separate) showing the specs: paint color, edge-band color, accessories, and the door order with sizes, so nobody searches for them.
+- Carlos reads, he does not edit. He has an Android phone and no Google account of his own for work, and Google Drive access to the sheets took Mike and Morris half an hour during the meeting. The module signs in without a Google account and works as a plain web page on his phone.
+- Mike has offered to let Morris watch him put a job together, adding that he has done it the same way for 17 years and knows no other. That visit is the first process-discovery session. Morris schedules it after his trip.
 
 ## Development isolation (decided 2026-10-26)
 
@@ -164,5 +184,8 @@ Before this phase starts:
 7. Free-text fields: the QuickBooks Sales Type on invoices has four spellings of Lump Sum. The module uses a fixed list.
 8. Design pipeline and Dropbox (section above): account, API access, folder rules and price.
 9. Process discovery before screen design (Product requirements): schedule half a day per role with Mike, Carlos, Anna, Chris and the installer.
-10. Punch List is a core screen (Mike named it among the four most used sheets): item, job, part status (ready, not ready, on order, need to order), assigned person from the staff roster, time, confirmed. "Need to order" feeds the order queue.
-11. Install payment checkmarks and due dates are shown read-only from the Financial tab, not entered. Payment stages must be configurable, since Mike is weighing 10/40/45/5; nothing is built for that until it is decided and reviewed legally.
+10. Punch List is a core screen (Mike named it among the four most used sheets on 10/14): item, job, part status (ready, not ready, on order, need to order), assigned person from the staff roster, time, confirmed. "Need to order" feeds the order queue.
+11. Install payment checkmarks and due dates are shown read-only from the Financial tab, not entered. Payment stages must be configurable, since Mike floated 10/40/45/5 on 10/14; nothing is built for that until it is decided and reviewed legally.
+
+12. Shop flow and just-in-time ordering (section above): the first discovery session is Mike putting a job together while Morris watches.
+13. Carlos and any other floor user sign in without a Google account.

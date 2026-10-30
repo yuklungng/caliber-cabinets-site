@@ -17,6 +17,10 @@
  *     to admin_sessions (so signing in and out still works)
  *   - HubSpot POSTs that are reads (search, batch/read)
  *   - QuickBooks POSTs to /query
+ *   - Google: the service-account token exchange (oauth2.googleapis.com/token)
+ *     and nothing else that is not a GET against Sheets or Drive
+ *   - Dropbox: only the read endpoints listed in DROPBOX_READ_PATHS (Dropbox
+ *     uses POST for reads, so a method check alone is not enough)
  *
  * QuickBooks token refresh and revoke are blocked on purpose: Intuit rotates
  * the refresh token on every use, and if the new one cannot be saved the stored
@@ -40,11 +44,28 @@ const INTUIT_HOSTS = new Set([
   'sandbox-quickbooks.api.intuit.com',
 ]);
 
+// Sheets and Drive are read-only for the module: the sheets stay the source of
+// truth until cutover. Reads there are GET, so anything else is refused.
+const GOOGLE_SHEETS_HOSTS = new Set(['sheets.googleapis.com', 'drive.googleapis.com']);
+
+// Dropbox reads are POSTs. Anything not listed here is refused (create, move,
+// delete, upload, share and so on). Token refresh does not rotate the refresh token.
+const DROPBOX_HOSTS = new Set(['api.dropboxapi.com', 'content.dropboxapi.com', 'api.dropbox.com']);
+const DROPBOX_READ_PATHS = new Set([
+  '/2/files/list_folder',
+  '/2/files/list_folder/continue',
+  '/2/files/get_metadata',
+  '/2/files/get_temporary_link',
+  '/2/files/get_thumbnail_v2',
+  '/2/files/download',
+  '/2/users/get_current_account',
+  '/oauth2/token',
+]);
+
 /** Returns a reason string when this request must be refused, or null. */
 export function blockedReason(url, method) {
   if (!isReadOnlyPreview()) return null;
   const verb = String(method || 'GET').toUpperCase();
-  if (READ_METHODS.has(verb)) return null;
 
   let u;
   try {
@@ -52,6 +73,16 @@ export function blockedReason(url, method) {
   } catch {
     return null;
   }
+
+  // Dropbox is checked before the read-method shortcut would matter: its reads are POSTs.
+  if (DROPBOX_HOSTS.has(u.host)) {
+    return DROPBOX_READ_PATHS.has(u.pathname) ? null : `Dropbox ${verb} ${u.pathname}`;
+  }
+
+  if (READ_METHODS.has(verb)) return null;
+
+  const driveViaWww = u.host === 'www.googleapis.com' && /^\/(upload\/)?drive\//.test(u.pathname);
+  if (GOOGLE_SHEETS_HOSTS.has(u.host) || driveViaWww) return `Google ${verb} ${u.host}${u.pathname}`;
 
   let supabaseHost = null;
   try { supabaseHost = new URL(process.env.SUPABASE_URL ?? '').host; } catch { /* unset */ }

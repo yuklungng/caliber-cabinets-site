@@ -1,5 +1,6 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
+import { isSheetsConfigured, listSharedSpreadsheets, listTabs, serviceAccountEmail } from './googleSheets.js';
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -59,6 +60,33 @@ export async function handleProduction(req, res, auth) {
       readOnlyPreview: isReadOnlyPreview(),
       tables: TABLES.map(tbl),
     });
+  }
+
+  // Lists the DEV COPY spreadsheets shared with the module's service account and their tabs.
+  // Read-only. Anything shared that is not named DEV COPY is reported so it can be unshared:
+  // the module must only ever see copies, never Mike's originals.
+  if (req.method === 'GET' && req.query?.action === 'sheets-status') {
+    if (!isSheetsConfigured()) {
+      return res.status(200).json({ configured: false, note: 'GOOGLE_SHEETS_SA_JSON is not set or is not valid JSON' });
+    }
+    try {
+      const files = await listSharedSpreadsheets();
+      const isCopy = (f) => /dev copy/i.test(f.name);
+      const copies = [];
+      for (const f of files.filter(isCopy)) {
+        copies.push({ name: f.name, id: f.id, modifiedTime: f.modifiedTime, tabs: await listTabs(f.id) });
+      }
+      const others = files.filter((f) => !isCopy(f)).map((f) => f.name);
+      return res.status(200).json({
+        configured: true,
+        serviceAccount: serviceAccountEmail(),
+        copies,
+        notCopies: others,
+        warning: others.length ? 'Spreadsheets not named DEV COPY are shared with the service account. Unshare them.' : null,
+      });
+    } catch (e) {
+      return res.status(502).json({ configured: true, error: String(e.message ?? e) });
+    }
   }
 
   return res.status(404).json({ error: 'Not found' });

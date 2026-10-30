@@ -108,7 +108,7 @@ Scope: this is well beyond the production-sheets price. It is priced as its own 
 
 ## Shop flow and just-in-time ordering (10/29 meeting)
 
-Mike deliberately does not order everything for a job at once: a large bill (his example, $80,000) landing ahead of the invoices that pay for it (about $40,000) hurts cash. So Carlos tells Mike roughly three days before he runs out of work ("I need a job in three days"), and Mike orders then. Doors are the critical path at about a week; hardware arrives the next day. Carlos cuts, edge-bands and CNCs while the doors are on their way, and assembles when they arrive. A job also cannot enter the shop until Mike has settled colors and similar details, which means phone calls. If Mike misses by a day or two, other things slip.
+Mike deliberately does not order everything for a job at once: a large bill landing ahead of the invoices that pay for it hurts cash. So Carlos tells Mike roughly three days before he runs out of work ("I need a job in three days"), and Mike orders then. Doors are the critical path at about a week; hardware arrives the next day. Carlos cuts, edge-bands and CNCs while the doors are on their way, and assembles when they arrive. A job also cannot enter the shop until Mike has settled colors and similar details, which means phone calls. If Mike misses by a day or two, other things slip.
 
 Today Mike orders by filling out a form, scanning the paperwork and sending it to the vendor. Morris's picture of the module, which Mike accepted: Carlos taps a button for "I need my next job". The module shows the next prioritized job and what is ready or missing for it (colors confirmed, doors ordered with an arrival date, hardware ordered), what to order and when given each part's lead time, and drafts the vendor order email with its attachments into Mike's outbox, where he reviews it before sending. The module lays out the production process from the estimate.
 
@@ -120,29 +120,29 @@ Features this implies:
 - Cash-aware ordering: show planned orders against expected invoiced receipts from the Financial tab, so ordering matches cash coming in.
 - Drafted vendor emails with the form attached, reviewed by Mike before sending. This is the first step of the later purchasing phase.
 - One job record by job number (the QuickBooks invoice number; the estimate number is separate) showing the specs: paint color, edge-band color, accessories, and the door order with sizes, so nobody searches for them.
-- Carlos reads, he does not edit. He has an Android phone and no Google account of his own for work, and Google Drive access to the sheets took Mike and Morris half an hour during the meeting. The module signs in without a Google account and works as a plain web page on his phone.
-- Mike has offered to let Morris watch him put a job together, adding that he has done it the same way for 17 years and knows no other. That visit is the first process-discovery session. Morris schedules it after his trip.
+- Carlos reads, he does not edit. The module signs in without a Google account and works as a plain web page on a phone.
+- Mike has offered to let Morris watch him put a job together. That visit is the first process-discovery session.
 
 ## Development isolation (decided 2026-10-26)
 
 The module must not be able to affect Mike's live site or books while it is being built. First plan was a separate dev Supabase project. It was dropped: Morris's free org is full at two projects, and a project in Mike's org would add to his bill. The plan below uses Caliber's own database with new `dev_` tables and a read-only switch.
 
 - Tables: every module table is new and named `dev_<name>` (for example `dev_sheet_rows_raw`, `dev_production_jobs`, `dev_job_links`), with RLS on and no policies. They are created only by SQL kept in `db/production/` and applied by hand. Nothing is ever added to an existing table for dev, because live code reads those with `select('*')` and the CSV export and backup restore include every column. Go-live is a table rename or one env change for the prefix. A table-name helper adds `dev_` by default, so a mistake lands in dev.
-- Read-only preview: the Hobby preview runs with `READ_ONLY_PREVIEW=1`. `api/_lib/readonly.js`, imported by every `api/*.js`, refuses every Supabase, HubSpot and QuickBooks write except writes to `dev_*` tables and `admin_sessions` (so sign-in works), HubSpot POSTs that are searches or batch reads, and QuickBooks POSTs to `/query`. It also blocks QuickBooks token refresh and revoke, because Intuit rotates the refresh token on every use and a new token that cannot be saved would break Mike's connection. `lead-submit` returns 403 so no email or HubSpot write happens. `node scripts/test-readonly.mjs` checks it. The flag is never set on Mike's project.
+- Read-only preview: the preview project runs with `READ_ONLY_PREVIEW=1`. `api/_lib/readonly.js`, imported by every `api/*.js`, refuses every Supabase, HubSpot and QuickBooks write except writes to `dev_*` tables and `admin_sessions` (so sign-in works), HubSpot POSTs that are searches or batch reads, and QuickBooks POSTs to `/query`. It also blocks QuickBooks token refresh and revoke, because Intuit rotates the refresh token on every use and a new token that cannot be saved would break Mike's connection. `lead-submit` returns 403 so no email or HubSpot write happens. `node scripts/test-readonly.mjs` checks it. The flag is never set on Mike's project.
 - Consequence: the existing admin on the preview can be browsed but not edited, and write-path fixes to existing features cannot be tested there. QuickBooks calls on the preview work only while the stored access token is valid.
-- Credentials: remove the live QuickBooks and HubSpot keys from the Hobby project anyway. QuickBooks development uses an Intuit sandbox company.
+- Credentials: keep production credentials out of the preview project where possible. QuickBooks development uses an Intuit sandbox company.
 - Code: everything sits behind `PRODUCTION_MODULE_ENABLED`, default off. With the flag off the admin tab is not rendered and the module's API endpoint returns 404. Small pieces merge to `main` dark. Mike's project gets the flag only at a stage review.
 - Schema: additive only (new tables, no changes to existing ones), so rollback is flag off and dropping the `dev_` tables. This is the one exception to "no migration files", because we need a record of what ran.
 - Cron: the sync schedule is added to `vercel.json` only when a stage needs it, behind `PRODUCTION_SYNC_ENABLED`, default off. Vercel runs crons only on production deployments.
 - Sheets: developed against a copy that Morris owns. Mike's originals are touched only at cutover, after ownership moves to Mike. Because the data lands in Mike's own database, stage reviews can use real jobs and no customer data leaves his account.
 - Verification: after each change, the commit hash in the admin corner stamp is checked on both sites (preview and Mike's), so everyone knows what is deployed where.
-- What is given up: this is not a hard boundary. The preview still holds the live service-role key, so keeping to `dev_` depends on code, and the read-only switch is the safety net. A stronger version is a Postgres role limited to read plus `dev_` tables, used by the preview in place of the service key. That needs database work on the live project and is not planned.
+- What is given up: this is not a hard boundary. Keeping to `dev_` depends on code, and the read-only switch is the safety net. A stronger version is a database role limited to read plus `dev_` tables. That needs database work on the live project and is not planned.
 
 ## Purchasing and cost capture (later phase, separate scope)
 
 Not part of the five review stages. Recorded here so the production tables leave room for it.
 
-Why: QuickBooks does not track inventory. Parts are in the item catalog but never counted. Job cost exists only where a bill was assigned to a customer, and the first read-only report (2026-10-24) found most spend carries no job. The exact baseline is in the OneDrive findings doc, not here, because this repo is public. Pricing, cash flow and estimating all depend on knowing what a job actually cost.
+Why: QuickBooks does not track inventory. Parts are in the item catalog but never counted. Job cost exists only where a bill was assigned to a customer. The measurements behind this are in the OneDrive findings doc, not here, because this repo is public. Pricing, cash flow and estimating all depend on knowing what a job actually cost.
 
 Design:
 
@@ -172,7 +172,7 @@ Before this phase starts:
 
 ## Open items
 
-1. Sheet ownership. The files are owned by Morris's personal Gmail, with Mike as Editor. Move them to a Mike-owned account before the sync is wired up, because the service account and the cutover export both point at specific file IDs.
+1. Sheet ownership. The files are not yet owned by a Caliber account. Move them to a Mike-owned account before the sync is wired up, because the service account and the cutover export both point at specific file IDs.
 2. Sync frequency against Vercel Active CPU cost. Measure after the first week.
 3. Job Hardware Orders is 2.2 MB. Check whether images in cells inflate it before choosing a sync batch size.
 4. Stages and dates (decided 2026-10-23). Mike sets each job's stage, and nobody else does. Delivery, install and completion dates are proposed automatically from the production schedule and stage progress, so Mike reviews and edits them instead of typing them from scratch. Only Mike's confirmed date is final, which keeps the 10/14 rule that only an admin sets these dates. Carlos and Anna see them read-only. The Financial tab reads the dates for payment timing and keeps its "estimated" label until Mike confirms. The automation rules (for example, weeks from paperwork in shop to delivery) need Mike's real numbers at review stage 1, not guesses.

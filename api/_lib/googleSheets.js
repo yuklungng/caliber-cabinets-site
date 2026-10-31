@@ -102,4 +102,14 @@ export async function listTabs(spreadsheetId) {
   }));
 }
 
+/** First `rowCount` rows of a tab as text, cells cut to `maxLen` chars: [[cell, ...], ...]. */
+export async function readTopRows(spreadsheetId, tabTitle, rowCount = 6, maxLen = 40) {
+  const range = `'${tabTitle.replace(/'/g, "''")}'!A1:AZ${rowCount}`;
+  const q = new URLSearchParams({ majorDimension: 'ROWS', valueRenderOption: 'FORMATTED_VALUE' });
+  const j = await gget(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?${q}`,
+  );
+  return (j.values ?? []).map((row) => row.map((c) => String(c).slice(0, maxLen)));
+}
+
 export const serviceAccountEmail = () => loadServiceAccount()?.client_email ?? null;

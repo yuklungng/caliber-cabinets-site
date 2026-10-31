@@ -1,6 +1,6 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
-import { isSheetsConfigured, listSharedSpreadsheets, listTabs, serviceAccountEmail } from './googleSheets.js';
+import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readTopRows, serviceAccountEmail } from './googleSheets.js';
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -86,6 +86,24 @@ export async function handleProduction(req, res, auth) {
       });
     } catch (e) {
       return res.status(502).json({ configured: true, error: String(e.message ?? e) });
+    }
+  }
+
+  // Top rows of every tab of the DEV COPY sheets, so the header row and the shape of the data can be
+  // checked before the sync is written. Read-only; only DEV COPY spreadsheets are ever opened.
+  if (req.method === 'GET' && req.query?.action === 'sheets-headers') {
+    if (!isSheetsConfigured()) return res.status(200).json({ configured: false });
+    try {
+      const rows = Math.min(Number(req.query.rows) || 6, 12);
+      const files = (await listSharedSpreadsheets()).filter((f) => /dev copy/i.test(f.name));
+      const out = {};
+      for (const f of files) {
+        out[f.name] = {};
+        for (const t of await listTabs(f.id)) out[f.name][t.title] = await readTopRows(f.id, t.title, rows);
+      }
+      return res.status(200).json(out);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
     }
   }
 

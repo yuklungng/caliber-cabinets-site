@@ -1,6 +1,8 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
-import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readTopRows, serviceAccountEmail } from './googleSheets.js';
+import { createClient } from '@supabase/supabase-js';
+import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readTopRows, serviceAccountEmail } from './googleSheets.js';
+import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -100,6 +102,43 @@ export async function handleProduction(req, res, auth) {
       for (const f of files) {
         out[f.name] = {};
         for (const t of await listTabs(f.id)) out[f.name][t.title] = await readTopRows(f.id, t.title, rows);
+      }
+      return res.status(200).json(out);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // One sheet at a time (?sheet=production_status|install_schedule|hardware_orders).
+  // GET = dry run: reads the DEV COPY sheet and reports what a sync would do, no names, no writes.
+  // POST with commit=1 writes the dev_ raw tables. That needs PRODUCTION_SYNC_ENABLED=1 and dev table mode.
+  if (req.query?.action === 'sync') {
+    const sheetKey = String(req.query.sheet ?? '');
+    const cfg = SHEETS[sheetKey];
+    if (!cfg) return res.status(400).json({ error: 'sheet must be one of ' + Object.keys(SHEETS).join(', ') });
+    if (!isSheetsConfigured()) return res.status(200).json({ configured: false });
+    const commit = req.method === 'POST' && req.query.commit === '1';
+    if (commit && !isProductionSyncEnabled()) return res.status(403).json({ error: 'PRODUCTION_SYNC_ENABLED is not set' });
+    if (commit && tableMode() !== 'dev') return res.status(403).json({ error: 'Sync writes only to dev_ tables for now' });
+    try {
+      const files = (await listSharedSpreadsheets()).filter((f) => /dev copy/i.test(f.name) && cfg.spreadsheet.test(f.name));
+      if (files.length !== 1) return res.status(404).json({ error: `expected one DEV COPY sheet for ${sheetKey}, found ${files.length}` });
+      const tabs = await listTabs(files[0].id);
+      const main = tabs.find((t) => t.title === cfg.tab);
+      if (!main) return res.status(404).json({ error: 'tab not found: ' + cfg.tab });
+      const rows = await readAllRows(files[0].id, main.title, main.rows);
+      const { records, stats } = buildRecords(sheetKey, rows);
+      const commentsTab = tabs.find((t) => t.title === 'Comments');
+      const commentRows = commentsTab ? await readAllRows(files[0].id, commentsTab.title, commentsTab.rows) : [];
+      const comments = buildCommentRecords(sheetKey, commentRows, records);
+      const out = { sheet: sheetKey, mode: commit ? 'commit' : 'dry-run', jobs: summarize(records, stats), comments: summarize(comments, {}) };
+      if (commit) {
+        const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const t = { raw: tbl('sheet_rows_raw'), versions: tbl('sheet_row_versions'), runs: tbl('sync_runs'), exceptions: tbl('sync_exceptions') };
+        out.written = {
+          jobs: await writeRecords({ supabase, t, sheetKey, records }),
+          comments: await writeRecords({ supabase, t, sheetKey: sheetKey + '_comments', records: comments }),
+        };
       }
       return res.status(200).json(out);
     } catch (e) {

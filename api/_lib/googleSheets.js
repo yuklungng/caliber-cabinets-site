@@ -112,4 +112,7 @@ export async function readTopRows(spreadsheetId, tabTitle, rowCount = 6, maxLen 
   return (j.values ?? []).map((row) => row.map((c) => String(c).slice(0, maxLen)));
 }
 
+/** Every row of a tab (up to `rowCount`), cells as text: [[cell, ...], ...]. Trailing empty cells are not returned. */
+export const readAllRows = (spreadsheetId, tabTitle, rowCount) => readTopRows(spreadsheetId, tabTitle, rowCount, 5000);
+
 export const serviceAccountEmail = () => loadServiceAccount()?.client_email ?? null;

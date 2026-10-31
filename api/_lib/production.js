@@ -1,6 +1,5 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
-import { createClient } from '@supabase/supabase-js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 
@@ -133,6 +132,7 @@ export async function handleProduction(req, res, auth) {
       const comments = buildCommentRecords(sheetKey, commentRows, records);
       const out = { sheet: sheetKey, mode: commit ? 'commit' : 'dry-run', jobs: summarize(records, stats), comments: summarize(comments, {}) };
       if (commit) {
+        const { createClient } = await import('@supabase/supabase-js');
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const t = { raw: tbl('sheet_rows_raw'), versions: tbl('sheet_row_versions'), runs: tbl('sync_runs'), exceptions: tbl('sync_exceptions') };
         out.written = {

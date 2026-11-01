@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 // Read-only job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs); nothing on this screen can change a sheet or a record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
+// The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
 const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
+
+// The sheet runs oldest to newest from top to bottom, so "newest first" is its order reversed.
+const SORT_OPTIONS = [
+  { key: 'newest', label: 'Newest first' },
+  { key: 'sheet', label: 'Sheet order' },
+];
 
 const fmtDate = (iso, text) => {
   if (iso) {
@@ -15,6 +22,8 @@ const fmtDate = (iso, text) => {
 };
 
 const sectionLabel = (s) => (s ? s.trim() : 'No section');
+
+const controlStyle = { padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' };
 
 function Progress({ done, total }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -38,11 +47,25 @@ function Line({ label, children }) {
   );
 }
 
+function RefBadge({ job }) {
+  return (
+    <span
+      title={job.isTemp ? 'No invoice number yet: temporary label' : 'QuickBooks invoice number'}
+      style={{
+        fontSize: '11px', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+        background: job.isTemp ? '#fef3c7' : '#e5e7eb', color: job.isTemp ? '#92400e' : '#374151',
+      }}
+    >
+      {job.jobRef}
+    </span>
+  );
+}
+
 function JobCard({ job, open, onToggle }) {
   const nextEvent = job.installs.find((e) => (e.installOn ?? e.deliveryOn) && !e.completed) ?? job.installs[job.installs.length - 1];
   const nextWhen = nextEvent && (nextEvent.installOn || nextEvent.installText || nextEvent.deliveryOn || nextEvent.deliveryText);
   return (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '10px', marginBottom: '10px' }}>
+    <div id={`production-job-${job.id}`} style={{ background: '#fff', border: open ? '1px solid #78350f' : '1px solid #e5e7eb', borderRadius: '10px' }}>
       <button
         type="button"
         onClick={onToggle}
@@ -51,15 +74,7 @@ function JobCard({ job, open, onToggle }) {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline' }}>
           <strong style={{ fontSize: '15px', color: '#111827', wordBreak: 'break-word' }}>{job.name || job.jobRef}</strong>
-          <span
-            title={job.isTemp ? 'No invoice number yet: temporary label' : 'QuickBooks invoice number'}
-            style={{
-              fontSize: '11px', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
-              background: job.isTemp ? '#fef3c7' : '#e5e7eb', color: job.isTemp ? '#92400e' : '#374151',
-            }}
-          >
-            {job.jobRef}
-          </span>
+          <RefBadge job={job} />
         </div>
         <div style={{ margin: '8px 0 4px' }}><Progress done={job.stepsDone} total={job.stepsTotal} /></div>
         <div style={{ fontSize: '12px', color: '#6b7280', display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
@@ -102,35 +117,64 @@ function JobCard({ job, open, onToggle }) {
 export default function ProductionView() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [section, setSection] = useState('all');
+  const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
+  const scrollTimer = useRef(null);
 
   useEffect(() => {
     fetch('/api/admin-settings?resource=production&action=jobs', { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Status ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message));
+    return () => clearTimeout(scrollTimer.current);
   }, []);
 
-  const sections = useMemo(() => {
-    const seen = new Map();
-    for (const j of data?.jobs ?? []) {
-      const key = sectionLabel(j.section);
-      if (!seen.has(key)) seen.set(key, j.rowNumber ?? 0);
-    }
-    return [...seen.keys()];
-  }, [data]);
+  // Jobs in the chosen order. The API sends them in sheet order.
+  const ordered = useMemo(() => {
+    const jobs = data?.jobs ?? [];
+    return sortKey === 'newest' ? [...jobs].reverse() : jobs;
+  }, [data, sortKey]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (data?.jobs ?? []).filter((j) => (
+  const sections = useMemo(() => [...new Set(ordered.map((j) => sectionLabel(j.section)))], [ordered]);
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return ordered.filter((j) => (
       (section === 'all' || sectionLabel(j.section) === section)
-      && (!q || `${j.name} ${j.jobRef}`.toLowerCase().includes(q))
+      && (!q || `${j.name} ${j.jobRef} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
     ));
-  }, [data, query, section]);
+  }, [ordered, searchQuery, section]);
 
-  const field = { width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: '16px', border: '1px solid #d1d5db', borderRadius: '8px', background: '#fff' };
+  // Up to 6 jobs matching the search, from every section, like the Leads suggestions.
+  const suggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return ordered.filter((j) => `${j.name} ${j.jobRef}`.toLowerCase().includes(q)).slice(0, 6);
+  }, [ordered, searchQuery]);
+
+  function selectSuggestion(job) {
+    setSearchQuery(job.name || job.jobRef);
+    setSection('all');
+    setOpenId(job.id);
+    setSearchFocused(false);
+    clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      document.getElementById(`production-job-${job.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }
+
+  function handleReset() {
+    setSearchQuery('');
+    setSection('all');
+    setSortKey('newest');
+    setOpenId(null);
+  }
+
+  const sortLabel = SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort';
+  const isFiltered = Boolean(searchQuery.trim()) || section !== 'all';
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '16px' }}>
@@ -142,27 +186,81 @@ export default function ProductionView() {
       {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
       {data && (
         <>
-          <div style={{ display: 'grid', gap: '8px', margin: '0 0 12px' }}>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search job name or number"
-              aria-label="Search jobs"
-              style={field}
-            />
-            <select value={section} onChange={(e) => setSection(e.target.value)} aria-label="Section" style={field}>
-              <option value="all">All sections ({data.jobs.length})</option>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              value={section}
+              onChange={(e) => setSection(e.target.value)}
+              aria-label="Section"
+              style={{ ...controlStyle, padding: '7px 30px 7px 12px', flexShrink: 0, appearance: 'auto', maxWidth: '100%' }}
+            >
+              <option value="all">All Sections ({data.jobs.length})</option>
               {sections.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+
+            {/* Search with suggestions */}
+            <div style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
+              <input
+                type="search"
+                placeholder={'Search by job name or number…'}
+                aria-label="Search jobs"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setSearchFocused(true); }}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                style={{ width: '100%', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+              />
+              {searchFocused && suggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, overflow: 'hidden' }}>
+                  {suggestions.map((job) => (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); selectSuggestion(job); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', textAlign: 'left', padding: '10px 14px', border: 0, borderBottom: '1px solid #f3f4f6', background: '#fff', cursor: 'pointer' }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name || job.jobRef}</div>
+                        <div style={{ fontSize: '12px', color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sectionLabel(job.section)}</div>
+                      </div>
+                      <RefBadge job={job} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSortKey((k) => SORT_OPTIONS[(SORT_OPTIONS.findIndex((o) => o.key === k) + 1) % SORT_OPTIONS.length].key)}
+              title={`Sort: ${sortLabel} — click to cycle`}
+              style={{ ...controlStyle, flexShrink: 0, whiteSpace: 'nowrap', width: '120px', textAlign: 'center' }}
+            >
+              {sortLabel}
+            </button>
+
+            <button type="button" onClick={handleReset} style={controlStyle}>Reset</button>
           </div>
-          <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#6b7280' }}>
-            {shown.length} job{shown.length === 1 ? '' : 's'}, in the sheet's order. Progress counts the step boxes ticked on the sheet.
+
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
+            {filtered.length} job{filtered.length !== 1 ? 's' : ''}{isFiltered ? ' (filtered)' : ''}. Progress counts the step boxes ticked on the sheet.
           </p>
-          {shown.map((j) => (
-            <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} />
-          ))}
-          {shown.length === 0 && <p style={{ color: '#6b7280' }}>No jobs match.</p>}
+
+          {data.jobs.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+              No jobs yet. They appear here once the sheet sync has filled the tables.
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
+              No jobs match{searchQuery.trim() ? ` "${searchQuery}"` : ''}.{' '}
+              <button type="button" onClick={handleReset} style={{ background: 'none', border: 0, color: '#78350f', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}>Clear search</button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {filtered.map((j) => (
+                <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

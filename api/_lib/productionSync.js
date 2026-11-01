@@ -14,6 +14,7 @@ export const SHEETS = {
   production_status: { spreadsheet: /production status/i, tab: 'Production Status', details: null, extra: [] },
   install_schedule: { spreadsheet: /install schedule/i, tab: 'Install Schedule', details: 'Job Details', extra: ['Delivery Date', 'Install Date'] },
   hardware_orders: { spreadsheet: /job hardware orders/i, tab: 'Job Hardware Orders', details: null, extra: ['Date Ordered'] },
+  punch_list: { spreadsheet: /punch list/i, tab: 'Punch List Items', details: null, extra: ['Date'] },
 };
 
 const NAME_COL = 'Job Name';

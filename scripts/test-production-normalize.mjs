@@ -33,6 +33,7 @@ await check('dates: ranges give the first day and keep the text', () => {
   const r = installEventFrom(raw({ 'Job Name': '#7002 Echo', 'Install Date': '02/10 - 02/11/25' }, { job_number: '7002' }));
   assert.equal(r.install_on, '2025-02-10');
   assert.equal(r.install_text, '02/10 - 02/11/25');
+  assert.equal(summarizeNormalized([r]).unparsedDates, 0); // parsed, so not counted as unparsed
 });
 
 await check('production job: real number, steps, dates, section year', () => {

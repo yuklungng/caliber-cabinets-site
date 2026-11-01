@@ -139,7 +139,8 @@ export const NORMALIZERS = {
 
 /** Counts only, no names: what a fill would produce. */
 export function summarizeNormalized(rows) {
-  const dateFields = ['paint_arrives_text', 'doors_arrive_text', 'delivery_text', 'install_text', 'ordered_text', 'received_text'];
+  // A date counts as unparsed only when there is text but no date (a range keeps its text beside its first day).
+  const dateFields = ['paint_arrives', 'doors_arrive', 'delivery', 'install', 'ordered', 'received'];
   const refs = new Map();
   for (const r of rows) refs.set(r.job_ref, (refs.get(r.job_ref) ?? 0) + 1);
   return {
@@ -149,7 +150,7 @@ export function summarizeNormalized(rows) {
     tempRefsWithUnknownYear: rows.filter((r) => r.ref_is_temp && r.job_ref.startsWith('TXX-')).length,
     distinctRefs: refs.size,
     refsSharedByManyRows: [...refs.values()].filter((n) => n > 1).length,
-    unparsedDates: rows.reduce((n, r) => n + dateFields.filter((f) => r[f]).length, 0),
+    unparsedDates: rows.reduce((n, r) => n + dateFields.filter((f) => r[`${f}_text`] && !r[`${f}_on`]).length, 0),
   };
 }
 

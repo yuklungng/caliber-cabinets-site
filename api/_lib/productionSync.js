@@ -36,6 +36,21 @@ export function parseJobNumbers(name) {
   return { number: found[0] ?? null, all: [...new Set(found)] };
 }
 
+/**
+ * Readable stand-in for a job that has no #invoice number: T + 2-digit year + first two words of the
+ * first line of the job name, e.g. "T17-ESTRADA-MAIN". Same name and year give the same label, so
+ * several orders for one customer group together. Always temporary: a real number replaces it.
+ * yearText is any date text ending in a 2 or 4 digit year (e.g. "06/03/17"); unusable years give "XX".
+ */
+export function tempJobRef(name, yearText) {
+  const m = /(\d{2,4})\s*$/.exec(String(yearText ?? ''));
+  const y = m ? Number(m[1]) % 100 : NaN;
+  const yy = Number.isInteger(y) && y >= 15 && y <= 40 ? String(y).padStart(2, '0') : 'XX';
+  const words = String(name ?? '').split(/\r?\n/)[0].toUpperCase().replace(/#\s*\d+/g, ' ')
+    .replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 2);
+  return `T${yy}-${words.join('-') || 'UNKNOWN'}`;
+}
+
 function headerKeys(headerRow) {
   const seen = {};
   return headerRow.map((h, i) => {

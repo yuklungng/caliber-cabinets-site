@@ -1,7 +1,7 @@
 // Checks the pure parts of the sheet sync (job numbers, row keys, sections, comments) on made-up rows.
 // Run: node scripts/test-production-sync.mjs
 import assert from 'node:assert/strict';
-import { parseJobNumbers, buildRecords, buildCommentRecords, stableId, summarize } from '../api/_lib/productionSync.js';
+import { parseJobNumbers, buildRecords, buildCommentRecords, stableId, summarize, tempJobRef } from '../api/_lib/productionSync.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -99,6 +99,15 @@ check('summary has counts and row numbers, no names', () => {
   assert.equal(s.withJobNumber, 3);
   assert.equal(s.distinctJobNumbers, 2);
   assert.ok(!JSON.stringify(s).includes('Alpha'));
+});
+
+check('temporary job ref: year + first two words, same name and year group together', () => {
+  assert.equal(tempJobRef('ESTRADA MAIN HOUSE\n16) 21" Grass Guides', '06/03/17'), 'T17-ESTRADA-MAIN');
+  assert.equal(tempJobRef('Estrada main house', '12/01/17'), 'T17-ESTRADA-MAIN');
+  assert.equal(tempJobRef('Dave Cerruti', '8/8/2021'), 'T21-DAVE-CERRUTI');
+  assert.equal(tempJobRef('Tocchini Pulls', '06/03/99'), 'TXX-TOCCHINI-PULLS');
+  assert.equal(tempJobRef('Smith', ''), 'TXX-SMITH');
+  assert.equal(tempJobRef('', '06/03/17'), 'T17-UNKNOWN');
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');

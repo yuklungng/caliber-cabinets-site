@@ -2,6 +2,7 @@
 import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
+import { NORMALIZERS, readRawRows, summarizeNormalized, writeNormalized } from './productionNormalize.js';
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -140,6 +141,29 @@ export async function handleProduction(req, res, auth) {
           comments: await writeRecords({ supabase, t, sheetKey: sheetKey + '_comments', records: comments }),
         };
       }
+      return res.status(200).json(out);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Builds the tidy tables from the raw sheet copy already in the database (no Google call).
+  // GET = dry run: counts only, nothing written. POST with commit=1 writes the dev_ tables and needs
+  // PRODUCTION_SYNC_ENABLED=1 and dev table mode, like the sheet sync.
+  if (req.query?.action === 'normalize') {
+    const sheetKey = String(req.query.sheet ?? '');
+    const norm = NORMALIZERS[sheetKey];
+    if (!norm) return res.status(400).json({ error: 'sheet must be one of ' + Object.keys(NORMALIZERS).join(', ') });
+    const commit = req.method === 'POST' && req.query.commit === '1';
+    if (commit && !isProductionSyncEnabled()) return res.status(403).json({ error: 'PRODUCTION_SYNC_ENABLED is not set' });
+    if (commit && tableMode() !== 'dev') return res.status(403).json({ error: 'Normalize writes only to dev_ tables for now' });
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const rawRows = await readRawRows(supabase, tbl('sheet_rows_raw'), sheetKey);
+      const rows = rawRows.map(norm.build);
+      const out = { sheet: sheetKey, mode: commit ? 'commit' : 'dry-run', table: tbl(norm.table), summary: summarizeNormalized(rows) };
+      if (commit) out.written = await writeNormalized({ supabase, table: tbl(norm.table), rows });
       return res.status(200).json(out);
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });

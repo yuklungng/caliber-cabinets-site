@@ -3,6 +3,7 @@ import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { NORMALIZERS, readRawRows, summarizeNormalized, writeNormalized } from './productionNormalize.js';
+import { buildJobList, readAll } from './productionJobs.js';
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -142,6 +143,29 @@ export async function handleProduction(req, res, auth) {
         };
       }
       return res.status(200).json(out);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Read-only job list for the Production screen, built from the tidy tables. Never writes.
+  if (req.method === 'GET' && req.query?.action === 'jobs') {
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const live = (q) => q.is('removed_at', null);
+      const [jobs, installs, hardware, raw] = await Promise.all([
+        readAll(supabase, tbl('production_jobs'), '*', live),
+        readAll(supabase, tbl('install_events'), '*', live),
+        readAll(supabase, tbl('hardware_orders'), 'job_ref, ordered_on', live),
+        readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
+      ]);
+      const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json({
+        mode: tableMode(),
+        jobs: buildJobList({ jobs, installs, hardware, rowNumbers }),
+      });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
     }

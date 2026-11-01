@@ -22,6 +22,19 @@ await check('dates: 2 and 4 digit years, ISO, and the ones that stay text', () =
   assert.deepEqual(parseSheetDate(''), { on: null, text: null });
 });
 
+await check('dates: ranges give the first day and keep the text', () => {
+  assert.deepEqual(parseSheetDate('02/10 - 02/11/25'), { on: '2025-02-10', text: '02/10 - 02/11/25', range: true });
+  assert.equal(parseSheetDate('1/15-1/16/20').on, '2020-01-15');
+  assert.equal(parseSheetDate('08/16-8/17-8/18/21').on, '2021-08-16');
+  assert.equal(parseSheetDate('1/3/24 - 1/9/24').on, '2024-01-03');
+  assert.equal(parseSheetDate('12/30 - 1/2/21').on, '2020-12-30'); // crosses New Year
+  assert.equal(parseSheetDate('11/17 - 11/18').on, null); // no year anywhere: stays text
+  assert.equal(parseSheetDate('Delivery Only').on, null);
+  const r = installEventFrom(raw({ 'Job Name': '#7002 Echo', 'Install Date': '02/10 - 02/11/25' }, { job_number: '7002' }));
+  assert.equal(r.install_on, '2025-02-10');
+  assert.equal(r.install_text, '02/10 - 02/11/25');
+});
+
 await check('production job: real number, steps, dates, section year', () => {
   const r = productionJobFrom(raw({
     'Job Name': '#6001 Alpha Kitchen', 'Body Cut': 'TRUE', 'Boxes Built': 'FALSE', 'Paint Ordered': 'TRUE',

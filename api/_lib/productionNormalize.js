@@ -6,22 +6,31 @@ import { tempJobRef } from './productionSync.js';
  * Nothing is written back to a sheet. Pure functions are exported for tests; writeNormalized does the I/O.
  */
 
-/** "06/03/17", "6/3/2017" or "2017-06-03" -> { on: 'YYYY-MM-DD' | null, text }. The original text is always kept. */
+/**
+ * "06/03/17", "6/3/2017" or "2017-06-03" -> { on: 'YYYY-MM-DD' | null, text }. The original text is always kept.
+ * A day range such as "02/10 - 02/11/25" or "1/3/24 - 1/9/24" gives its first day (the year comes from the
+ * end of the range when the start has none) and range: true, so the caller keeps the full text too.
+ */
 export function parseSheetDate(value) {
   const text = String(value ?? '').trim();
   if (!text) return { on: null, text: null };
-  let y, m, d;
+  const make = (y, m, d) => {
+    const ok = y >= 2015 && y <= 2040 && m >= 1 && m <= 12 && d >= 1 && d <= 31
+      && new Date(Date.UTC(y, m - 1, d)).getUTCMonth() === m - 1;
+    return ok ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+  };
+  const year = (s) => (s.length === 2 ? 2000 + Number(s) : Number(s));
+  const range = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?\s*-\s*(?:\d{1,2}\/\d{1,2}\s*-\s*)?(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text);
+  if (range) {
+    const [, m1, d1, y1, m2, , y2] = range;
+    let y = y1 ? year(y1) : year(y2);
+    if (!y1 && Number(m1) > Number(m2)) y -= 1; // a range that crosses New Year
+    return { on: make(y, Number(m1), Number(d1)), text, range: true };
+  }
   let hit = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text);
-  if (hit) {
-    m = Number(hit[1]); d = Number(hit[2]); y = Number(hit[3]);
-    if (hit[3].length === 2) y += 2000;
-  } else if ((hit = /^(\d{4})-(\d{2})-(\d{2})/.exec(text))) {
-    y = Number(hit[1]); m = Number(hit[2]); d = Number(hit[3]);
-  } else return { on: null, text };
-  const ok = y >= 2015 && y <= 2040 && m >= 1 && m <= 12 && d >= 1 && d <= 31
-    && new Date(Date.UTC(y, m - 1, d)).getUTCMonth() === m - 1;
-  if (!ok) return { on: null, text };
-  return { on: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`, text };
+  if (hit) return { on: make(year(hit[3]), Number(hit[1]), Number(hit[2])), text };
+  if ((hit = /^(\d{4})-(\d{2})-(\d{2})/.exec(text))) return { on: make(Number(hit[1]), Number(hit[2]), Number(hit[3])), text };
+  return { on: null, text };
 }
 
 const bool = (v) => {
@@ -87,8 +96,8 @@ export function installEventFrom(rawRow) {
     details: str(cells['Job Details']),
     address: str(cells['Address']),
     contact: str(cells['Home Owner / Contrator Number']),
-    delivery_on: delivery.on, delivery_text: delivery.on ? null : delivery.text, delivery_time: str(cells['Delivery Time']),
-    install_on: install.on, install_text: install.on ? null : install.text, install_time: str(cells['Installation Time']),
+    delivery_on: delivery.on, delivery_text: delivery.on && !delivery.range ? null : delivery.text, delivery_time: str(cells['Delivery Time']),
+    install_on: install.on, install_text: install.on && !install.range ? null : install.text, install_time: str(cells['Installation Time']),
     confirmed: bool(cells['Confirmed']),
     completed: bool(cells['Completed']),
     paid_50: bool(cells['50% Paid']),

@@ -111,6 +111,11 @@ function JobCard({ job, open, onToggle }) {
                       <span>{received ? `Received: ${received}` : 'Not marked received'}</span>
                       {o.status && <span>Status: {o.status}</span>}
                     </div>
+                    {o.photoUrl && (
+                      <div style={{ margin: '0 0 4px' }}>
+                        <a href={o.photoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#b45309' }}>View photo</a>
+                      </div>
+                    )}
                     {o.parts.map((p, j) => <div key={j}>{p}</div>)}
                     {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}
                   </div>

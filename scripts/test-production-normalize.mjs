@@ -93,6 +93,15 @@ await check('hardware order: first line is the job name, full text kept, temp re
   assert.equal(n.image_name, null);
 });
 
+await check('hardware order: only a plain https Drive link is kept as the photo link', () => {
+  const ok = hardwareOrderFrom(raw({ 'Job Name': '#6334 Smith', 'Cell Image URL': 'https://drive.google.com/file/d/abc/view' }, { job_number: '6334' }));
+  assert.equal(ok.photo_url, 'https://drive.google.com/file/d/abc/view');
+  for (const bad of ['http://drive.google.com/file/d/abc', 'https://evil.example.com/file/d/abc', 'javascript:alert(1)', '']) {
+    assert.equal(hardwareOrderFrom(raw({ 'Job Name': '#6334 Smith', 'Cell Image URL': bad }, { job_number: '6334' })).photo_url, null);
+  }
+  assert.equal(hardwareOrderFrom(raw({ 'Job Name': '#6334 Smith' }, { job_number: '6334' })).photo_url, null);
+});
+
 await check('removed rows carry removed_at through', () => {
   const r = productionJobFrom({ ...raw({ 'Job Name': '#6001 A' }, { job_number: '6001' }), removed_at: '2026-11-01T00:00:00Z' });
   assert.equal(r.removed_at, '2026-11-01T00:00:00Z');

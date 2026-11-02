@@ -73,7 +73,7 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() 
         parts: String(o.order_text ?? '').split(/\r?\n/).slice(1).map((l) => l.trim()).filter(Boolean),
         orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
         receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
-        status: o.status ?? null, notes: o.notes ?? null,
+        status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,
       })),
       hardwareOrders: orders.length,
       lastHardwareOrderOn: orders.map((o) => o.ordered_on).filter(Boolean).sort().pop() ?? null,

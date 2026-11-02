@@ -1,7 +1,7 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
-import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
+import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { NORMALIZERS, readRawRows, summarizeNormalized, writeNormalized } from './productionNormalize.js';
 import { buildJobList, readAll } from './productionJobs.js';
 
@@ -157,6 +157,11 @@ export async function handleProduction(req, res, auth) {
       const main = tabs.find((t) => t.title === cfg.tab);
       if (!main) return res.status(404).json({ error: 'tab not found: ' + cfg.tab });
       const rows = await readAllRows(files[0].id, main.title, main.rows);
+      // The photo cells show only a label; the Drive link behind each one is saved beside it.
+      if (sheetKey === 'hardware_orders') {
+        const idx = (rows[0] ?? []).findIndex((h) => String(h).trim() === 'Cell Image Link');
+        if (idx >= 0) addLinkColumn(rows, 'Cell Image URL', (await readColumnLinks(files[0].id, main.title, idx, main.rows)).map((c) => c.link));
+      }
       const { records, stats } = buildRecords(sheetKey, rows);
       const commentsTab = tabs.find((t) => t.title === 'Comments');
       const commentRows = commentsTab ? await readAllRows(files[0].id, commentsTab.title, commentsTab.rows) : [];
@@ -186,7 +191,7 @@ export async function handleProduction(req, res, auth) {
       const [jobs, installs, hardware, raw] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
-        readAll(supabase, tbl('hardware_orders'), 'job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes', live),
+        readAll(supabase, tbl('hardware_orders'), 'job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
         readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
       ]);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));

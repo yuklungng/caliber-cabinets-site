@@ -117,6 +117,25 @@ export function buildRecords(sheetKey, rows) {
   return { records, stats };
 }
 
+/**
+ * Adds one column of link addresses to the rows read from a tab. links[i] belongs to sheet row i + 2 (row 1 is the
+ * header). The new column's header is newHeader; rows are padded so the cell lands in the same column for every row.
+ * Returns the number of rows that got a link. The rows are changed in place.
+ */
+export function addLinkColumn(rows, newHeader, links) {
+  if (!rows.length) return 0;
+  const col = Math.max(...rows.map((r) => r.length));
+  let added = 0;
+  rows[0] = [...rows[0], ...Array(col - rows[0].length).fill(''), newHeader];
+  for (let i = 1; i < rows.length; i++) {
+    const link = links[i - 1] ?? null;
+    if (!link) continue;
+    rows[i] = [...rows[i], ...Array(col - rows[i].length).fill(''), link];
+    added++;
+  }
+  return added;
+}
+
 /** Comments tab rows look like ["Row 448", text, author, time]. Linked to the job row at that sheet row. */
 export function buildCommentRecords(sheetKey, rows, jobRecords) {
   const byRow = new Map(jobRecords.map((r) => [r.rowNumber, r]));

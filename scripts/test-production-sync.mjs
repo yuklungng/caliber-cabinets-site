@@ -1,7 +1,7 @@
 // Checks the pure parts of the sheet sync (job numbers, row keys, sections, comments) on made-up rows.
 // Run: node scripts/test-production-sync.mjs
 import assert from 'node:assert/strict';
-import { parseJobNumbers, buildRecords, buildCommentRecords, stableId, summarize, tempJobRef } from '../api/_lib/productionSync.js';
+import { parseJobNumbers, buildRecords, buildCommentRecords, addLinkColumn, stableId, summarize, tempJobRef } from '../api/_lib/productionSync.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -14,6 +14,16 @@ check('job number parsing', () => {
   assert.equal(parseJobNumbers('Smith Kitchen').number, null);
   assert.equal(parseJobNumbers('Unit #12').number, null); // too short to be an invoice number
   assert.deepEqual(parseJobNumbers('#6289 and #6290').all, ['6289', '6290']);
+});
+
+check('link column lands in the same column for every row and skips rows without a link', () => {
+  const rows = [['Job Name', 'Cell Image Link'], ['A', 'Open cell image'], ['B'], ['C', 'Open cell image']];
+  const added = addLinkColumn(rows, 'Cell Image URL', ['https://x/1', null, 'https://x/3']);
+  assert.equal(added, 2);
+  assert.deepEqual(rows[0], ['Job Name', 'Cell Image Link', 'Cell Image URL']);
+  assert.deepEqual(rows[1], ['A', 'Open cell image', 'https://x/1']);
+  assert.deepEqual(rows[2], ['B']);
+  assert.deepEqual(rows[3], ['C', 'Open cell image', 'https://x/3']);
 });
 
 check('stable ids are deterministic and valid uuids', () => {

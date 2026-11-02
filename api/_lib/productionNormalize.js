@@ -108,6 +108,14 @@ export function installEventFrom(rawRow) {
   };
 }
 
+// Only a plain https Google Drive link is kept; anything else is dropped so the screen never links elsewhere.
+const driveLink = (v) => {
+  try {
+    const u = new URL(String(v ?? '').trim());
+    return u.protocol === 'https:' && u.host === 'drive.google.com' ? u.href : null;
+  } catch { return null; }
+};
+
 /** One raw row of the Job Hardware Orders sheet -> dev_hardware_orders row. */
 export function hardwareOrderFrom(rawRow) {
   const cells = rawRow.raw.cells ?? {};
@@ -126,6 +134,7 @@ export function hardwareOrderFrom(rawRow) {
     status: str(cells['Status']),
     notes: str(cells['Special Notes']),
     image_name: image,
+    photo_url: driveLink(cells['Cell Image URL']),
     attachment_links: str(cells['Attachment Links']),
     removed_at: rawRow.removed_at ?? null,
   };

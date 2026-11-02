@@ -59,6 +59,24 @@ await check('a heading row with nothing filled in is left out, but an empty numb
   assert.deepEqual(list.map((j) => j.id).sort(), ['n', 't']);
 });
 
+await check('hardware orders list their parts (lines after the job name), dates, status and notes', () => {
+  const list = buildJobList({
+    jobs: [job()],
+    installs: [],
+    hardware: [
+      { job_ref: '#6001', order_text: ['#6001 Alpha', '18 Guides', '', ' Knife Block '].join('\n'), ordered_on: '2019-02-20', received_on: null, received_text: null, status: 'Ordered', notes: 'rush' },
+      { job_ref: '#6001', order_text: '#6001 Alpha', ordered_on: '2019-02-01' },
+    ],
+  });
+  const h = list[0].hardware;
+  assert.equal(h.length, 2);
+  assert.deepEqual(h.map((o) => o.orderedOn), ['2019-02-01', '2019-02-20']);
+  assert.deepEqual(h[0].parts, []);
+  assert.deepEqual(h[1].parts, ['18 Guides', 'Knife Block']);
+  assert.equal(h[1].status, 'Ordered');
+  assert.equal(h[1].notes, 'rush');
+});
+
 await check('readAll pages through more than 1000 rows and stops on a short page', async () => {
   const calls = [];
   const supabase = {

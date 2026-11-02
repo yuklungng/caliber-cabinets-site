@@ -68,6 +68,13 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() 
         installOn: e.install_on, installText: e.install_text,
         confirmed: e.confirmed, completed: e.completed,
       })),
+      hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => ({
+        // order_text is the OCR'd cell: the first line repeats the job name, the lines after it are the parts.
+        parts: String(o.order_text ?? '').split(/\r?\n/).slice(1).map((l) => l.trim()).filter(Boolean),
+        orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
+        receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
+        status: o.status ?? null, notes: o.notes ?? null,
+      })),
       hardwareOrders: orders.length,
       lastHardwareOrderOn: orders.map((o) => o.ordered_on).filter(Boolean).sort().pop() ?? null,
     };

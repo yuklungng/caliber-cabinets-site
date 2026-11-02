@@ -97,7 +97,28 @@ function JobCard({ job, open, onToggle }) {
           <Line label="Paint ordered">{job.paintOrdered === null ? '' : job.paintOrdered ? 'Yes' : 'No'}</Line>
           <Line label="Paint arrives">{fmtDate(job.paintArrives.on, job.paintArrives.text)}</Line>
           <Line label="Doors arrive">{fmtDate(job.doorsArrive.on, job.doorsArrive.text)}</Line>
-          <Line label="Hardware">{job.hardwareOrders ? `${job.hardwareOrders} order${job.hardwareOrders === 1 ? '' : 's'}${job.lastHardwareOrderOn ? `, latest ${fmtDate(job.lastHardwareOrderOn)}` : ''}` : ''}</Line>
+          {job.hardware.length > 0 && (
+            <div style={{ margin: '6px 0 2px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#78350f', marginBottom: '4px' }}>
+                Hardware orders ({job.hardware.length})
+              </div>
+              {job.hardware.map((o, i) => {
+                const received = fmtDate(o.receivedOn, o.receivedText);
+                return (
+                  <div key={i} style={{ border: '1px solid #f3f4f6', borderRadius: '6px', padding: '8px 10px', marginBottom: '6px', fontSize: '13px', color: '#374151' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: '12px', color: '#6b7280', marginBottom: o.parts.length || o.notes ? '4px' : 0 }}>
+                      <span>Ordered: {fmtDate(o.orderedOn, o.orderedText) || 'no date'}</span>
+                      <span>{received ? `Received: ${received}` : 'Not marked received'}</span>
+                      {o.status && <span>Status: {o.status}</span>}
+                    </div>
+                    {o.parts.map((p, j) => <div key={j}>{p}</div>)}
+                    {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: '11px', color: '#9ca3af' }}>Parts are read from the sheet photos and may contain misread text.</div>
+            </div>
+          )}
           {job.installs.map((e, i) => (
             <Line key={i} label={e.details || 'Schedule'}>
               {[

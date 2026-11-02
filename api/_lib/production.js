@@ -157,7 +157,7 @@ export async function handleProduction(req, res, auth) {
       const [jobs, installs, hardware, raw] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
-        readAll(supabase, tbl('hardware_orders'), 'job_ref, ordered_on', live),
+        readAll(supabase, tbl('hardware_orders'), 'job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes', live),
         readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
       ]);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));

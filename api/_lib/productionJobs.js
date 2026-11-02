@@ -32,6 +32,14 @@ const dateOf = (e) => e.install_on ?? e.delivery_on ?? '9999-12-31';
  * rowNumbers: Map of source_row_id -> sheet row number, so the list can keep the sheet's order.
  */
 export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() }) {
+  const inst0 = byRef(installs);
+  const hw0 = byRef(hardware);
+  // A sheet heading such as "JOBS IN THE SHOP" is read as a job: no invoice number, nothing ticked, nothing filled in.
+  jobs = jobs.filter((j) => !(j.ref_is_temp
+    && !Object.values(j.steps ?? {}).some((v) => v === true)
+    && !inst0.has(j.job_ref) && !hw0.has(j.job_ref)
+    && !j.paint_color && !j.pvc_tape_color && !j.priority
+    && !j.paint_arrives_on && !j.paint_arrives_text && !j.doors_arrive_on && !j.doors_arrive_text));
   const inst = byRef(installs);
   const hw = byRef(hardware);
   return jobs.map((j) => {

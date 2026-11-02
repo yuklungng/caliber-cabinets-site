@@ -198,10 +198,10 @@ export default function ProductionView() {
             </select>
 
             {/* Search with suggestions */}
-            <div style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
+            <div style={{ flex: '1 1 100%', order: -1, position: 'relative' }}>
               <input
                 type="search"
-                placeholder={'Search by job name or number…'}
+                placeholder="Search jobs"
                 aria-label="Search jobs"
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setSearchFocused(true); }}

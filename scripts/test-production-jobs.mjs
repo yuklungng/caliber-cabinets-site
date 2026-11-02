@@ -47,6 +47,18 @@ await check('a job with nothing else attached still lists, and the sheet order i
   assert.equal(list[0].lastHardwareOrderOn, null);
 });
 
+await check('a heading row with nothing filled in is left out, but an empty numbered job stays', () => {
+  const list = buildJobList({
+    jobs: [
+      job({ id: 'h', source_row_id: 'sh', job_ref: 'T25-JOBS-IN', ref_is_temp: true, job_name: 'JOBS IN THE SHOP', steps: {}, paint_color: null, paint_arrives_on: null, doors_arrive_text: null }),
+      job({ id: 'n', source_row_id: 'sn', job_ref: '#7', steps: {}, paint_color: null, paint_arrives_on: null, doors_arrive_text: null }),
+      job({ id: 't', source_row_id: 'st', job_ref: 'T25-X', ref_is_temp: true, steps: { A: true }, paint_color: null, paint_arrives_on: null, doors_arrive_text: null }),
+    ],
+    installs: [], hardware: [],
+  });
+  assert.deepEqual(list.map((j) => j.id).sort(), ['n', 't']);
+});
+
 await check('readAll pages through more than 1000 rows and stops on a short page', async () => {
   const calls = [];
   const supabase = {

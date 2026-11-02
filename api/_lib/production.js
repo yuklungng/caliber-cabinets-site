@@ -1,6 +1,6 @@
 /* global process */
 import { isReadOnlyPreview } from './readonly.js';
-import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readTopRows, serviceAccountEmail } from './googleSheets.js';
+import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, buildRecords, buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { NORMALIZERS, readRawRows, summarizeNormalized, writeNormalized } from './productionNormalize.js';
 import { buildJobList, readAll } from './productionJobs.js';
@@ -104,6 +104,35 @@ export async function handleProduction(req, res, auth) {
         out[f.name] = {};
         for (const t of await listTabs(f.id)) out[f.name][t.title] = await readTopRows(f.id, t.title, rows);
       }
+      return res.status(200).json(out);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Shape of the links behind the photo cells of the hardware sheet (host and the start of the path only).
+  // Read-only; shows whether the links can be saved. ?rows=N (default 8, max 25) rows from the top.
+  if (req.method === 'GET' && req.query?.action === 'sheet-links') {
+    if (!isSheetsConfigured()) return res.status(200).json({ configured: false });
+    try {
+      const cfg = SHEETS.hardware_orders;
+      const files = (await listSharedSpreadsheets()).filter((f) => /dev copy/i.test(f.name) && cfg.spreadsheet.test(f.name));
+      if (files.length !== 1) return res.status(404).json({ error: `expected one DEV COPY sheet, found ${files.length}` });
+      const header = (await readTopRows(files[0].id, cfg.tab, 1, 80))[0] ?? [];
+      const rows = Math.min(Number(req.query.rows) || 8, 25);
+      const out = {};
+      for (const name of ['Cell Image Link', 'Attachment Links']) {
+        const idx = header.findIndex((h) => String(h).trim() === name);
+        if (idx < 0) { out[name] = 'column not found'; continue; }
+        const cells = await readColumnLinks(files[0].id, cfg.tab, idx, rows + 1);
+        out[name] = cells.map((c) => {
+          if (!c.link) return { text: c.text, link: false };
+          let u = null;
+          try { u = new URL(c.link); } catch { /* not a URL */ }
+          return { text: c.text, link: true, host: u?.host ?? null, path: u ? u.pathname.slice(0, 40) : c.link.slice(0, 40), length: c.link.length };
+        });
+      }
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json(out);
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });

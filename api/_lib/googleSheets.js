@@ -115,4 +115,21 @@ export async function readTopRows(spreadsheetId, tabTitle, rowCount = 6, maxLen 
 /** Every row of a tab (up to `rowCount`), cells as text: [[cell, ...], ...]. Trailing empty cells are not returned. */
 export const readAllRows = (spreadsheetId, tabTitle, rowCount) => readTopRows(spreadsheetId, tabTitle, rowCount, 5000);
 
-export const serviceAccountEmail = () => loadServiceAccount()?.client_email ?? null;
+const colLetters = (i) => (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
+
+/**
+ * The link behind each cell of one column (a "Open cell image" cell shows only its label as text).
+ * Rows 2..lastRow, in order: [{ text, link }]. Read-only (spreadsheets.get with a range).
+ */
+export async function readColumnLinks(spreadsheetId, tabTitle, columnIndex, lastRow) {
+  const col = colLetters(columnIndex);
+  const q = new URLSearchParams({
+    ranges: `'${tabTitle.replace(/'/g, "''")}'!${col}2:${col}${lastRow}`,
+    fields: 'sheets.data.rowData.values(formattedValue,hyperlink)',
+  });
+  const j = await gget(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?${q}`);
+  const rows = j.sheets?.[0]?.data?.[0]?.rowData ?? [];
+  return rows.map((r) => ({ text: r.values?.[0]?.formattedValue ?? '', link: r.values?.[0]?.hyperlink ?? null }));
+}
+
+export const serviceAccountEmail =() => loadServiceAccount()?.client_email ?? null;

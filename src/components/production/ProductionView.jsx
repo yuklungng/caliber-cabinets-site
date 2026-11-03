@@ -116,7 +116,12 @@ function JobCard({ job, open, onToggle }) {
                         <a href={o.photoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#b45309' }}>View photo</a>
                       </div>
                     )}
-                    {o.parts.map((p, j) => <div key={j}>{p}</div>)}
+                    {o.parts.map((p, j) => (
+                      <div key={j} style={{ display: 'flex', gap: '8px' }}>
+                        <span style={{ minWidth: '28px', textAlign: 'right', fontWeight: '600', color: p.qty === null ? '#9ca3af' : '#374151' }}>{p.qty ?? '–'}</span>
+                        <span>{p.name}</span>
+                      </div>
+                    ))}
                     {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}
                   </div>
                 );

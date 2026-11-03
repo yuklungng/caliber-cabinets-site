@@ -2,7 +2,7 @@
 import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
-import { NORMALIZERS, readRawRows, summarizeNormalized, writeNormalized } from './productionNormalize.js';
+import { NORMALIZERS, hardwarePartRows, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
 import { buildJobList, readAll } from './productionJobs.js';
 
 /**
@@ -222,6 +222,15 @@ export async function handleProduction(req, res, auth) {
       const rows = rawRows.map(norm.build);
       const out = { sheet: sheetKey, mode: commit ? 'commit' : 'dry-run', table: tbl(norm.table), summary: summarizeNormalized(rows) };
       if (commit) out.written = await writeNormalized({ supabase, table: tbl(norm.table), rows });
+      if (sheetKey === 'hardware_orders') {
+        const parts = hardwarePartRows(rows);
+        out.parts = { rows: parts.length, withQty: parts.filter((p) => p.qty !== null).length };
+        if (commit) {
+          // Needs db/production/004; report instead of failing the order write that already succeeded.
+          try { out.parts.written = await writeHardwareParts({ supabase, table: tbl('hardware_parts'), rows: parts }); }
+          catch (e) { out.parts.error = String(e.message ?? e); }
+        }
+      }
       return res.status(200).json(out);
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });

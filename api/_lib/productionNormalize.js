@@ -140,6 +140,64 @@ export function hardwareOrderFrom(rawRow) {
   };
 }
 
+/** "6) 21" GRASS Guides" -> { qty: 6, name: '21" GRASS Guides' }. A line with no "N)" prefix keeps qty null. */
+export function parsePartLine(line) {
+  const raw = String(line ?? '').trim();
+  const hit = /^(\d{1,3})\s*\)\s*(.*)$/.exec(raw);
+  if (!hit || !hit[2].trim()) return { qty: null, name: raw, raw };
+  return { qty: Number(hit[1]), name: hit[2].trim(), raw };
+}
+
+/** The part lines of a hardware order cell: the first line repeats the job name, the lines after it are the parts. */
+export function partsFromOrderText(orderText) {
+  return String(orderText ?? '').split(/\r?\n/).slice(1).map((l) => l.trim()).filter(Boolean).map(parsePartLine);
+}
+
+/** dev_hardware_parts rows for the given dev_hardware_orders rows (one per part line). */
+export function hardwarePartRows(orders) {
+  return orders.flatMap((o) => partsFromOrderText(o.order_text).map((p, i) => ({
+    order_source_row_id: o.source_row_id, job_ref: o.job_ref, line_no: i + 1,
+    qty: p.qty, part_name: p.name, raw_line: p.raw, removed_at: o.removed_at ?? null,
+  })));
+}
+
+/**
+ * Upserts parts by (order_source_row_id, line_no). Never deletes: a line that is no longer in the order text
+ * gets removed_at, and is cleared again if the line comes back.
+ */
+export async function writeHardwareParts({ supabase, table, rows }) {
+  const existing = new Map();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from(table).select('*').range(from, from + 999);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    for (const e of data) existing.set(`${e.order_source_row_id}:${e.line_no}`, e);
+    if (data.length < 1000) break;
+  }
+  const now = new Date().toISOString();
+  const seen = new Set();
+  const upserts = [];
+  let inserted = 0, updated = 0, unchanged = 0, removed = 0;
+  for (const r of rows) {
+    const key = `${r.order_source_row_id}:${r.line_no}`;
+    seen.add(key);
+    const e = existing.get(key);
+    if (!e) inserted++;
+    else if (Object.keys(r).every((k) => canon(k, r[k]) === canon(k, e[k]))) { unchanged++; continue; }
+    else updated++;
+    upserts.push({ ...r, updated_at: now });
+  }
+  for (const [key, e] of existing) {
+    if (seen.has(key) || e.removed_at) continue;
+    removed++;
+    upserts.push({ order_source_row_id: e.order_source_row_id, job_ref: e.job_ref, line_no: e.line_no, qty: e.qty, part_name: e.part_name, raw_line: e.raw_line, removed_at: now, updated_at: now });
+  }
+  for (const c of chunk(upserts, 200)) {
+    const { error } = await supabase.from(table).upsert(c, { onConflict: 'order_source_row_id,line_no' });
+    if (error) throw new Error(`${table}: ${error.message}`);
+  }
+  return { inserted, updated, unchanged, removed };
+}
+
 export const NORMALIZERS = {
   production_status: { table: 'production_jobs', build: productionJobFrom },
   install_schedule: { table: 'install_events', build: installEventFrom },

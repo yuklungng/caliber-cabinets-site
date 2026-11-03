@@ -4,6 +4,8 @@
  * nothing here writes.
  */
 
+import { partsFromOrderText } from './productionNormalize.js';
+
 /** Reads every row of a table (Supabase returns at most 1000 per request). `narrow` can add filters. */
 export async function readAll(supabase, table, cols, narrow = (q) => q) {
   const out = [];
@@ -70,7 +72,7 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() 
       })),
       hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => ({
         // order_text is the OCR'd cell: the first line repeats the job name, the lines after it are the parts.
-        parts: String(o.order_text ?? '').split(/\r?\n/).slice(1).map((l) => l.trim()).filter(Boolean),
+        parts: partsFromOrderText(o.order_text).map((p) => ({ qty: p.qty, name: p.name })),
         orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
         receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
         status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,

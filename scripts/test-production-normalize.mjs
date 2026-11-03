@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   parseSheetDate, productionJobFrom, installEventFrom, hardwareOrderFrom, summarizeNormalized, writeNormalized,
+  parsePartLine, hardwarePartRows,
 } from '../api/_lib/productionNormalize.js';
 
 let failed = 0;
@@ -100,6 +101,15 @@ await check('hardware order: only a plain https Drive link is kept as the photo 
     assert.equal(hardwareOrderFrom(raw({ 'Job Name': '#6334 Smith', 'Cell Image URL': bad }, { job_number: '6334' })).photo_url, null);
   }
   assert.equal(hardwareOrderFrom(raw({ 'Job Name': '#6334 Smith' }, { job_number: '6334' })).photo_url, null);
+});
+
+await check('part lines: the number before ")" is the quantity, a line without one keeps qty null', () => {
+  assert.deepEqual(parsePartLine('6) 21" GRAss Guides'), { qty: 6, name: '21" GRAss Guides', raw: '6) 21" GRAss Guides' });
+  assert.equal(parsePartLine('16)  448-BCSC-9C').qty, 16);
+  assert.deepEqual(parsePartLine('541.39.421 Suzie Q Post'), { qty: null, name: '541.39.421 Suzie Q Post', raw: '541.39.421 Suzie Q Post' });
+  assert.equal(parsePartLine('4) ').qty, null);
+  const rows = hardwarePartRows([{ source_row_id: 's1', job_ref: '#6001', removed_at: null, order_text: '#6001 Alpha\n6) 18" Guides\n\nKnife Block' }]);
+  assert.deepEqual(rows.map((r) => [r.line_no, r.qty, r.part_name]), [[1, 6, '18" Guides'], [2, null, 'Knife Block']]);
 });
 
 await check('removed rows carry removed_at through', () => {

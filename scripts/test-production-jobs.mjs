@@ -64,7 +64,7 @@ await check('hardware orders list their parts (lines after the job name), dates,
     jobs: [job()],
     installs: [],
     hardware: [
-      { job_ref: '#6001', order_text: ['#6001 Alpha', '18 Guides', '', ' Knife Block '].join('\n'), ordered_on: '2019-02-20', received_on: null, received_text: null, status: 'Ordered', notes: 'rush' },
+      { job_ref: '#6001', order_text: ['#6001 Alpha', '6) 18 Guides', '', ' Knife Block '].join('\n'), ordered_on: '2019-02-20', received_on: null, received_text: null, status: 'Ordered', notes: 'rush' },
       { job_ref: '#6001', order_text: '#6001 Alpha', ordered_on: '2019-02-01' },
     ],
   });
@@ -72,7 +72,7 @@ await check('hardware orders list their parts (lines after the job name), dates,
   assert.equal(h.length, 2);
   assert.deepEqual(h.map((o) => o.orderedOn), ['2019-02-01', '2019-02-20']);
   assert.deepEqual(h[0].parts, []);
-  assert.deepEqual(h[1].parts, ['18 Guides', 'Knife Block']);
+  assert.deepEqual(h[1].parts, [{ qty: 6, name: '18 Guides' }, { qty: null, name: 'Knife Block' }]);
   assert.equal(h[1].status, 'Ordered');
   assert.equal(h[1].notes, 'rush');
 });

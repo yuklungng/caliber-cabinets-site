@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, mondayOf, todayIso, weekDays } from './weekSchedule.js';
+import { addDays, mondayOf, sectionInYear, todayIso, weekDays } from './weekSchedule.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). The one thing that can be edited is a hardware order's
@@ -304,6 +304,8 @@ export default function ProductionView() {
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState('jobs'); // 'jobs' | 'week'
+  const [thisYear, setThisYear] = useState(false); // only jobs under this year's section heading
+  const year = new Date().getFullYear();
   const scrollTimer = useRef(null);
 
   useEffect(() => {
@@ -326,9 +328,12 @@ export default function ProductionView() {
     const q = searchQuery.trim().toLowerCase();
     return ordered.filter((j) => (
       (section === 'all' || sectionLabel(j.section) === section)
+      && (!thisYear || sectionInYear(j.section, year))
       && (!q || `${j.name} ${j.jobRef} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
     ));
-  }, [ordered, searchQuery, section]);
+  }, [ordered, searchQuery, section, thisYear, year]);
+
+  const yearCount = useMemo(() => ordered.filter((j) => sectionInYear(j.section, year)).length, [ordered, year]);
 
   // Up to 6 jobs matching the search, from every section, like the Leads suggestions.
   const suggestions = useMemo(() => {
@@ -367,12 +372,13 @@ export default function ProductionView() {
   function handleReset() {
     setSearchQuery('');
     setSection('all');
+    setThisYear(false);
     setSortKey('newest');
     setOpenId(null);
   }
 
   const sortLabel = SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort';
-  const isFiltered = Boolean(searchQuery.trim()) || section !== 'all';
+  const isFiltered = Boolean(searchQuery.trim()) || section !== 'all' || thisYear;
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '16px' }}>
@@ -410,6 +416,17 @@ export default function ProductionView() {
               <option value="all">All Sections ({data.jobs.length})</option>
               {sections.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+
+            <button
+              type="button"
+              onClick={() => setThisYear((v) => !v)}
+              aria-pressed={thisYear}
+              disabled={!yearCount}
+              title={yearCount ? `Only jobs under the "${year}" section heading` : `No section heading names ${year}`}
+              style={{ ...controlStyle, flexShrink: 0, whiteSpace: 'nowrap', opacity: yearCount ? 1 : 0.5, ...(thisYear ? { background: '#78350f', color: '#fff', borderColor: '#78350f' } : {}) }}
+            >
+              This year ({yearCount})
+            </button>
 
             {/* Search with suggestions */}
             <div style={{ flex: '1 1 100%', order: -1, position: 'relative' }}>

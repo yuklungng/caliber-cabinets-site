@@ -37,3 +37,6 @@ export function weekDays(jobs, start) {
   for (const d of days) d.items.sort((a, b) => a.kind.localeCompare(b.kind) || a.jobName.localeCompare(b.jobName));
   return days;
 }
+
+/** True when a sheet section heading (such as "Year 2026") names the given year. */
+export const sectionInYear = (section, year) => new RegExp(`(^|\\D)${year}(\\D|$)`).test(section ?? '');

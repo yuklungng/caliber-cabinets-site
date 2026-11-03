@@ -1,6 +1,6 @@
 // Checks the "This week" date helpers. Run: node scripts/test-production-week.mjs
 import assert from 'node:assert/strict';
-import { addDays, mondayOf, todayIso, weekDays } from '../src/components/production/weekSchedule.js';
+import { addDays, mondayOf, sectionInYear, todayIso, weekDays } from '../src/components/production/weekSchedule.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -37,6 +37,14 @@ check('weekDays places deliveries and installs on their days and ignores dates o
   assert.deepEqual(days[2].items.map((i) => [i.jobName, i.kind]), [['Beta', 'Delivery'], ['Alpha', 'Install']]);
   assert.deepEqual(days[4].items.map((i) => [i.jobName, i.kind, i.details, i.confirmed]), [['Beta', 'Install', 'Kitchen', true]]);
   assert.equal(days.flatMap((d) => d.items).length, 3);
+});
+
+check('sectionInYear matches a year heading but not a longer number or other years', () => {
+  assert.equal(sectionInYear('Year 2026', 2026), true);
+  assert.equal(sectionInYear('2026 jobs', 2026), true);
+  assert.equal(sectionInYear('Year 2025', 2026), false);
+  assert.equal(sectionInYear('Batch 120261', 2026), false);
+  assert.equal(sectionInYear(null, 2026), false);
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');

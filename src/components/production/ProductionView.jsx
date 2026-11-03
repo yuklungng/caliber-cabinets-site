@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { addDays, mondayOf, todayIso, weekDays } from './weekSchedule.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). The one thing that can be edited is a hardware order's
 // part list (qty and name, saved to dev_hardware_parts); nothing on this screen can change a sheet or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
+// A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
 const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
@@ -152,6 +154,68 @@ function PartsList({ order, onChange }) {
   );
 }
 
+const weekLabel = (start) => {
+  const f = (iso, o) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', o); };
+  return `${f(start, { month: 'short', day: 'numeric' })} – ${f(addDays(start, 6), { month: 'short', day: 'numeric', year: 'numeric' })}`;
+};
+
+// Deliveries and installs for one Monday-to-Sunday week, read from the schedule dates on the sheet. Tapping a job opens it in the list.
+function WeekView({ jobs, onOpenJob }) {
+  const today = todayIso();
+  const thisMonday = mondayOf(today);
+  const [start, setStart] = useState(thisMonday);
+  const days = useMemo(() => weekDays(jobs, start), [jobs, start]);
+  const total = days.reduce((n, d) => n + d.items.length, 0);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setStart(addDays(start, -7))} style={controlStyle} aria-label="Previous week">‹</button>
+        <strong style={{ flex: 1, textAlign: 'center', fontSize: '14px', color: '#111827', minWidth: '180px' }}>{weekLabel(start)}</strong>
+        <button type="button" onClick={() => setStart(addDays(start, 7))} style={controlStyle} aria-label="Next week">›</button>
+        <button type="button" onClick={() => setStart(thisMonday)} disabled={start === thisMonday} style={{ ...controlStyle, opacity: start === thisMonday ? 0.5 : 1 }}>This week</button>
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#9ca3af' }}>
+        {total} scheduled. Only rows with a real date on the Install Schedule sheet show here; rows with free text such as "TBD" are in the job lists.
+      </p>
+      <div style={{ display: 'grid', gap: '8px' }}>
+        {days.map((d) => {
+          const [y, m, dd] = d.date.split('-').map(Number);
+          const label = new Date(y, m - 1, dd).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+          const isToday = d.date === today;
+          return (
+            <div key={d.date} style={{ background: '#fff', border: isToday ? '1px solid #78350f' : '1px solid #e5e7eb', borderRadius: '10px', padding: '10px 14px' }}>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: isToday ? '#78350f' : '#374151', marginBottom: d.items.length ? '6px' : 0 }}>
+                {label}{isToday ? ' · today' : ''}
+                {!d.items.length && <span style={{ fontWeight: '400', color: '#9ca3af' }}> · nothing scheduled</span>}
+              </div>
+              {d.items.map((it, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onOpenJob(it.jobId)}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 0, borderTop: i ? '1px solid #f3f4f6' : 0, padding: '8px 0', cursor: 'pointer', minHeight: '44px', opacity: it.completed ? 0.6 : 1 }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: '14px', color: '#111827', wordBreak: 'break-word' }}>
+                      <strong>{it.kind}</strong> · {it.jobName}
+                    </span>
+                    <RefBadge job={{ jobRef: it.jobRef, isTemp: it.isTemp }} />
+                  </div>
+                  {(it.details || it.confirmed || it.completed) && (
+                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                      {[it.details, it.confirmed && 'confirmed', it.completed && 'completed'].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function JobCard({ job, open, onToggle, onParts }) {
   const nextEvent = job.installs.find((e) => (e.installOn ?? e.deliveryOn) && !e.completed) ?? job.installs[job.installs.length - 1];
   const nextWhen = nextEvent && (nextEvent.installOn || nextEvent.installText || nextEvent.deliveryOn || nextEvent.deliveryText);
@@ -239,6 +303,7 @@ export default function ProductionView() {
   const [section, setSection] = useState('all');
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
+  const [view, setView] = useState('jobs'); // 'jobs' | 'week'
   const scrollTimer = useRef(null);
 
   useEffect(() => {
@@ -274,12 +339,18 @@ export default function ProductionView() {
 
   function selectSuggestion(job) {
     setSearchQuery(job.name || job.jobRef);
+    openJob(job.id);
+  }
+
+  // Shows one job open in the list, scrolled into view (used by search suggestions and the week view).
+  function openJob(id) {
+    setView('jobs');
     setSection('all');
-    setOpenId(job.id);
+    setOpenId(id);
     setSearchFocused(false);
     clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
-      document.getElementById(`production-job-${job.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById(`production-job-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
   }
 
@@ -312,6 +383,22 @@ export default function ProductionView() {
       {error && <p style={{ color: '#b91c1c' }}>Could not load jobs: {error}</p>}
       {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
       {data && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          {[['jobs', 'Jobs'], ['week', 'This week']].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              aria-pressed={view === key}
+              style={{ ...controlStyle, ...(view === key ? { background: '#78350f', color: '#fff', borderColor: '#78350f' } : {}) }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {data && view === 'week' && <WeekView jobs={data.jobs} onOpenJob={openJob} />}
+      {data && view === 'jobs' && (
         <>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
             <select

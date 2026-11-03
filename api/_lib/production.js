@@ -26,6 +26,7 @@ const TABLES = [
   'production_jobs',
   'install_events',
   'hardware_orders',
+  'hardware_parts',
   'job_links',
 ];
 

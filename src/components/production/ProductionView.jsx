@@ -119,7 +119,7 @@ function JobCard({ job, open, onToggle }) {
                     {o.parts.map((p, j) => (
                       <div key={j} style={{ display: 'flex', gap: '8px' }}>
                         <span style={{ minWidth: '28px', textAlign: 'right', fontWeight: '600', color: p.qty === null ? '#9ca3af' : '#374151' }}>{p.qty ?? '–'}</span>
-                        <span>{p.name}</span>
+                        <span>{p.name}{p.fromNotes && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (from notes)</span>}</span>
                       </div>
                     ))}
                     {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}

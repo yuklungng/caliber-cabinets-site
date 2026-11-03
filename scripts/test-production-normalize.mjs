@@ -116,6 +116,12 @@ await check('part lines: the number before ")" is the quantity, a line without o
   assert.deepEqual(rows.map((r) => [r.line_no, r.qty, r.part_name]), [[1, 6, '18" Guides'], [2, null, 'Knife Block']]);
 });
 
+await check('notes: only the N) items become parts, numbered after the order lines', () => {
+  const rows = hardwarePartRows([{ source_row_id: 's1', job_ref: '#6001', removed_at: null,
+    order_text: '#6001 Alpha\n6) Guides', notes: '16) 80814-SN , 21) 80815-SN\nreceived on 1/30 (2) items in stock' }]);
+  assert.deepEqual(rows.map((r) => [r.line_no, r.qty, r.part_name]), [[1, 6, 'Guides'], [1001, 16, '80814-SN'], [1002, 21, '80815-SN']]);
+});
+
 await check('removed rows carry removed_at through', () => {
   const r = productionJobFrom({ ...raw({ 'Job Name': '#6001 A' }, { job_number: '6001' }), removed_at: '2026-11-01T00:00:00Z' });
   assert.equal(r.removed_at, '2026-11-01T00:00:00Z');

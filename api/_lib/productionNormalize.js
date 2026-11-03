@@ -161,14 +161,23 @@ export function parsePartLine(line) {
 }
 
 /** The part lines of a hardware order cell: the first line repeats the job name, the lines after it are the parts. */
-export function partsFromOrderText(orderText) {
-  return String(orderText ?? '').split(/\r?\n/).slice(1).flatMap(parsePartLine);
+export function partsFromOrderText(orderText, notes = null) {
+  const fromOrder = String(orderText ?? '').split(/\r?\n/).slice(1).flatMap(parsePartLine);
+  // Special Notes sometimes hold parts too ("16) 80814-SN , 21) 80815-SN"); only the N) items are taken,
+  // the rest of the note stays a note.
+  const fromNotes = String(notes ?? '').split(/\r?\n/).flatMap(parsePartLine).filter((p) => p.qty !== null)
+    .map((p) => ({ ...p, fromNotes: true }));
+  return [...fromOrder, ...fromNotes];
 }
+
+// Notes parts are numbered from here so they never collide with the order's own lines (dev_hardware_parts.line_no).
+const NOTES_LINE_BASE = 1000;
 
 /** dev_hardware_parts rows for the given dev_hardware_orders rows (one per part line). */
 export function hardwarePartRows(orders) {
-  return orders.flatMap((o) => partsFromOrderText(o.order_text).map((p, i) => ({
-    order_source_row_id: o.source_row_id, job_ref: o.job_ref, line_no: i + 1,
+  return orders.flatMap((o) => partsFromOrderText(o.order_text, o.notes).map((p, i, all) => ({
+    order_source_row_id: o.source_row_id, job_ref: o.job_ref,
+    line_no: p.fromNotes ? NOTES_LINE_BASE + i - all.findIndex((x) => x.fromNotes) + 1 : i + 1,
     qty: p.qty, part_name: p.name, raw_line: p.raw, removed_at: o.removed_at ?? null,
   })));
 }

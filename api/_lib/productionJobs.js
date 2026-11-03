@@ -72,7 +72,7 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() 
       })),
       hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => ({
         // order_text is the OCR'd cell: the first line repeats the job name, the lines after it are the parts.
-        parts: partsFromOrderText(o.order_text).map((p) => ({ qty: p.qty, name: p.name })),
+        parts: partsFromOrderText(o.order_text, o.notes).map((p) => ({ qty: p.qty, name: p.name, fromNotes: !!p.fromNotes })),
         orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
         receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
         status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,

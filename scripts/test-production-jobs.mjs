@@ -72,7 +72,7 @@ await check('hardware orders list their parts (lines after the job name), dates,
   assert.equal(h.length, 2);
   assert.deepEqual(h.map((o) => o.orderedOn), ['2019-02-01', '2019-02-20']);
   assert.deepEqual(h[0].parts, []);
-  assert.deepEqual(h[1].parts, [{ qty: 6, name: '18 Guides' }, { qty: null, name: 'Knife Block' }]);
+  assert.deepEqual(h[1].parts, [{ qty: 6, name: '18 Guides', fromNotes: false }, { qty: null, name: 'Knife Block', fromNotes: false }]);
   assert.equal(h[1].status, 'Ordered');
   assert.equal(h[1].notes, 'rush');
 });

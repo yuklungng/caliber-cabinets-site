@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-// Read-only job list for the Production module. Data comes from the tidy tables the sheet sync fills
-// (/api/admin-settings?resource=production&action=jobs); nothing on this screen can change a sheet or a record.
+// Job list for the Production module. Data comes from the tidy tables the sheet sync fills
+// (/api/admin-settings?resource=production&action=jobs). The one thing that can be edited is a hardware order's
+// part list (qty and name, saved to dev_hardware_parts); nothing on this screen can change a sheet or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
@@ -61,7 +62,97 @@ function RefBadge({ job }) {
   );
 }
 
-function JobCard({ job, open, onToggle }) {
+const smallBtn = { padding: '6px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '12px', fontWeight: '600', cursor: 'pointer', minHeight: '32px' };
+const fieldStyle = { padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', minHeight: '32px' };
+
+// One hardware order's parts, each editable in place: tap a part to change its quantity or name, or remove it.
+// Saves go to dev_hardware_parts only (the sheet is never touched). An order whose parts have not been
+// through the normalize step yet has no ids and is shown read-only.
+function PartsList({ order, onChange }) {
+  const [editing, setEditing] = useState(null); // a part id, 'new', or null
+  const [draft, setDraft] = useState({ qty: '', name: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const editable = Boolean(order.id) && order.parts.every((p) => p.id);
+
+  async function call(action, body) {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/admin-settings?resource=production&action=${action}`, {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Status ${r.status}`);
+      return j;
+    } catch (e) { setErr(e.message); return null; } finally { setBusy(false); }
+  }
+
+  const start = (p) => { setErr(''); setEditing(p ? p.id : 'new'); setDraft({ qty: p?.qty ?? '', name: p?.name ?? '' }); };
+
+  async function save() {
+    const body = { qty: draft.qty === '' ? null : Number(draft.qty), name: draft.name };
+    const j = await call('part-save', editing === 'new' ? { ...body, orderId: order.id } : { ...body, id: editing });
+    if (!j) return;
+    onChange((parts) => (editing === 'new' ? [...parts, j.part] : parts.map((p) => (p.id === j.part.id ? j.part : p))));
+    setEditing(null);
+  }
+
+  async function remove() {
+    const j = await call('part-remove', { id: editing });
+    if (!j) return;
+    onChange((parts) => parts.filter((p) => p.id !== editing));
+    setEditing(null);
+  }
+
+  const form = (
+    <div style={{ margin: '4px 0', padding: '8px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+        <input
+          type="number" inputMode="numeric" min="0" max="9999" placeholder="Qty" aria-label="Quantity"
+          value={draft.qty} onChange={(e) => setDraft((d) => ({ ...d, qty: e.target.value }))}
+          style={{ ...fieldStyle, width: '64px' }}
+        />
+        <input
+          type="text" placeholder="Part name" aria-label="Part name" maxLength={200}
+          value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          style={{ ...fieldStyle, flex: 1, minWidth: 0 }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button type="button" disabled={busy || !draft.name.trim()} onClick={save} style={{ ...smallBtn, background: '#78350f', color: '#fff', borderColor: '#78350f' }}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" disabled={busy} onClick={() => setEditing(null)} style={smallBtn}>Cancel</button>
+        {editing !== 'new' && <button type="button" disabled={busy} onClick={remove} style={{ ...smallBtn, color: '#b91c1c' }}>Remove</button>}
+      </div>
+      {err && <div style={{ color: '#b91c1c', fontSize: '12px', marginTop: '6px' }}>{err}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      {order.parts.map((p, j) => (editing === p.id ? <div key={p.id ?? j}>{form}</div> : (
+        <div
+          key={p.id ?? j}
+          onClick={editable && editing === null ? () => start(p) : undefined}
+          style={{ display: 'flex', gap: '8px', padding: '2px 0', cursor: editable ? 'pointer' : 'default' }}
+        >
+          <span style={{ minWidth: '28px', textAlign: 'right', fontWeight: '600', color: p.qty === null ? '#9ca3af' : '#374151' }}>{p.qty ?? '–'}</span>
+          <span>
+            {p.name}
+            {p.fromNotes && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (from notes)</span>}
+            {p.edited && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (edited)</span>}
+          </span>
+        </div>
+      )))}
+      {editable && editing === 'new' && form}
+      {editable && editing === null && (
+        <button type="button" onClick={() => start(null)} style={{ ...smallBtn, marginTop: '6px' }}>+ Add part</button>
+      )}
+      {editable && editing === null && err && <div style={{ color: '#b91c1c', fontSize: '12px', marginTop: '6px' }}>{err}</div>}
+    </div>
+  );
+}
+
+function JobCard({ job, open, onToggle, onParts }) {
   const nextEvent = job.installs.find((e) => (e.installOn ?? e.deliveryOn) && !e.completed) ?? job.installs[job.installs.length - 1];
   const nextWhen = nextEvent && (nextEvent.installOn || nextEvent.installText || nextEvent.deliveryOn || nextEvent.deliveryText);
   return (
@@ -116,12 +207,7 @@ function JobCard({ job, open, onToggle }) {
                         <a href={o.photoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#b45309' }}>View photo</a>
                       </div>
                     )}
-                    {o.parts.map((p, j) => (
-                      <div key={j} style={{ display: 'flex', gap: '8px' }}>
-                        <span style={{ minWidth: '28px', textAlign: 'right', fontWeight: '600', color: p.qty === null ? '#9ca3af' : '#374151' }}>{p.qty ?? '–'}</span>
-                        <span>{p.name}{p.fromNotes && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (from notes)</span>}</span>
-                      </div>
-                    ))}
+                    <PartsList order={o} onChange={(fn) => onParts(i, fn)} />
                     {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}
                   </div>
                 );
@@ -197,6 +283,16 @@ export default function ProductionView() {
     }, 100);
   }
 
+  // Applies a saved edit to the loaded list, so the screen updates without reloading every job.
+  function updateParts(jobId, orderIdx, fn) {
+    setData((d) => ({
+      ...d,
+      jobs: d.jobs.map((j) => (j.id !== jobId ? j : {
+        ...j, hardware: j.hardware.map((o, i) => (i !== orderIdx ? o : { ...o, parts: fn(o.parts) })),
+      })),
+    }));
+  }
+
   function handleReset() {
     setSearchQuery('');
     setSection('all');
@@ -211,7 +307,7 @@ export default function ProductionView() {
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '16px' }}>
       <h2 style={{ margin: '0 0 4px', color: '#78350f' }}>Production</h2>
       <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '13px' }}>
-        Read-only view of a copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Changes still go in the Google Sheets.
+        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists can be edited here; all other changes still go in the Google Sheets.
       </p>
       {error && <p style={{ color: '#b91c1c' }}>Could not load jobs: {error}</p>}
       {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
@@ -288,7 +384,7 @@ export default function ProductionView() {
           ) : (
             <div style={{ display: 'grid', gap: '10px' }}>
               {filtered.map((j) => (
-                <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} />
+                <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} onParts={(orderIdx, fn) => updateParts(j.id, orderIdx, fn)} />
               ))}
             </div>
           )}

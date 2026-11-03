@@ -2,7 +2,7 @@
 import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
-import { NORMALIZERS, hardwarePartRows, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
+import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
 import { buildJobList, readAll } from './productionJobs.js';
 
 /**
@@ -189,18 +189,83 @@ export async function handleProduction(req, res, auth) {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
       const live = (q) => q.is('removed_at', null);
-      const [jobs, installs, hardware, raw] = await Promise.all([
+      const [jobs, installs, hardware, raw, parts] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
-        readAll(supabase, tbl('hardware_orders'), 'job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
+        readAll(supabase, tbl('hardware_orders'), 'source_row_id, job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
         readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
+        readAll(supabase, tbl('hardware_parts'), 'id, order_source_row_id, line_no, qty, part_name, source, edited, removed_at'),
       ]);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({
         mode: tableMode(),
-        jobs: buildJobList({ jobs, installs, hardware, rowNumbers }),
+        jobs: buildJobList({ jobs, installs, hardware, rowNumbers, parts }),
       });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Editing a hardware order's part list. The only writes the screen can make, and only to dev_hardware_parts.
+  //   part-save   POST { id, qty, name }                    change a part
+  //               POST { orderId, qty, name }               add a part to an order (orderId = dev_hardware_orders.source_row_id)
+  //   part-remove POST { id }                               remove a part (kept in the table with removed_at)
+  // A changed or removed part is flagged edited, so re-reading the sheet never overwrites it.
+  if (req.method === 'POST' && (req.query?.action === 'part-save' || req.query?.action === 'part-remove')) {
+    if (tableMode() !== 'dev') return res.status(403).json({ error: 'Part editing writes only to dev_ tables for now' });
+    const body = req.body ?? {};
+    const who = String(auth.user?.name ?? auth.user?.email ?? 'admin');
+    const now = new Date().toISOString();
+    const shape = (p) => ({
+      id: p.id, qty: p.qty, name: p.part_name,
+      fromNotes: p.line_no >= 1000 && p.line_no < 2000, manual: p.source === 'manual', edited: !!p.edited,
+    });
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const parts = tbl('hardware_parts');
+      const isId = (v) => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
+
+      if (req.query.action === 'part-remove') {
+        if (!isId(body.id)) return res.status(400).json({ error: 'id is required' });
+        const { data, error } = await supabase.from(parts)
+          .update({ removed_at: now, edited: true, edited_by: who, edited_at: now, updated_at: now })
+          .eq('id', body.id).select('id').maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) return res.status(404).json({ error: 'Part not found' });
+        return res.status(200).json({ removed: data.id });
+      }
+
+      let input;
+      try { input = cleanPartInput(body); } catch (e) { return res.status(400).json({ error: e.message }); }
+
+      if (body.id !== undefined && body.id !== null) {
+        if (!isId(body.id)) return res.status(400).json({ error: 'id is invalid' });
+        const { data, error } = await supabase.from(parts)
+          .update({ qty: input.qty, part_name: input.name, edited: true, edited_by: who, edited_at: now, updated_at: now })
+          .eq('id', body.id).is('removed_at', null).select('*').maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) return res.status(404).json({ error: 'Part not found' });
+        return res.status(200).json({ part: shape(data) });
+      }
+
+      if (!isId(body.orderId)) return res.status(400).json({ error: 'id or orderId is required' });
+      const { data: order, error: orderErr } = await supabase.from(tbl('hardware_orders'))
+        .select('source_row_id, job_ref').eq('source_row_id', body.orderId).maybeSingle();
+      if (orderErr) throw new Error(orderErr.message);
+      if (!order) return res.status(404).json({ error: 'Hardware order not found' });
+      const { data: last, error: lastErr } = await supabase.from(parts)
+        .select('line_no').eq('order_source_row_id', order.source_row_id).order('line_no', { ascending: false }).limit(1);
+      if (lastErr) throw new Error(lastErr.message);
+      const lineNo = Math.max(MANUAL_LINE_BASE - 1, last?.[0]?.line_no ?? 0) + 1;
+      const { data, error } = await supabase.from(parts).insert({
+        order_source_row_id: order.source_row_id, job_ref: order.job_ref, line_no: lineNo,
+        qty: input.qty, part_name: input.name, raw_line: '', source: 'manual',
+        edited: true, edited_by: who, edited_at: now,
+      }).select('*').single();
+      if (error) throw new Error(error.message);
+      return res.status(200).json({ part: shape(data) });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
     }

@@ -197,18 +197,19 @@ export async function writeHardwareParts({ supabase, table, rows }) {
   const now = new Date().toISOString();
   const seen = new Set();
   const upserts = [];
-  let inserted = 0, updated = 0, unchanged = 0, removed = 0;
+  let inserted = 0, updated = 0, unchanged = 0, removed = 0, keptEdited = 0;
   for (const r of rows) {
     const key = `${r.order_source_row_id}:${r.line_no}`;
     seen.add(key);
     const e = existing.get(key);
+    if (e?.edited) { keptEdited++; continue; } // a person changed it: the sheet re-read never overwrites that
     if (!e) inserted++;
     else if (Object.keys(r).every((k) => canon(k, r[k]) === canon(k, e[k]))) { unchanged++; continue; }
     else updated++;
     upserts.push({ ...r, updated_at: now });
   }
   for (const [key, e] of existing) {
-    if (seen.has(key) || e.removed_at) continue;
+    if (seen.has(key) || e.removed_at || e.edited || e.source === 'manual') continue;
     removed++;
     upserts.push({ order_source_row_id: e.order_source_row_id, job_ref: e.job_ref, line_no: e.line_no, qty: e.qty, part_name: e.part_name, raw_line: e.raw_line, removed_at: now, updated_at: now });
   }
@@ -216,7 +217,22 @@ export async function writeHardwareParts({ supabase, table, rows }) {
     const { error } = await supabase.from(table).upsert(c, { onConflict: 'order_source_row_id,line_no' });
     if (error) throw new Error(`${table}: ${error.message}`);
   }
-  return { inserted, updated, unchanged, removed };
+  return { inserted, updated, unchanged, removed, keptEdited };
+}
+
+// Line numbers: the order's own lines from 1, lines read from Special Notes from 1001, parts added on screen from 2000.
+export const MANUAL_LINE_BASE = 2000;
+
+/** Checks what the screen sends for one part. Returns { qty, name } or throws an Error with a message fit to show. */
+export function cleanPartInput(body) {
+  const name = String(body?.name ?? '').replace(/\s+/g, ' ').trim();
+  if (!name) throw new Error('Part name is required');
+  if (name.length > 200) throw new Error('Part name is too long (200 characters at most)');
+  const rawQty = body?.qty;
+  if (rawQty === null || rawQty === undefined || rawQty === '') return { qty: null, name };
+  const qty = Number(rawQty);
+  if (!Number.isInteger(qty) || qty < 0 || qty > 9999) throw new Error('Quantity must be a whole number from 0 to 9999');
+  return { qty, name };
 }
 
 export const NORMALIZERS = {

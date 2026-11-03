@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   parseSheetDate, productionJobFrom, installEventFrom, hardwareOrderFrom, summarizeNormalized, writeNormalized,
-  parsePartLine, hardwarePartRows,
+  parsePartLine, hardwarePartRows, writeHardwareParts, cleanPartInput,
 } from '../api/_lib/productionNormalize.js';
 
 let failed = 0;
@@ -173,6 +173,50 @@ await check('write: insert, then unchanged, then a temp ref replaced by a real n
   assert.equal(store[0].job_ref, '#6001');
   assert.deepEqual(store[0].job_ref_history, ['T19-GAMMA-RESIDENCE']);
   assert.equal(store[0].ref_is_temp, false);
+});
+
+await check('part input: name required, qty a whole number or blank', () => {
+  assert.deepEqual(cleanPartInput({ qty: '12', name: '  21"   Guides ' }), { qty: 12, name: '21" Guides' });
+  assert.deepEqual(cleanPartInput({ qty: '', name: 'Knife block' }), { qty: null, name: 'Knife block' });
+  assert.deepEqual(cleanPartInput({ qty: null, name: 'x' }), { qty: null, name: 'x' });
+  assert.throws(() => cleanPartInput({ qty: 1, name: '   ' }), /name is required/);
+  assert.throws(() => cleanPartInput({ qty: 1.5, name: 'x' }), /whole number/);
+  assert.throws(() => cleanPartInput({ qty: -1, name: 'x' }), /whole number/);
+  assert.throws(() => cleanPartInput({ qty: 10000, name: 'x' }), /whole number/);
+  assert.throws(() => cleanPartInput({ qty: 1, name: 'x'.repeat(201) }), /too long/);
+});
+
+await check('parts write: an edited or manual part survives a re-read of the sheet', async () => {
+  const order = { source_row_id: 's1', job_ref: '#6001', removed_at: null, notes: null, order_text: '#6001 A\n6) Guides\n1) Pulls\n2) Hinges' };
+  const store = [];
+  const sb = { from: () => ({
+    select: () => ({ range: async () => ({ data: store, error: null }) }),
+    upsert: async (batch) => {
+      for (const b of batch) {
+        const i = store.findIndex((x) => x.order_source_row_id === b.order_source_row_id && x.line_no === b.line_no);
+        if (i >= 0) store[i] = { ...store[i], ...b }; else store.push({ source: 'sheet', edited: false, ...b });
+      }
+      return { error: null };
+    },
+  }) };
+  const first = await writeHardwareParts({ supabase: sb, table: 't', rows: hardwarePartRows([order]) });
+  assert.equal(first.inserted, 3);
+  // a person fixes line 2, removes line 3, and adds a part by hand
+  store[1] = { ...store[1], qty: 4, part_name: 'Pulls (fixed)', edited: true };
+  store[2] = { ...store[2], removed_at: '2026-11-02T00:00:00Z', edited: true };
+  store.push({ order_source_row_id: 's1', job_ref: '#6001', line_no: 2000, qty: 9, part_name: 'Manual', raw_line: '', source: 'manual', edited: true, removed_at: null });
+  // the sheet text changes: line 1 is reworded, lines 2 and 3 are gone
+  const again = await writeHardwareParts({ supabase: sb, table: 't', rows: hardwarePartRows([{ ...order, order_text: '#6001 A\n6) Guides new' }]) });
+  assert.equal(again.updated, 1);
+  assert.equal(again.keptEdited, 0); // line 2 and 3 are not in the new text, so they are not compared
+  assert.equal(store[0].part_name, 'Guides new');
+  assert.equal(store[1].part_name, 'Pulls (fixed)');
+  assert.equal(store[1].removed_at ?? null, null); // an edited line is not marked removed because the sheet dropped it
+  assert.equal(store[3].removed_at ?? null, null); // neither is a manual part
+  // the sheet still has line 2: the edit wins over the OCR text
+  const third = await writeHardwareParts({ supabase: sb, table: 't', rows: hardwarePartRows([{ ...order, order_text: '#6001 A\n6) Guides new\n7) Pulls again' }]) });
+  assert.equal(third.keptEdited, 1);
+  assert.equal(store[1].qty, 4);
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');

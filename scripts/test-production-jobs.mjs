@@ -77,6 +77,25 @@ await check('hardware orders list their parts (lines after the job name), dates,
   assert.equal(h[1].notes, 'rush');
 });
 
+await check('parts table rows win over the order text: edits show, removed parts stay hidden', () => {
+  const hardware = [{ source_row_id: 's1', job_ref: '#6001', order_text: '#6001 Alpha\n6) Guides\n1) Pulls', ordered_on: '2019-02-01' },
+    { source_row_id: 's2', job_ref: '#6001', order_text: '#6001 Alpha\n2) Hinges', ordered_on: '2019-03-01' }];
+  const parts = [
+    { id: 'p1', order_source_row_id: 's1', line_no: 2, qty: 4, part_name: 'Pulls fixed', source: 'sheet', edited: true, removed_at: null },
+    { id: 'p0', order_source_row_id: 's1', line_no: 1, qty: 6, part_name: 'Guides', source: 'sheet', edited: false, removed_at: null },
+    { id: 'p2', order_source_row_id: 's1', line_no: 3, qty: 1, part_name: 'Gone', source: 'sheet', edited: true, removed_at: 'x' },
+    { id: 'p3', order_source_row_id: 's1', line_no: 1001, qty: 2, part_name: 'From notes', source: 'sheet', edited: false, removed_at: null },
+    { id: 'p4', order_source_row_id: 's1', line_no: 2000, qty: 9, part_name: 'By hand', source: 'manual', edited: true, removed_at: null },
+  ];
+  const [built] = buildJobList({ jobs: [job()], installs: [], hardware, parts });
+  const [a, b] = built.hardware;
+  assert.equal(a.id, 's1');
+  assert.deepEqual(a.parts.map((p) => [p.id, p.qty, p.name, p.fromNotes, p.manual, p.edited]), [
+    ['p0', 6, 'Guides', false, false, false], ['p1', 4, 'Pulls fixed', false, false, true],
+    ['p3', 2, 'From notes', true, false, false], ['p4', 9, 'By hand', false, true, true]]);
+  assert.deepEqual(b.parts, [{ qty: 2, name: 'Hinges', fromNotes: false }]); // no rows yet: read from the text, no id
+});
+
 await check('readAll pages through more than 1000 rows and stops on a short page', async () => {
   const calls = [];
   const supabase = {

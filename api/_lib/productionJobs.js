@@ -33,7 +33,22 @@ const dateOf = (e) => e.install_on ?? e.delivery_on ?? '9999-12-31';
  * jobs: dev_production_jobs rows (not removed). installs / hardware: the other tidy tables' rows (not removed).
  * rowNumbers: Map of source_row_id -> sheet row number, so the list can keep the sheet's order.
  */
-export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() }) {
+export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(), parts = [] }) {
+  // dev_hardware_parts rows (removed ones included) by order. An order that has rows there shows those, so
+  // edits and removals stick; an order with none yet shows the parts read straight from its text (not editable).
+  const partsByOrder = new Map();
+  for (const p of parts) {
+    const list = partsByOrder.get(p.order_source_row_id);
+    if (list) list.push(p); else partsByOrder.set(p.order_source_row_id, [p]);
+  }
+  const partsOf = (o) => {
+    const rows = partsByOrder.get(o.source_row_id);
+    if (!rows) return partsFromOrderText(o.order_text, o.notes).map((p) => ({ qty: p.qty, name: p.name, fromNotes: !!p.fromNotes }));
+    return rows.filter((p) => !p.removed_at).sort((a, b) => a.line_no - b.line_no).map((p) => ({
+      id: p.id, qty: p.qty, name: p.part_name,
+      fromNotes: p.line_no >= 1000 && p.line_no < 2000, manual: p.source === 'manual', edited: !!p.edited,
+    }));
+  };
   const inst0 = byRef(installs);
   const hw0 = byRef(hardware);
   // A sheet heading such as "JOBS IN THE SHOP" is read as a job: no invoice number, nothing ticked, nothing filled in.
@@ -72,7 +87,8 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map() 
       })),
       hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => ({
         // order_text is the OCR'd cell: the first line repeats the job name, the lines after it are the parts.
-        parts: partsFromOrderText(o.order_text, o.notes).map((p) => ({ qty: p.qty, name: p.name, fromNotes: !!p.fromNotes })),
+        id: o.source_row_id ?? null,
+        parts: partsOf(o),
         orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
         receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
         status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,

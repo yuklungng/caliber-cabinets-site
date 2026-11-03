@@ -38,5 +38,17 @@ export function weekDays(jobs, start) {
   return days;
 }
 
-/** True when a sheet section heading (such as "Year 2026") names the given year. */
-export const sectionInYear = (section, year) => new RegExp(`(^|\\D)${year}(\\D|$)`).test(section ?? '');
+/**
+ * True when any real date on the job falls in the given year: a delivery or install, paint or doors arriving, or a
+ * hardware order placed or received. (The sheet's section headings cannot be used: jobs installing this year still
+ * sit under last year's heading.)
+ */
+export function jobTouchesYear(job, year) {
+  const prefix = `${year}-`;
+  const dates = [
+    ...(job.installs ?? []).flatMap((e) => [e.installOn, e.deliveryOn]),
+    job.paintArrives?.on, job.doorsArrive?.on,
+    ...(job.hardware ?? []).flatMap((o) => [o.orderedOn, o.receivedOn]),
+  ];
+  return dates.some((d) => typeof d === 'string' && d.startsWith(prefix));
+}

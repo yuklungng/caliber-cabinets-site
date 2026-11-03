@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, mondayOf, sectionInYear, todayIso, weekDays } from './weekSchedule.js';
+import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). The one thing that can be edited is a hardware order's
@@ -304,7 +304,7 @@ export default function ProductionView() {
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState('jobs'); // 'jobs' | 'week'
-  const [thisYear, setThisYear] = useState(false); // only jobs under this year's section heading
+  const [thisYear, setThisYear] = useState(false); // only jobs with a real date in the current year
   const year = new Date().getFullYear();
   const scrollTimer = useRef(null);
 
@@ -328,12 +328,12 @@ export default function ProductionView() {
     const q = searchQuery.trim().toLowerCase();
     return ordered.filter((j) => (
       (section === 'all' || sectionLabel(j.section) === section)
-      && (!thisYear || sectionInYear(j.section, year))
+      && (!thisYear || jobTouchesYear(j, year))
       && (!q || `${j.name} ${j.jobRef} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
     ));
   }, [ordered, searchQuery, section, thisYear, year]);
 
-  const yearCount = useMemo(() => ordered.filter((j) => sectionInYear(j.section, year)).length, [ordered, year]);
+  const yearCount = useMemo(() => ordered.filter((j) => jobTouchesYear(j, year)).length, [ordered, year]);
 
   // Up to 6 jobs matching the search, from every section, like the Leads suggestions.
   const suggestions = useMemo(() => {
@@ -422,7 +422,7 @@ export default function ProductionView() {
               onClick={() => setThisYear((v) => !v)}
               aria-pressed={thisYear}
               disabled={!yearCount}
-              title={yearCount ? `Only jobs under the "${year}" section heading` : `No section heading names ${year}`}
+              title={yearCount ? `Only jobs with an install, delivery, paint, doors or hardware date in ${year}` : `No job has a date in ${year}`}
               style={{ ...controlStyle, flexShrink: 0, whiteSpace: 'nowrap', opacity: yearCount ? 1 : 0.5, ...(thisYear ? { background: '#78350f', color: '#fff', borderColor: '#78350f' } : {}) }}
             >
               This year ({yearCount})

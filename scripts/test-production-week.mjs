@@ -1,6 +1,6 @@
 // Checks the "This week" date helpers. Run: node scripts/test-production-week.mjs
 import assert from 'node:assert/strict';
-import { addDays, mondayOf, sectionInYear, todayIso, weekDays } from '../src/components/production/weekSchedule.js';
+import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from '../src/components/production/weekSchedule.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -39,12 +39,15 @@ check('weekDays places deliveries and installs on their days and ignores dates o
   assert.equal(days.flatMap((d) => d.items).length, 3);
 });
 
-check('sectionInYear matches a year heading but not a longer number or other years', () => {
-  assert.equal(sectionInYear('Year 2026', 2026), true);
-  assert.equal(sectionInYear('2026 jobs', 2026), true);
-  assert.equal(sectionInYear('Year 2025', 2026), false);
-  assert.equal(sectionInYear('Batch 120261', 2026), false);
-  assert.equal(sectionInYear(null, 2026), false);
+check('jobTouchesYear looks at install, delivery, paint, doors and hardware dates only', () => {
+  const base = { installs: [], paintArrives: {}, doorsArrive: {}, hardware: [] };
+  assert.equal(jobTouchesYear({ ...base, installs: [{ installOn: '2026-12-08' }] }, 2026), true);
+  assert.equal(jobTouchesYear({ ...base, installs: [{ deliveryOn: '2026-01-02', installOn: null }] }, 2026), true);
+  assert.equal(jobTouchesYear({ ...base, doorsArrive: { on: '2026-05-05' } }, 2026), true);
+  assert.equal(jobTouchesYear({ ...base, hardware: [{ orderedOn: '2025-12-30', receivedOn: '2026-01-06' }] }, 2026), true);
+  assert.equal(jobTouchesYear({ ...base, installs: [{ installOn: '2025-09-21' }], section: 'Year 2026' }, 2026), false);
+  assert.equal(jobTouchesYear({ ...base, installs: [{ installOn: null, installText: 'TBD 2026' }] }, 2026), false);
+  assert.equal(jobTouchesYear({}, 2026), false);
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');

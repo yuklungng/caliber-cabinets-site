@@ -140,17 +140,29 @@ export function hardwareOrderFrom(rawRow) {
   };
 }
 
-/** "6) 21" GRASS Guides" -> { qty: 6, name: '21" GRASS Guides' }. A line with no "N)" prefix keeps qty null. */
+/**
+ * One line -> its parts. Every "N)" starts a part with quantity N, so "16) 80814-SN , 21) 80815-SN" is two parts.
+ * Text before the first "N)" (or a line with none) is one part with qty null.
+ */
 export function parsePartLine(line) {
-  const raw = String(line ?? '').trim();
-  const hit = /^(\d{1,3})\s*\)\s*(.*)$/.exec(raw);
-  if (!hit || !hit[2].trim()) return { qty: null, name: raw, raw };
-  return { qty: Number(hit[1]), name: hit[2].trim(), raw };
+  const text = String(line ?? '').trim();
+  const marks = [...text.matchAll(/(?:^|[\s,;])(\d{1,3})\s*\)/g)].map((m) => ({
+    qty: Number(m[1]), start: m.index + m[0].indexOf(m[1]), end: m.index + m[0].length,
+  }));
+  const clean = (s) => s.replace(/^[\s,;]+|[\s,;]+$/g, '');
+  const out = [];
+  const lead = clean(text.slice(0, marks.length ? marks[0].start : text.length));
+  if (lead) out.push({ qty: null, name: lead, raw: lead });
+  marks.forEach((m, i) => {
+    const name = clean(text.slice(m.end, i + 1 < marks.length ? marks[i + 1].start : text.length));
+    if (name) out.push({ qty: m.qty, name, raw: clean(text.slice(m.start, i + 1 < marks.length ? marks[i + 1].start : text.length)) });
+  });
+  return out;
 }
 
 /** The part lines of a hardware order cell: the first line repeats the job name, the lines after it are the parts. */
 export function partsFromOrderText(orderText) {
-  return String(orderText ?? '').split(/\r?\n/).slice(1).map((l) => l.trim()).filter(Boolean).map(parsePartLine);
+  return String(orderText ?? '').split(/\r?\n/).slice(1).flatMap(parsePartLine);
 }
 
 /** dev_hardware_parts rows for the given dev_hardware_orders rows (one per part line). */

@@ -463,7 +463,7 @@ function toCSV(rows) {
 }
 
 /** Build the full Closed Won deal list with each deal's 3-stage payment schedule, auto-creating any missing rows. */
-async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
+async function getDealsWithSchedule(supabase, { syncQbo = false, force = false, diag = null } = {}) {
   // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
   //    only stage columns Supabase actually has, and they're only refreshed
   //    when someone loads the Leads view — so they can be stale. We treat them
@@ -639,8 +639,9 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
         if (row.qb_estimate_id && !row.qb_invoice_id) groups.get(key).awaitingInvoice = true;
       }
     }
-    const STALE_MS = 24 * 60 * 60 * 1000; // one auto-sync per group per day
-    const AWAITING_STALE_MS = 15 * 60 * 1000; // estimate sections still waiting on an invoice: every 15 min
+    // `force` (the "Refresh all from QuickBooks" button) skips the throttle for one explicit request.
+    const STALE_MS = force ? 0 : 24 * 60 * 60 * 1000; // one auto-sync per group per day
+    const AWAITING_STALE_MS = force ? 0 : 15 * 60 * 1000; // estimate sections still waiting on an invoice: every 15 min
     const now = Date.now();
     const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > (g.awaitingInvoice ? AWAITING_STALE_MS : STALE_MS));
     if (toSync.length > 0) {
@@ -656,6 +657,12 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
           }
         } else {
           console.error(`[admin-cashflow] QBO auto-sync failed for deal ${toSync[i].hubspot_deal_id} room ${toSync[i].room ?? '(default)'} (non-fatal):`, r.reason?.message);
+          // Surface it to the page too, so a failed sync is visible instead of silently showing old numbers.
+          diag?.syncErrors.push({
+            hubspot_deal_id: toSync[i].hubspot_deal_id,
+            room: toSync[i].room ?? null,
+            message: String(r.reason?.message ?? 'Unknown error').slice(0, 300),
+          });
         }
       });
     }
@@ -1031,8 +1038,13 @@ export default async function handler(req, res) {
     try {
       // Only the Financial Management page (?syncQbo=1) triggers the QBO
       // auto-refresh — see the 6.75 comment in getDealsWithSchedule for why.
-      const result = await getDealsWithSchedule(supabase, { syncQbo: req.query?.syncQbo === '1' });
-      return res.status(200).json({ deals: result });
+      const diag = { syncErrors: [] };
+      const result = await getDealsWithSchedule(supabase, {
+        syncQbo: req.query?.syncQbo === '1',
+        force: req.query?.force === '1',
+        diag,
+      });
+      return res.status(200).json({ deals: result, syncErrors: diag.syncErrors });
     } catch (err) {
       console.error('[admin-cashflow] GET error:', err.message);
       return res.status(500).json({ error: err.message });

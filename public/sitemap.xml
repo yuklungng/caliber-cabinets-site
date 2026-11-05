@@ -33,6 +33,14 @@
     <priority>0.7</priority>
   </url>
 
+  <!-- Warranty -->
+  <url>
+    <loc>https://www.calibercabinetshop.com/warranty</loc>
+    <lastmod>2026-11-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+
   <!-- Privacy policy -->
   <url>
     <loc>https://www.calibercabinetshop.com/privacy-policy</loc>

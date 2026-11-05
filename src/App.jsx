@@ -7,6 +7,7 @@ import { ConsultationPage } from './pages/ConsultationPage.jsx';
 import { EstimatePage } from './pages/EstimatePage.jsx';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage.jsx';
 import { GalleryPage } from './pages/GalleryPage.jsx';
+import { WarrantyPage } from './pages/WarrantyPage.jsx';
 
 // Lazy-load AdminPage — keeps Supabase and admin code out of the public visitor bundle
 const AdminPage = lazy(() => import('./pages/AdminPage.jsx').then((m) => ({ default: m.AdminPage })));
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="/request-a-design-consultation" element={<ConsultationPage />} />
       <Route path="/request-design-estimate" element={<EstimatePage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+      <Route path="/warranty" element={<WarrantyPage />} />
       <Route path="/our-work" element={<GalleryPage />} />
       <Route path="/admin" element={<Suspense fallback={null}><AdminPage /></Suspense>} />
       <Route path="*" element={<Navigate to="/" replace />} />

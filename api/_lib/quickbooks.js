@@ -176,7 +176,10 @@ export async function getConnectionStatus() {
  * (60-minute lifetime — refresh proactively inside the last 5 minutes so a
  * slow downstream call never races the actual expiry).
  */
+let tokenRefreshInFlight = null; // concurrent callers share one refresh: QBO rotates the refresh token on every use
+
 export async function getValidAccessToken() {
+  if (tokenRefreshInFlight) return tokenRefreshInFlight;
   const supabase = supabaseClient();
   const { data: row, error } = await supabase
     .from('quickbooks_connection')
@@ -192,6 +195,11 @@ export async function getValidAccessToken() {
   }
 
   // Expired/near-expiry — refresh. QBO rotates the refresh_token on every use.
+  tokenRefreshInFlight = refreshAccessToken(supabase, row).finally(() => { tokenRefreshInFlight = null; });
+  return tokenRefreshInFlight;
+}
+
+async function refreshAccessToken(supabase, row) {
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: {
@@ -256,18 +264,44 @@ export async function disconnect() {
   }, { onConflict: 'id' });
 }
 
+// Intuit throttles per company (HTTP 429 "ThrottleExceeded") when too many requests arrive at once.
+// Keep only a few in flight at a time, and retry politely if it still pushes back.
+const MAX_IN_FLIGHT = 3;
+const MAX_RETRIES = 3;
+let inFlight = 0;
+const waiters = [];
+async function acquireSlot() {
+  if (inFlight < MAX_IN_FLIGHT) { inFlight += 1; return; }
+  await new Promise((resolve) => waiters.push(resolve)); // the slot is handed over by releaseSlot
+}
+function releaseSlot() {
+  const next = waiters.shift();
+  if (next) next(); else inFlight -= 1;
+}
+
 /** Thin wrapper for authenticated Accounting API calls once connected. */
 export async function qbFetch(path, options = {}) {
-  const { accessToken, realmId } = await getValidAccessToken();
-  return fetch(`${apiBase()}/v3/company/${realmId}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(options.headers ?? {}),
-    },
-  });
+  await acquireSlot();
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      const { accessToken, realmId } = await getValidAccessToken();
+      const res = await fetch(`${apiBase()}/v3/company/${realmId}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(options.headers ?? {}),
+        },
+      });
+      if (res.status !== 429 || attempt >= MAX_RETRIES) return res;
+      const retryAfter = Number(res.headers.get('retry-after'));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 600 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  } finally {
+    releaseSlot();
+  }
 }
 
 /**

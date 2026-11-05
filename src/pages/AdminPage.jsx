@@ -7441,6 +7441,7 @@ function FinancialView({ isSuperAdmin = false }) {
   const [sortKey, setSortKey] = useState('newest');
   const [exporting, setExporting] = useState(false);
   const [syncErrors, setSyncErrors] = useState([]);
+  const [syncPending, setSyncPending] = useState(0);
 
   // `force` is the "Refresh all from QuickBooks" button: it skips the once-a-day throttle for this request.
   async function loadDeals(force = false) {
@@ -7455,6 +7456,7 @@ function FinancialView({ isSuperAdmin = false }) {
       const d = await r.json();
       setDeals(d.deals ?? []);
       setSyncErrors(d.syncErrors ?? []);
+      setSyncPending(d.syncPending ?? 0);
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -7698,17 +7700,27 @@ function FinancialView({ isSuperAdmin = false }) {
         </div>
       )}
 
-      {(syncErrors.length > 0 || staleCount > 0) && (
+      {(syncErrors.length > 0 || syncPending > 0 || staleCount > 0) && (
         <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', color: '#92400e', fontSize: '13px' }}>
-          <strong>⚠ Some invoices may not match QuickBooks.</strong>
+          <strong>⚠ Some invoices may be out of date.</strong>{' '}
           {syncErrors.length > 0 ? (
-            <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-              {syncErrors.map((e, i) => (
-                <li key={i}>{dealNameById.get(e.hubspot_deal_id) ?? e.hubspot_deal_id}{e.room ? ` (${e.room})` : ''}: {e.message}</li>
-              ))}
-            </ul>
+            <span>
+              QuickBooks {syncErrors.every((e) => e.busy) ? 'was busy' : "didn't respond"} for {syncErrors.length} invoice{syncErrors.length === 1 ? '' : 's'}, so the numbers shown may be old. Click “Refresh all from QuickBooks” to try again.
+            </span>
+          ) : syncPending > 0 ? (
+            <span>{syncPending} invoice{syncPending === 1 ? ' is' : 's are'} still waiting to update. Click “Refresh all from QuickBooks” to finish.</span>
           ) : (
-            <span> {staleCount} linked invoice{staleCount === 1 ? '' : 's'} {staleCount === 1 ? "hasn't" : "haven't"} synced in over a day, but no error was reported. Use Refresh all, and tell Morris if it keeps happening.</span>
+            <span>{staleCount} invoice{staleCount === 1 ? " hasn't" : "s haven't"} updated from QuickBooks in over a day. Click “Refresh all from QuickBooks” to update.</span>
+          )}
+          {syncErrors.length > 0 && (
+            <details style={{ marginTop: '6px', fontSize: '12px' }}>
+              <summary style={{ cursor: 'pointer' }}>Technical details (for Morris)</summary>
+              <ul style={{ margin: '6px 0 0', paddingLeft: '18px', wordBreak: 'break-word' }}>
+                {syncErrors.map((e, i) => (
+                  <li key={i}>{dealNameById.get(e.hubspot_deal_id) ?? e.hubspot_deal_id}{e.room ? ` (${e.room})` : ''}: {e.message.slice(0, 160)}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}

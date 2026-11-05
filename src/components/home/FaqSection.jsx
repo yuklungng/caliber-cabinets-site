@@ -13,6 +13,28 @@ const FALLBACK_FAQS = [
 const INITIAL_VISIBLE = 6; // even, so the two-column grid stays balanced
 const ALL = 'All';
 
+// Answers are plain text. A blank line starts a new paragraph, and a mention of
+// calibercabinetshop.com/<path> becomes a link to that page on this site.
+const SITE_LINK = /(calibercabinetshop\.com\/[a-z0-9/-]+)/gi;
+
+function renderAnswer(answer) {
+  return String(answer)
+    .split(/\n\s*\n/)
+    .map((para, i) => (
+      <p key={i}>
+        {para.split(SITE_LINK).map((part, j) =>
+          j % 2 === 1 ? (
+            <a key={j} href={`/${part.split('/').slice(1).join('/')}`}>
+              {part}
+            </a>
+          ) : (
+            part
+          ),
+        )}
+      </p>
+    ));
+}
+
 function syncJsonLd(faqs) {
   if (!faqs.length) return;
   const json = {
@@ -106,7 +128,7 @@ export function FaqSection() {
               <span className="faq-icon" aria-hidden="true" />
             </summary>
             <div className="faq-answer">
-              <p>{faq.answer}</p>
+              {renderAnswer(faq.answer)}
             </div>
           </details>
         ))}

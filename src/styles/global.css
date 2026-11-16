@@ -1208,6 +1208,16 @@ button:focus-visible {
   line-height: 1.65;
 }
 
+.faq-answer p + p {
+  margin-top: 0.75em;
+}
+
+.faq-answer a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .faq-section {
     padding: 48px 0;

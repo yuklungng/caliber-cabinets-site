@@ -136,14 +136,21 @@ function buildScheduleActivityNote(oldRow, newRow) {
  * Throws on failure — callers decide whether that should surface to the user
  * (link/refresh) or just get logged and skipped (page-load auto-sync).
  */
-async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id }) {
+async function syncRoomGroupFromQbo(supabase, { hubspot_deal_id, room, qb_invoice_id }, ctx = null) {
   const invoice = await qbGetInvoice(qb_invoice_id);
   if (!invoice) throw new Error('QuickBooks invoice not found — it may have been deleted.');
 
   const customerId = invoice.CustomerRef?.value;
   const payments = [];
   if (customerId) {
-    const allPayments = await qbGetPaymentsForCustomer(customerId);
+    // Several rooms/splits often share one customer: when syncing a batch, look their payments up once.
+    let allPayments;
+    if (ctx?.payments) {
+      if (!ctx.payments.has(customerId)) ctx.payments.set(customerId, qbGetPaymentsForCustomer(customerId));
+      allPayments = await ctx.payments.get(customerId);
+    } else {
+      allPayments = await qbGetPaymentsForCustomer(customerId);
+    }
     for (const p of allPayments) {
       const matchingLines = (p.Line ?? []).filter((line) =>
         (line.LinkedTxn ?? []).some((lt) => lt.TxnId === invoice.Id && lt.TxnType === 'Invoice')
@@ -464,7 +471,7 @@ function toCSV(rows) {
 }
 
 /** Build the full Closed Won deal list with each deal's 3-stage payment schedule, auto-creating any missing rows. */
-async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
+async function getDealsWithSchedule(supabase, { syncQbo = false, force = false, diag = null } = {}) {
   // 1. All Supabase leads linked to a HubSpot deal. hs_stage_id/label are the
   //    only stage columns Supabase actually has, and they're only refreshed
   //    when someone loads the Leads view — so they can be stale. We treat them
@@ -640,14 +647,38 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
         if (row.qb_estimate_id && !row.qb_invoice_id) groups.get(key).awaitingInvoice = true;
       }
     }
-    const STALE_MS = 24 * 60 * 60 * 1000; // one auto-sync per group per day
-    const AWAITING_STALE_MS = 15 * 60 * 1000; // estimate sections still waiting on an invoice: every 15 min
+    // `force` (the "Refresh all from QuickBooks" button) skips the throttle for one explicit request.
+    const STALE_MS = force ? 0 : 24 * 60 * 60 * 1000; // one auto-sync per group per day
+    const AWAITING_STALE_MS = force ? 0 : 15 * 60 * 1000; // estimate sections still waiting on an invoice: every 15 min
     const now = Date.now();
     const toSync = [...groups.values()].filter((g) => !g.qb_synced_at || (now - new Date(g.qb_synced_at).getTime()) > (g.awaitingInvoice ? AWAITING_STALE_MS : STALE_MS));
     if (toSync.length > 0) {
-      const results = await Promise.allSettled(toSync.map((g) => (g.qb_estimate_id
-        ? syncRoomGroupFromEstimate(supabase, g).then((r) => r.rows)
-        : syncRoomGroupFromQbo(supabase, g))));
+      // Syncing every group at once made QuickBooks answer 429 (ThrottleExceeded) for most of them, so
+      // the page kept showing old numbers. Work through them a few at a time instead, share each
+      // customer's payment lookup across their rooms, and stop starting new groups once the time
+      // budget is used (the rest are reported as pending; the next load or Refresh all picks them up).
+      const SYNC_BUDGET_MS = 8000;
+      const startedAt = Date.now();
+      const ctx = { payments: new Map() };
+      const results = new Array(toSync.length);
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < toSync.length) {
+          const i = nextIndex;
+          nextIndex += 1;
+          if (Date.now() - startedAt > SYNC_BUDGET_MS) { results[i] = { status: 'skipped' }; continue; }
+          const g = toSync[i];
+          try {
+            const value = g.qb_estimate_id
+              ? await syncRoomGroupFromEstimate(supabase, g).then((r) => r.rows)
+              : await syncRoomGroupFromQbo(supabase, g, ctx);
+            results[i] = { status: 'fulfilled', value };
+          } catch (reason) {
+            results[i] = { status: 'rejected', reason };
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') {
           for (const updatedRow of r.value) {
@@ -655,8 +686,18 @@ async function getDealsWithSchedule(supabase, { syncQbo = false } = {}) {
             const idx = list.findIndex((x) => x.id === updatedRow.id);
             if (idx !== -1) list[idx] = updatedRow;
           }
+        } else if (r.status === 'skipped') {
+          if (diag) diag.syncPending += 1;
         } else {
-          console.error(`[admin-cashflow] QBO auto-sync failed for deal ${toSync[i].hubspot_deal_id} room ${toSync[i].room ?? '(default)'} (non-fatal):`, r.reason?.message);
+          const raw = String(r.reason?.message ?? 'Unknown error');
+          console.error(`[admin-cashflow] QBO auto-sync failed for deal ${toSync[i].hubspot_deal_id} room ${toSync[i].room ?? '(default)'} (non-fatal):`, raw);
+          // Surface it to the page too, so a failed sync is visible instead of silently showing old numbers.
+          diag?.syncErrors.push({
+            hubspot_deal_id: toSync[i].hubspot_deal_id,
+            room: toSync[i].room ?? null,
+            busy: /\b429\b|ThrottleExceeded/i.test(raw),
+            message: raw.slice(0, 300),
+          });
         }
       });
     }
@@ -1136,8 +1177,13 @@ export default async function handler(req, res) {
     try {
       // Only the Financial Management page (?syncQbo=1) triggers the QBO
       // auto-refresh — see the 6.75 comment in getDealsWithSchedule for why.
-      const result = await getDealsWithSchedule(supabase, { syncQbo: req.query?.syncQbo === '1' });
-      return res.status(200).json({ deals: result });
+      const diag = { syncErrors: [], syncPending: 0 };
+      const result = await getDealsWithSchedule(supabase, {
+        syncQbo: req.query?.syncQbo === '1',
+        force: req.query?.force === '1',
+        diag,
+      });
+      return res.status(200).json({ deals: result, syncErrors: diag.syncErrors, syncPending: diag.syncPending });
     } catch (err) {
       console.error('[admin-cashflow] GET error:', err.message);
       return res.status(500).json({ error: err.message });

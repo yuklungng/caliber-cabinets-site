@@ -7090,6 +7090,14 @@ function QbInvoiceLinkControl({ dealId, room, rows, onSynced, contractAmount, si
         <span style={{ color: '#374151' }}>Total {formatMoney(rows[0].qb_total)} · Balance {formatMoney(rows[0].qb_balance)}</span>
         <button onClick={refresh} disabled={busy} title="Refresh from QuickBooks" style={iconBtn}>🔄</button>
         <button onClick={unlink} disabled={busy} style={unlinkBtn}>Unlink</button>
+        {(() => {
+          const old = !rows[0].qb_synced_at || Date.now() - new Date(rows[0].qb_synced_at).getTime() > 26 * 60 * 60 * 1000;
+          return (
+            <span style={{ fontSize: '11px', color: old ? '#b45309' : '#9ca3af', fontWeight: old ? '600' : '400' }}>
+              {old ? '⚠ ' : ''}{syncedLabel(rows[0].qb_synced_at)}
+            </span>
+          );
+        })()}
       </div>
     );
   }
@@ -7499,18 +7507,23 @@ function FinancialView({ isSuperAdmin = false }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState('newest');
   const [exporting, setExporting] = useState(false);
+  const [syncErrors, setSyncErrors] = useState([]);
+  const [syncPending, setSyncPending] = useState(0);
 
-  async function loadDeals() {
+  // `force` is the "Refresh all from QuickBooks" button: it skips the once-a-day throttle for this request.
+  async function loadDeals(force = false) {
     setIsLoading(true);
     setLoadError('');
     try {
       // syncQbo=1 tells the backend to auto-refresh QBO-linked invoices on
       // this load (throttled to once/day per invoice) — only this view
       // needs invoice-level freshness, so only this view asks for it.
-      const r = await apiCall('/api/admin-cashflow?syncQbo=1');
+      const r = await apiCall(`/api/admin-cashflow?syncQbo=1${force === true ? '&force=1' : ''}`);
       if (!r.ok) throw new Error((await r.json()).error ?? 'Failed to load');
       const d = await r.json();
       setDeals(d.deals ?? []);
+      setSyncErrors(d.syncErrors ?? []);
+      setSyncPending(d.syncPending ?? 0);
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -7714,6 +7727,17 @@ function FinancialView({ isSuperAdmin = false }) {
       .finally(() => setExporting(false));
   }
 
+  // QuickBooks freshness: the oldest "last synced" time across linked invoices. The backend re-syncs anything
+  // older than a day whenever this page loads, so a group still older than ~26h means that sync did not work.
+  const syncTimes = deals.flatMap((d) => d.stages.filter((s) => s.qb_invoice_id || s.qb_estimate_id).map((s) => s.qb_synced_at));
+  const linkedGroupCount = syncTimes.length;
+  const staleCutoff = Date.now() - 26 * 60 * 60 * 1000;
+  const staleCount = new Set(deals.flatMap((d) => d.stages
+    .filter((s) => (s.qb_invoice_id || s.qb_estimate_id) && (!s.qb_synced_at || new Date(s.qb_synced_at).getTime() < staleCutoff))
+    .map((s) => `${d.hubspot_deal_id}|${s.room ?? ''}`))).size;
+  const oldestSync = syncTimes.filter(Boolean).sort()[0] ?? null;
+  const dealNameById = new Map(deals.map((d) => [d.hubspot_deal_id, d.name]));
+
   if (isLoading) return <p style={{ color: '#9ca3af', padding: '40px 0', textAlign: 'center' }}>Loading financials…</p>;
   if (loadError) return (
     <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontSize: '13px' }}>
@@ -7729,6 +7753,44 @@ function FinancialView({ isSuperAdmin = false }) {
           Payment schedule against Closed Won deals — Initial Deposit, Production Payment, Final Payment. Deals appear here automatically once won; editing dates or amounts never changes a deal's stage or any HubSpot data.
         </p>
       </div>
+
+      {linkedGroupCount > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px', fontSize: '12px', color: '#6b7280' }}>
+          <span>QuickBooks data: oldest check {oldestSync ? syncedLabel(oldestSync).replace('Checked QuickBooks ', '') : 'never'}</span>
+          <button
+            onClick={() => loadDeals(true)}
+            title="Re-check every linked invoice and estimate in QuickBooks now"
+            style={{ padding: '4px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '12px', color: '#374151', cursor: 'pointer', fontWeight: '600' }}
+          >
+            🔄 Refresh all from QuickBooks
+          </button>
+        </div>
+      )}
+
+      {(syncErrors.length > 0 || syncPending > 0 || staleCount > 0) && (
+        <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', color: '#92400e', fontSize: '13px' }}>
+          <strong>⚠ Some invoices may be out of date.</strong>{' '}
+          {syncErrors.length > 0 ? (
+            <span>
+              QuickBooks {syncErrors.every((e) => e.busy) ? 'was busy' : "didn't respond"} for {syncErrors.length} invoice{syncErrors.length === 1 ? '' : 's'}, so the numbers shown may be old. Click “Refresh all from QuickBooks” to try again.
+            </span>
+          ) : syncPending > 0 ? (
+            <span>{syncPending} invoice{syncPending === 1 ? ' is' : 's are'} still waiting to update. Click “Refresh all from QuickBooks” to finish.</span>
+          ) : (
+            <span>{staleCount} invoice{staleCount === 1 ? " hasn't" : "s haven't"} updated from QuickBooks in over a day. Click “Refresh all from QuickBooks” to update.</span>
+          )}
+          {syncErrors.length > 0 && (
+            <details style={{ marginTop: '6px', fontSize: '12px' }}>
+              <summary style={{ cursor: 'pointer' }}>Technical details (for Morris)</summary>
+              <ul style={{ margin: '6px 0 0', paddingLeft: '18px', wordBreak: 'break-word' }}>
+                {syncErrors.map((e, i) => (
+                  <li key={i}>{dealNameById.get(e.hubspot_deal_id) ?? e.hubspot_deal_id}{e.room ? ` (${e.room})` : ''}: {e.message.slice(0, 160)}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
         {[

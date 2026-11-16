@@ -132,6 +132,10 @@ export function SiteFooter() {
           <a href="/privacy-policy" style={{ color: 'inherit', textDecoration: 'underline' }}>
             Privacy Policy
           </a>
+          {' '}&nbsp;·&nbsp;{' '}
+          <a href="/warranty" style={{ color: 'inherit', textDecoration: 'underline' }}>
+            Warranty
+          </a>
         </p>
       </div>
     </footer>

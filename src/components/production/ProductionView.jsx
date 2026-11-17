@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
+import ShopView from './ShopView.jsx';
 import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToCheck, searchParts } from './partsIndex.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
@@ -612,6 +613,9 @@ export default function ProductionView() {
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState('jobs'); // 'jobs' | 'week' | 'parts'
+  // 'shop' (simple, large print, the default) or 'office' (every tool). Remembered per browser.
+  const [mode, setModeState] = useState(() => { try { return localStorage.getItem('production_mode') === 'office' ? 'office' : 'shop'; } catch { return 'shop'; } });
+  const setMode = (m) => { setModeState(m); try { localStorage.setItem('production_mode', m); } catch { /* private window */ } };
   const [thisYear, setThisYear] = useState(false); // only jobs with a real date in the current year
   const [dealFilter, setDealFilter] = useState('all'); // 'all' | 'linked' | 'suggested' | 'unlinked'
   const year = new Date().getFullYear();
@@ -701,13 +705,22 @@ export default function ProductionView() {
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '16px' }}>
-      <h2 style={{ margin: '0 0 4px', color: '#78350f' }}>Production</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', margin: '0 0 8px' }}>
+        <h2 style={{ margin: 0, color: '#78350f' }}>Production</h2>
+        <div role="group" aria-label="View" style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+          {[['shop', 'Shop view'], ['office', 'Office view']].map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setMode(key)} aria-pressed={mode === key} style={{ padding: '8px 14px', border: 0, fontSize: '13px', fontWeight: '600', cursor: 'pointer', minHeight: '40px', background: mode === key ? '#78350f' : '#fff', color: mode === key ? '#fff' : '#374151' }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {error && <p style={{ color: '#b91c1c' }}>Could not load jobs: {error}</p>}
+      {!data && !error && <p style={{ color: '#6b7280', fontSize: '17px' }}>{'Loading jobs…'}</p>}
+      {data && mode === 'shop' && <ShopView jobs={data.jobs} />}
+      {mode === 'office' && (<>
       <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '13px' }}>
         A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists and deal links can be changed here; all other changes still go in the Google Sheets.
       </p>
-      {error && <p style={{ color: '#b91c1c' }}>Could not load jobs: {error}</p>}
       {data?.linkError && <p style={{ color: '#b45309', fontSize: '13px' }}>Deal links could not be loaded, so jobs show without them. ({data.linkError})</p>}
-      {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
       {data && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
           {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Parts']].map(([key, label]) => (
@@ -827,6 +840,7 @@ export default function ProductionView() {
           )}
         </>
       )}
+      </>)}
     </div>
   );
 }

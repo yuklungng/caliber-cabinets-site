@@ -4,8 +4,11 @@
 // The hardware sheet stopped recording received dates in 2021, so "not received" cannot be read as
 // "still on order". The tab says "receipt not recorded" instead of guessing.
 
-/** One entry per hardware order, carrying its job. */
-export function flattenOrders(jobs) {
+/**
+ * One entry per hardware order, carrying its job. orphans: orders that match no job (from the API); they get
+ * jobId null and their own label, so the screen shows them without a link.
+ */
+export function flattenOrders(jobs, orphans = []) {
   const out = [];
   for (const j of jobs ?? []) {
     (j.hardware ?? []).forEach((o, i) => {
@@ -23,6 +26,22 @@ export function flattenOrders(jobs) {
         notes: o.notes ?? null,
         parts: o.parts ?? [],
       });
+    });
+  }
+  for (const [i, o] of orphans.entries()) {
+    out.push({
+      key: `orphan:${o.id ?? i}`,
+      jobId: null,
+      jobName: o.label || o.jobRef,
+      jobRef: o.jobRef,
+      orderedOn: o.orderedOn ?? null,
+      orderedText: o.orderedText ?? null,
+      receivedOn: o.receivedOn ?? null,
+      receivedText: o.receivedText ?? null,
+      status: o.status ?? null,
+      photoUrl: o.photoUrl ?? null,
+      notes: o.notes ?? null,
+      parts: o.parts ?? [],
     });
   }
   return out;

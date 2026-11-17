@@ -33,15 +33,15 @@ const dateOf = (e) => e.install_on ?? e.delivery_on ?? '9999-12-31';
  * jobs: dev_production_jobs rows (not removed). installs / hardware: the other tidy tables' rows (not removed).
  * rowNumbers: Map of source_row_id -> sheet row number, so the list can keep the sheet's order.
  */
-export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(), parts = [] }) {
-  // dev_hardware_parts rows (removed ones included) by order. An order that has rows there shows those, so
-  // edits and removals stick; an order with none yet shows the parts read straight from its text (not editable).
+// dev_hardware_parts rows (removed ones included) by order. An order that has rows there shows those, so
+// edits and removals stick; an order with none yet shows the parts read straight from its text (not editable).
+function partsLookup(parts) {
   const partsByOrder = new Map();
   for (const p of parts) {
     const list = partsByOrder.get(p.order_source_row_id);
     if (list) list.push(p); else partsByOrder.set(p.order_source_row_id, [p]);
   }
-  const partsOf = (o) => {
+  return (o) => {
     const rows = partsByOrder.get(o.source_row_id);
     if (!rows) return partsFromOrderText(o.order_text, o.notes).map((p) => ({ qty: p.qty, name: p.name, fromNotes: !!p.fromNotes }));
     return rows.filter((p) => !p.removed_at).sort((a, b) => a.line_no - b.line_no).map((p) => ({
@@ -49,6 +49,35 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(),
       fromNotes: p.line_no >= 1000 && p.line_no < 2000, manual: p.source === 'manual', edited: !!p.edited,
     }));
   };
+}
+
+// One hardware order as the screen sees it. order_text is the OCR'd cell: the first line repeats the job name,
+// the lines after it are the parts.
+const shapeOrder = (o, partsOf) => ({
+  id: o.source_row_id ?? null,
+  parts: partsOf(o),
+  orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
+  receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
+  status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,
+});
+
+/**
+ * Hardware orders that belong to no job in the list (orders from before the Production sheet starts, or
+ * whose job name could not be read), so the Parts tab can still show them. Same shape as a job's
+ * hardware entries plus the order's own label.
+ */
+export function orphanOrders({ list, hardware, parts = [] }) {
+  const refs = new Set(list.map((j) => j.jobRef));
+  const partsOf = partsLookup(parts);
+  return hardware.filter((o) => !refs.has(o.job_ref)).map((o) => ({
+    ...shapeOrder(o, partsOf),
+    jobRef: o.job_ref,
+    label: o.job_name || String(o.order_text ?? '').split(/\r?\n/)[0] || o.job_ref,
+  }));
+}
+
+export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(), parts = [] }) {
+  const partsOf = partsLookup(parts);
   const inst0 = byRef(installs);
   const hw0 = byRef(hardware);
   // A sheet heading such as "JOBS IN THE SHOP" is read as a job: no invoice number, nothing ticked, nothing filled in.
@@ -85,14 +114,7 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(),
         installOn: e.install_on, installText: e.install_text,
         confirmed: e.confirmed, completed: e.completed,
       })),
-      hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => ({
-        // order_text is the OCR'd cell: the first line repeats the job name, the lines after it are the parts.
-        id: o.source_row_id ?? null,
-        parts: partsOf(o),
-        orderedOn: o.ordered_on ?? null, orderedText: o.ordered_text ?? null,
-        receivedOn: o.received_on ?? null, receivedText: o.received_text ?? null,
-        status: o.status ?? null, notes: o.notes ?? null, photoUrl: o.photo_url ?? null,
-      })),
+      hardware: [...orders].sort((a, b) => (a.ordered_on ?? '9999-12-31').localeCompare(b.ordered_on ?? '9999-12-31')).map((o) => shapeOrder(o, partsOf)),
       hardwareOrders: orders.length,
       lastHardwareOrderOn: orders.map((o) => o.ordered_on).filter(Boolean).sort().pop() ?? null,
     };

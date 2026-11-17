@@ -1,5 +1,7 @@
 // Checks the Parts tab helpers on made-up jobs. Run: node scripts/test-production-parts.mjs
 import assert from 'node:assert/strict';
+import { matchOrdersToJobs } from '../api/_lib/productionNormalize.js';
+import { orphanOrders } from '../api/_lib/productionJobs.js';
 import { daysBefore, flattenOrders, isReceived, ordersSince, qtyToCheck, searchParts } from '../src/components/production/partsIndex.js';
 
 let failed = 0;
@@ -69,6 +71,48 @@ check('search counts flagged lines in the total and in toCheck', () => {
   assert.equal(r.totalQty, 331);
   assert.equal(r.toCheck, 1);
   assert.equal(r.lines.find((l) => l.qty === 327).check, true);
+});
+
+check('garbled job numbers on orders re-attach only to real, unambiguous jobs', () => {
+  const o = (ref, text, temp = true) => ({ source_row_id: ref, job_ref: ref, ref_is_temp: temp, job_number: temp ? null : ref.slice(1), order_text: text });
+  const rows = [
+    o('T26-6322-MACACHOR', '6322 Macachor\n10) 21" salice'),
+    o('T26-H6313-READLER', 'H6313-Readler\n32) 21" salice'),
+    o('T26-16333-KAL', '16333-KAL\n12) 18" Salice'),
+    o('T26-EBONY', '# -EBOnY\n25) 21" Salice'),
+    o('T26-9999-NOPE', '9999 Nope'),
+    o('T26-TWO', '6322 and 6313 shared'),
+    o('#6302', '#6302-Whnight', false),
+    o('T26-PARTS', 'Smith\n6322) hinges'),
+  ];
+  const { rows: out, matched } = matchOrdersToJobs(rows, new Set(['6322', '6313', '6333', '6302']));
+  const by = Object.fromEntries(out.map((r) => [r.source_row_id, r]));
+  assert.equal(matched, 3);
+  assert.equal(by['T26-6322-MACACHOR'].job_ref, '#6322');
+  assert.equal(by['T26-H6313-READLER'].job_ref, '#6313');
+  assert.equal(by['T26-16333-KAL'].job_ref, '#6333');
+  assert.equal(by['T26-16333-KAL'].ref_is_temp, false);
+  assert.equal(by['T26-EBONY'].job_ref, 'T26-EBONY');
+  assert.equal(by['T26-9999-NOPE'].ref_is_temp, true);
+  assert.equal(by['T26-TWO'].ref_is_temp, true);
+  assert.equal(by['#6302'].job_ref, '#6302');
+  assert.equal(by['T26-PARTS'].ref_is_temp, true);
+});
+
+check('orders with no job are listed with their own label and no job link', () => {
+  const list = [{ jobRef: '#1' }];
+  const hardware = [
+    { source_row_id: 'h1', job_ref: '#1', order_text: 'x' },
+    { source_row_id: 'h2', job_ref: 'T17-ESTRADA', job_name: 'Estrada main', order_text: 'Estrada main\n2) hinge', ordered_on: '2017-06-03' },
+  ];
+  const orphans = orphanOrders({ list, hardware });
+  assert.equal(orphans.length, 1);
+  assert.equal(orphans[0].label, 'Estrada main');
+  assert.deepEqual(orphans[0].parts.map((p) => `${p.qty}|${p.name}`), ['2|hinge']);
+  const flat = flattenOrders([], orphans);
+  assert.equal(flat[0].jobId, null);
+  assert.equal(flat[0].jobName, 'Estrada main');
+  assert.equal(searchParts(flat, 'hinge').lines.length, 1);
 });
 
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); }

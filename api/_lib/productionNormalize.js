@@ -235,6 +235,32 @@ export function cleanPartInput(body) {
   return { qty, name };
 }
 
+/**
+ * Hardware orders whose photo text lost the "#" (or gained a stray letter) get a temporary label and match no
+ * job: "6322 Macachor", "H6313-Readler", "16333-KAL". This re-attaches such an order when a 4-digit run in its
+ * first line (or the last 4 digits of a 5-digit run, where the "#" was read as a "1") is a job number that
+ * really exists on the Production Status sheet. Only one distinct match is accepted; anything ambiguous or
+ * unknown keeps its temporary label. Pure; returns new rows and how many were matched.
+ */
+export function matchOrdersToJobs(rows, jobNumbers) {
+  const known = jobNumbers instanceof Set ? jobNumbers : new Set(jobNumbers);
+  let matched = 0;
+  const out = rows.map((r) => {
+    if (!r.ref_is_temp) return r;
+    const firstLine = String(r.order_text ?? r.job_name ?? '').split(/\r?\n/)[0];
+    const hits = new Set();
+    for (const [run] of firstLine.matchAll(/\d{4,5}/g)) {
+      if (run.length === 4 && known.has(run)) hits.add(run);
+      if (run.length === 5 && run.startsWith('1') && known.has(run.slice(1))) hits.add(run.slice(1));
+    }
+    if (hits.size !== 1) return r;
+    const [number] = hits;
+    matched += 1;
+    return { ...r, job_ref: `#${number}`, job_number: number, ref_is_temp: false };
+  });
+  return { rows: out, matched };
+}
+
 export const NORMALIZERS = {
   production_status: { table: 'production_jobs', build: productionJobFrom },
   install_schedule: { table: 'install_events', build: installEventFrom },

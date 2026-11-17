@@ -489,10 +489,23 @@ function ReceivedChip({ order }) {
 
 const jobLinkStyle = { background: 'none', border: 0, padding: 0, color: '#78350f', fontWeight: '600', fontSize: '13px', cursor: 'pointer', textAlign: 'left', textDecoration: 'underline' };
 
-function PartsView({ jobs, onOpenJob }) {
+// A job name that opens the job, or, for an order that matches no job, its own label marked as such.
+function JobName({ order, onOpenJob }) {
+  if (order.jobId) return <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(order.jobId)}>{order.jobName}</button>;
+  return (
+    <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>
+      {order.jobName}
+      <span title="This order's job name or number does not match a job on the Production Status sheet (orders from before 2019 never will)." style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#f3f4f6', color: '#6b7280', marginLeft: '6px', fontWeight: '400' }}>no matching job</span>
+    </span>
+  );
+}
+
+function PartsView({ jobs, orphans, onOpenJob }) {
   const [range, setRange] = useState('365');
   const [q, setQ] = useState('');
-  const all = useMemo(() => flattenOrders(jobs), [jobs]);
+  const [showOrphans, setShowOrphans] = useState(true);
+  const all = useMemo(() => flattenOrders(jobs, showOrphans ? orphans : []), [jobs, orphans, showOrphans]);
+  const orphanCount = orphans?.length ?? 0;
   const days = PARTS_RANGES.find((r) => r.key === range)?.days ?? null;
   const since = days ? daysBefore(todayIso(), days) : null;
   const orders = useMemo(() => ordersSince(all, since), [all, since]);
@@ -518,6 +531,12 @@ function PartsView({ jobs, onOpenJob }) {
         >
           {PARTS_RANGES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
+        {orphanCount > 0 && (
+          <label style={{ fontSize: '12px', color: '#374151', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showOrphans} onChange={(e) => setShowOrphans(e.target.checked)} />
+            Include orders with no matching job ({orphanCount})
+          </label>
+        )}
         <span style={{ fontSize: '12px', color: '#6b7280' }}>
           {searching
             ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}${found.toCheck ? ` · includes ${found.toCheck} to check` : ''}` : ''}`
@@ -532,7 +551,7 @@ function PartsView({ jobs, onOpenJob }) {
             <div key={`${l.order.key}:${i}`} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px 12px', display: 'grid', gap: '2px' }}>
               <div style={{ fontSize: '14px', color: '#111827' }}><strong>{l.qty ?? '?'}</strong> × {l.name}{l.check && <CheckQty />}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
-                <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(l.order.jobId)}>{l.order.jobName}</button>
+                <JobName order={l.order} onOpenJob={onOpenJob} />
                 <span>Ordered {fmtDate(l.order.orderedOn, l.order.orderedText) || 'no date'}</span>
                 <ReceivedChip order={l.order} />
               </div>
@@ -548,7 +567,7 @@ function PartsView({ jobs, onOpenJob }) {
           {orders.slice(0, PARTS_SHOWN).map((o) => (
             <div key={o.key} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(o.jobId)}>{o.jobName}</button>
+                <JobName order={o} onOpenJob={onOpenJob} />
                 <span style={{ fontSize: '12px', color: '#6b7280' }}>Ordered {fmtDate(o.orderedOn, o.orderedText) || 'no date'}</span>
               </div>
               <div style={{ margin: '6px 0', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -692,7 +711,7 @@ export default function ProductionView() {
         </div>
       )}
       {data && view === 'week' && <WeekView jobs={data.jobs} onOpenJob={openJob} />}
-      {data && view === 'parts' && <PartsView jobs={data.jobs} onOpenJob={openJob} />}
+      {data && view === 'parts' && <PartsView jobs={data.jobs} orphans={data.orphanOrders ?? []} onOpenJob={openJob} />}
       {data && view === 'jobs' && (
         <>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>

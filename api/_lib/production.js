@@ -2,8 +2,8 @@
 import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
-import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
-import { buildJobList, readAll } from './productionJobs.js';
+import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, matchOrdersToJobs, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
+import { buildJobList, orphanOrders, readAll } from './productionJobs.js';
 import { DEAL_SYSTEM, candidateOptions, cleanDecision, dealIdsToName, resolveLinks, scheduleGroups } from './productionLinks.js';
 import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
 
@@ -202,7 +202,7 @@ export async function handleProduction(req, res, auth) {
       const [jobs, installs, hardware, raw, parts] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
-        readAll(supabase, tbl('hardware_orders'), 'source_row_id, job_ref, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
+        readAll(supabase, tbl('hardware_orders'), 'source_row_id, job_ref, job_name, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
         readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
         readAll(supabase, tbl('hardware_parts'), 'id, order_source_row_id, line_no, qty, part_name, source, edited, removed_at'),
       ]);
@@ -234,6 +234,8 @@ export async function handleProduction(req, res, auth) {
         mode: tableMode(),
         linkError,
         jobs: list.map((j) => ({ ...j, link: linkMap.get(j.jobRef) ?? { state: 'unlinked' } })),
+        // Hardware orders that match no job, for the Parts tab's "No matching job" list.
+        orphanOrders: orphanOrders({ list, hardware, parts }),
       });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
@@ -379,8 +381,15 @@ export async function handleProduction(req, res, auth) {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
       const rawRows = await readRawRows(supabase, tbl('sheet_rows_raw'), sheetKey);
-      const rows = rawRows.map(norm.build);
+      let rows = rawRows.map(norm.build);
+      let matchedByNumber = null;
+      if (sheetKey === 'hardware_orders') {
+        // Re-attach orders whose job number the photo reader garbled, checked against the real job list.
+        const jobRows = await readAll(supabase, tbl('production_jobs'), 'job_number', (q) => q.is('removed_at', null).not('job_number', 'is', null));
+        ({ rows, matched: matchedByNumber } = matchOrdersToJobs(rows, new Set(jobRows.map((j) => String(j.job_number)))));
+      }
       const out = { sheet: sheetKey, mode: commit ? 'commit' : 'dry-run', table: tbl(norm.table), summary: summarizeNormalized(rows) };
+      if (matchedByNumber !== null) out.matchedByNumber = matchedByNumber;
       if (commit) out.written = await writeNormalized({ supabase, table: tbl(norm.table), rows });
       if (sheetKey === 'hardware_orders') {
         const parts = hardwarePartRows(rows);

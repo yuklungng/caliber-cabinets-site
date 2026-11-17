@@ -500,6 +500,19 @@ function JobName({ order, onOpenJob }) {
   );
 }
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// "465 part lines: 220 on 134 jobs, 245 with no matching job · total qty 3,840 (80 lines have no qty) · 4 to check"
+function partsSummary(found) {
+  const n = found.lines.length;
+  if (!n) return '0 part lines';
+  const where = found.noJob
+    ? `${plural(n, 'part line')}: ${n - found.noJob} on ${plural(found.jobs, 'job')}, ${found.noJob} with no matching job`
+    : `${plural(n, 'part line')} on ${plural(found.jobs, 'job')}`;
+  const qty = `total qty ${found.totalQty.toLocaleString('en-US')}${found.uncounted ? ` (${plural(found.uncounted, 'line')} ${found.uncounted === 1 ? 'has' : 'have'} no qty)` : ''}`;
+  return [where, qty, found.toCheck ? `${found.toCheck} to check` : null].filter(Boolean).join(' · ');
+}
+
 function PartsView({ jobs, orphans, onOpenJob }) {
   const [range, setRange] = useState('365');
   const [q, setQ] = useState('');
@@ -539,7 +552,7 @@ function PartsView({ jobs, orphans, onOpenJob }) {
         )}
         <span style={{ fontSize: '12px', color: '#6b7280' }}>
           {searching
-            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.noJob ? ` (+${found.noJob} with no matching job)` : ''}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}${found.toCheck ? ` · includes ${found.toCheck} to check` : ''}` : ''}`
+            ? partsSummary(found)
             : `${orders.length} hardware order${orders.length === 1 ? '' : 's'}`}
         </span>
       </div>

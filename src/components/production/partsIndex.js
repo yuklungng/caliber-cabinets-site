@@ -10,8 +10,15 @@
  */
 export function flattenOrders(jobs, orphans = []) {
   const out = [];
+  // A job number used by two jobs on the sheet puts its orders on both job cards; list each order once
+  // (under the first job) so search totals are not doubled.
+  const seen = new Set();
   for (const j of jobs ?? []) {
     (j.hardware ?? []).forEach((o, i) => {
+      if (o.id) {
+        if (seen.has(o.id)) return;
+        seen.add(o.id);
+      }
       out.push({
         key: `${j.id}:${o.id ?? i}`,
         jobId: j.id,

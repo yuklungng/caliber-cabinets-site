@@ -115,5 +115,13 @@ check('orders with no job are listed with their own label and no job link', () =
   assert.equal(searchParts(flat, 'hinge').lines.length, 1);
 });
 
+check('an order shown on two jobs with the same number is listed once', () => {
+  const shared = { id: 'o1', orderedOn: '2020-01-01', parts: [{ qty: 2, name: 'hinge' }] };
+  const flat = flattenOrders([{ id: 'j1', name: 'Telford', jobRef: '#4128', hardware: [shared] }, { id: 'j2', name: 'Jordan', jobRef: '#4128', hardware: [shared] }]);
+  assert.equal(flat.length, 1);
+  assert.equal(flat[0].jobName, 'Telford');
+  assert.equal(searchParts(flat, 'hinge').totalQty, 2);
+});
+
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); }
 console.log('ALL PASSED');

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
-import { daysBefore, flattenOrders, isReceived, ordersSince, searchParts } from './partsIndex.js';
+import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToCheck, searchParts } from './partsIndex.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). Two things can be edited: a hardware order's part list
@@ -69,6 +69,18 @@ function RefBadge({ job }) {
 
 const smallBtn = { padding: '6px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '12px', fontWeight: '600', cursor: 'pointer', minHeight: '32px' };
 const fieldStyle = { padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', minHeight: '32px' };
+
+// Amber marker on a quantity over UNUSUAL_QTY that nobody has checked. Saving the part (changed or not) clears it.
+function CheckQty() {
+  return (
+    <span
+      title={`Over ${UNUSUAL_QTY}: the photo reader may have joined the size to the quantity. Tap the part on the job card and save it (corrected or as is) to clear this.`}
+      style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap', marginLeft: '6px' }}
+    >
+      check qty
+    </span>
+  );
+}
 
 // One hardware order's parts, each editable in place: tap a part to change its quantity or name, or remove it.
 // Saves go to dev_hardware_parts only (the sheet is never touched). An order whose parts have not been
@@ -145,6 +157,7 @@ function PartsList({ order, onChange }) {
             {p.name}
             {p.fromNotes && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (from notes)</span>}
             {p.edited && <span style={{ color: '#9ca3af', fontSize: '11px' }}> (edited)</span>}
+            {qtyToCheck(p) && <CheckQty />}
           </span>
         </div>
       )))}
@@ -507,7 +520,7 @@ function PartsView({ jobs, onOpenJob }) {
         </select>
         <span style={{ fontSize: '12px', color: '#6b7280' }}>
           {searching
-            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}` : ''}`
+            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}${found.toCheck ? ` · includes ${found.toCheck} to check` : ''}` : ''}`
             : `${orders.length} hardware order${orders.length === 1 ? '' : 's'}`}
         </span>
       </div>
@@ -517,7 +530,7 @@ function PartsView({ jobs, onOpenJob }) {
           {found.lines.length === 0 && <p style={{ color: '#6b7280', fontSize: '13px' }}>No part matches in this date range. Try All orders, or fewer words.</p>}
           {found.lines.slice(0, PARTS_SHOWN).map((l, i) => (
             <div key={`${l.order.key}:${i}`} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px 12px', display: 'grid', gap: '2px' }}>
-              <div style={{ fontSize: '14px', color: '#111827' }}><strong>{l.qty ?? '?'}</strong> × {l.name}</div>
+              <div style={{ fontSize: '14px', color: '#111827' }}><strong>{l.qty ?? '?'}</strong> × {l.name}{l.check && <CheckQty />}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
                 <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(l.order.jobId)}>{l.order.jobName}</button>
                 <span>Ordered {fmtDate(l.order.orderedOn, l.order.orderedText) || 'no date'}</span>
@@ -544,7 +557,7 @@ function PartsView({ jobs, onOpenJob }) {
               </div>
               {o.parts.length > 0 ? (
                 <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#374151' }}>
-                  {o.parts.map((p, i) => <li key={p.id ?? i}>{p.qty ?? '?'} × {p.name}</li>)}
+                  {o.parts.map((p, i) => <li key={p.id ?? i}>{p.qty ?? '?'} × {p.name}{qtyToCheck(p) && <CheckQty />}</li>)}
                 </ul>
               ) : <div style={{ fontSize: '12px', color: '#9ca3af' }}>No parts read from this order.</div>}
               {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}

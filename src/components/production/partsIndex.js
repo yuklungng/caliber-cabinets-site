@@ -28,6 +28,13 @@ export function flattenOrders(jobs) {
   return out;
 }
 
+// Quantities above this are flagged "check qty". The photo reader sometimes merges the size into the quantity
+// ("527 × Grass Guides" for 5 × 27"); in the sheet data almost every line over 50 is a misread.
+export const UNUSUAL_QTY = 50;
+
+/** True when a part's quantity should be checked: over UNUSUAL_QTY and not yet edited or typed by a person. */
+export const qtyToCheck = (p) => !p.edited && !p.manual && Number.isFinite(Number(p.qty)) && p.qty !== null && p.qty !== '' && Number(p.qty) > UNUSUAL_QTY;
+
 /** Received if the sheet says so in any of its three places. */
 export const isReceived = (o) => Boolean(o.receivedOn || o.receivedText || /^\s*received/i.test(o.status ?? ''));
 
@@ -49,16 +56,17 @@ const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
  * Part lines whose name contains every word of the query. Returns the lines (newest order first) and totals.
- * Quantities that are not numbers are listed but not added up.
+ * Quantities that are not numbers are listed but not added up. Flagged quantities are added up but counted in
+ * toCheck, so the screen can say the total includes numbers nobody has checked.
  */
 export function searchParts(orders, query) {
   const words = norm(query).split(' ').filter(Boolean);
-  if (!words.length) return { lines: [], totalQty: 0, uncounted: 0, jobs: 0 };
+  if (!words.length) return { lines: [], totalQty: 0, uncounted: 0, toCheck: 0, jobs: 0 };
   const lines = [];
   for (const o of orders) {
     for (const p of o.parts) {
       const name = norm(p.name);
-      if (words.every((w) => name.includes(w))) lines.push({ qty: p.qty, name: p.name, order: o });
+      if (words.every((w) => name.includes(w))) lines.push({ qty: p.qty, name: p.name, check: qtyToCheck(p), order: o });
     }
   }
   lines.sort((a, b) => (b.order.orderedOn ?? '0000').localeCompare(a.order.orderedOn ?? '0000'));
@@ -68,5 +76,5 @@ export function searchParts(orders, query) {
     const n = Number(l.qty);
     if (l.qty !== null && l.qty !== '' && Number.isFinite(n)) totalQty += n; else uncounted += 1;
   }
-  return { lines, totalQty, uncounted, jobs: new Set(lines.map((l) => l.order.jobId)).size };
+  return { lines, totalQty, uncounted, toCheck: lines.filter((l) => l.check).length, jobs: new Set(lines.map((l) => l.order.jobId)).size };
 }

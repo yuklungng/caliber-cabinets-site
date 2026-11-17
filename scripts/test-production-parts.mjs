@@ -1,6 +1,6 @@
 // Checks the Parts tab helpers on made-up jobs. Run: node scripts/test-production-parts.mjs
 import assert from 'node:assert/strict';
-import { daysBefore, flattenOrders, isReceived, ordersSince, searchParts } from '../src/components/production/partsIndex.js';
+import { daysBefore, flattenOrders, isReceived, ordersSince, qtyToCheck, searchParts } from '../src/components/production/partsIndex.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -51,6 +51,24 @@ check('search matches every word, any case, and totals numeric quantities', () =
   assert.equal(r.jobs, 2);
   assert.equal(searchParts(flattenOrders(jobs), 'hinge plate').lines.length, 1);
   assert.equal(searchParts(flattenOrders(jobs), '   ').lines.length, 0);
+});
+
+check('quantities over 50 are flagged until a person edits or types them', () => {
+  assert.equal(qtyToCheck({ qty: 527, name: 'Grass Guides' }), true);
+  assert.equal(qtyToCheck({ qty: '182', name: 'salice' }), true);
+  assert.equal(qtyToCheck({ qty: 50, name: 'x' }), false);
+  assert.equal(qtyToCheck({ qty: null, name: 'x' }), false);
+  assert.equal(qtyToCheck({ qty: 'lots', name: 'x' }), false);
+  assert.equal(qtyToCheck({ qty: 527, name: 'x', edited: true }), false);
+  assert.equal(qtyToCheck({ qty: 150, name: 'x', manual: true }), false);
+});
+
+check('search counts flagged lines in the total and in toCheck', () => {
+  const big = [{ id: 'z', name: 'Z', jobRef: '#9', hardware: [{ id: 'o9', orderedOn: '2026-11-02', parts: [{ qty: 327, name: 'Grass Guides' }, { qty: 4, name: 'grass guides 18' }] }] }];
+  const r = searchParts(flattenOrders(big), 'grass');
+  assert.equal(r.totalQty, 331);
+  assert.equal(r.toCheck, 1);
+  assert.equal(r.lines.find((l) => l.qty === 327).check, true);
 });
 
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); }

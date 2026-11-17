@@ -308,6 +308,8 @@ export async function handleProduction(req, res, auth) {
 
   // Ticking a step box on the Shop view. Writes only dev_job_step_ticks; the sheet is never changed.
   //   step-set  POST { rowId, step, done }   rowId = the job's source_row_id; step must be one of its step boxes
+  // A tap that puts a box back to what the sheet says deletes the tick row instead of storing it, so a later
+  // tick on the sheet is not hidden by a tick made and undone here.
   if (req.method === 'POST' && req.query?.action === 'step-set') {
     if (tableMode() !== 'dev') return res.status(403).json({ error: 'Ticking steps writes only to dev_ tables for now' });
     const body = req.body ?? {};
@@ -325,7 +327,13 @@ export async function handleProduction(req, res, auth) {
       if (jobErr) throw new Error(jobErr.message);
       if (!job) return res.status(404).json({ error: 'Job not found' });
       if (!Object.prototype.hasOwnProperty.call(job.steps ?? {}, step)) return res.status(400).json({ error: 'That step is not on this job' });
-      const { data, error } = await supabase.from(tbl('job_step_ticks'))
+      const ticks = tbl('job_step_ticks');
+      if (body.done === (job.steps[step] === true)) {
+        const { error: delErr } = await supabase.from(ticks).delete().eq('job_row_id', job.source_row_id).eq('step', step);
+        if (delErr) throw new Error(delErr.message);
+        return res.status(200).json({ tick: { step, done: body.done, by: null, at: null, cleared: true } });
+      }
+      const { data, error } = await supabase.from(ticks)
         .upsert({ job_row_id: job.source_row_id, job_ref: job.job_ref, step, done: body.done, ticked_by: who, ticked_at: new Date().toISOString() }, { onConflict: 'job_row_id,step' })
         .select('step, done, ticked_by, ticked_at').single();
       if (error) throw new Error(error.message);

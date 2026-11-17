@@ -347,9 +347,11 @@ export default function ShopView({ jobs, onJobChange }) {
     if (!r.ok) throw new Error(j.error || `Status ${r.status}`);
     onJobChange(job.id, (old) => {
       const steps = { ...old.steps, [step]: j.tick.done };
+      // cleared: the box is back to what the sheet says, so nothing ticked here remains for this step.
+      const stepTicks = { ...(old.stepTicks ?? {}) };
+      if (j.tick.cleared) delete stepTicks[step]; else stepTicks[step] = { by: j.tick.by, at: j.tick.at, done: j.tick.done };
       return {
-        ...old, steps,
-        stepTicks: { ...(old.stepTicks ?? {}), [step]: { by: j.tick.by, at: j.tick.at, done: j.tick.done } },
+        ...old, steps, stepTicks,
         stepsDone: Object.values(steps).filter((v) => v === true).length,
       };
     });

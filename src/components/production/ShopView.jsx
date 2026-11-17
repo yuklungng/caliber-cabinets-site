@@ -4,8 +4,11 @@ import { todayIso, weekDays } from './weekSchedule.js';
 
 // Shop view of the Production module: the simple, large-print screen for the people in the shop.
 // It shows where every job is on the production line, what goes out this week, and one job's colors, dates and
-// hardware. It is read-only, and it leaves out the office tools (deal links, filters, part search totals, data
-// warnings), which stay in the Office view.
+// hardware. The one thing it changes is a job's step boxes: tapping a step ticks or unticks it (saved to
+// dev_job_step_ticks; the sheet is never written). It leaves out the office tools (deal links, filters, part search
+// totals, data warnings), which stay in the Office view.
+
+const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
 
 const BROWN = '#78350f';
 const AMBER = '#b45309';
@@ -165,8 +168,49 @@ function JobRow({ job, onOpen }) {
 }
 
 // One job as a vertical process flow: every station with its step boxes, then the facts the bench needs.
-function JobDetail({ job, onBack }) {
+function JobDetail({ job, onBack, onStep }) {
   const { stations, other } = jobStations(job);
+  const [busy, setBusy] = useState(null); // the step being saved
+  const [err, setErr] = useState('');
+  const canTick = Boolean(job.rowId);
+
+  async function toggle(step, done) {
+    if (!canTick || busy) return;
+    setBusy(step); setErr('');
+    try { await onStep(job, step, done); } catch (e) { setErr(`Could not save "${step}". Try again. (${e.message})`); } finally { setBusy(null); }
+  }
+
+  const stepButton = (st) => {
+    const saving = busy === st.name;
+    const tick = job.stepTicks?.[st.name];
+    return (
+      <button
+        key={st.name}
+        type="button"
+        onClick={() => toggle(st.name, !st.done)}
+        disabled={!canTick || Boolean(busy)}
+        aria-pressed={st.done}
+        title={tick?.by ? `Ticked here by ${tick.by}` : st.done ? 'Ticked on the shop sheet' : 'Tap when this step is finished'}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: '8px', minHeight: '44px', padding: '8px 14px', borderRadius: '999px',
+          fontSize: '16px', fontWeight: 600, cursor: canTick ? 'pointer' : 'default', fontFamily: 'inherit',
+          background: st.done ? '#dcfce7' : '#fff', color: st.done ? '#166534' : '#44403c',
+          border: `2px solid ${st.done ? '#86efac' : '#d6d3d1'}`, opacity: saving ? 0.6 : 1,
+        }}
+      >
+        <span aria-hidden="true" style={{ width: '22px', height: '22px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: st.done ? GREEN : '#fff', border: `2px solid ${st.done ? GREEN : '#a8a29e'}`, color: '#fff', fontSize: '15px', lineHeight: 1 }}>{st.done ? '✓' : ''}</span>
+        {saving ? 'Saving…' : st.name}
+      </button>
+    );
+  };
+
+  // Who last ticked a step of this station here, if anyone: "Body Cut ticked by Morris Ng, Nov 17".
+  const lastTick = (steps) => {
+    const t = steps.map((st) => ({ name: st.name, ...(job.stepTicks?.[st.name] ?? {}) })).filter((x) => x.at).sort((a, b) => b.at.localeCompare(a.at))[0];
+    if (!t) return null;
+    const when = new Date(t.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${t.name} ${t.done ? 'ticked' : 'unticked'} by ${t.by ?? 'someone'}, ${when}`;
+  };
   const facts = [
     ['Paint / stain', job.paintColor],
     ['PVC tape', job.pvcTapeColor],
@@ -209,7 +253,9 @@ function JobDetail({ job, onBack }) {
       )}
 
       <div style={box}>
-        <h3 style={h3}>Where it is in the shop</h3>
+        <h3 style={{ ...h3, marginBottom: '4px' }}>Where it is in the shop</h3>
+        {canTick && <p style={{ margin: '0 0 12px', fontSize: '15px', color: '#57534e' }}>Tap a step when it is finished. Tap it again to undo.</p>}
+        {err && <p role="alert" style={{ margin: '0 0 12px', fontSize: '15px', color: '#b91c1c', fontWeight: 600 }}>{err}</p>}
         <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {stations.map((s, i) => {
             const last = i === stations.length - 1;
@@ -231,14 +277,11 @@ function JobDetail({ job, onBack }) {
                     {s.state === 'now' && <span style={{ marginLeft: '8px', fontSize: '13px', padding: '2px 8px', borderRadius: '999px', background: AMBER, color: '#fff' }}>HERE NOW</span>}
                   </div>
                   {s.steps.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-                      {s.steps.map((st) => (
-                        <span key={st.name} style={{ fontSize: '14px', padding: '4px 10px', borderRadius: '999px', background: st.done ? '#dcfce7' : '#f5f5f4', color: st.done ? '#166534' : '#78716c' }}>
-                          {st.done ? '✓ ' : ''}{st.name}
-                        </span>
-                      ))}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                      {s.steps.map(stepButton)}
                     </div>
                   )}
+                  {lastTick(s.steps) && <div style={{ fontSize: '13px', color: '#78716c', marginTop: '6px' }}>{lastTick(s.steps)}</div>}
                   {s.key === 'out' && visits.length === 0 && <div style={{ fontSize: '14px', color: '#78716c', marginTop: '4px' }}>No date set yet</div>}
                 </div>
               </li>
@@ -247,9 +290,7 @@ function JobDetail({ job, onBack }) {
         </ol>
         {other.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
-            {other.map((st) => (
-              <span key={st.name} style={{ fontSize: '14px', padding: '4px 10px', borderRadius: '999px', background: st.done ? '#dcfce7' : '#f5f5f4', color: st.done ? '#166534' : '#78716c' }}>{st.done ? '✓ ' : ''}{st.name}</span>
-            ))}
+            {other.map(stepButton)}
           </div>
         )}
       </div>
@@ -282,7 +323,7 @@ function JobDetail({ job, onBack }) {
   );
 }
 
-export default function ShopView({ jobs }) {
+export default function ShopView({ jobs, onJobChange }) {
   const today = todayIso();
   const [query, setQuery] = useState('');
   const [station, setStation] = useState(null);
@@ -297,11 +338,28 @@ export default function ShopView({ jobs }) {
     return [...jobs].reverse().filter((j) => `${j.name} ${j.jobRef}`.toLowerCase().includes(q)).slice(0, 8);
   }, [jobs, query]);
 
+  // Saves a tick and updates the loaded job, so the screen changes without reloading every job.
+  async function setStep(job, step, done) {
+    const r = await fetch('/api/admin-settings?resource=production&action=step-set', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ rowId: job.rowId, step, done }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Status ${r.status}`);
+    onJobChange(job.id, (old) => {
+      const steps = { ...old.steps, [step]: j.tick.done };
+      return {
+        ...old, steps,
+        stepTicks: { ...(old.stepTicks ?? {}), [step]: { by: j.tick.by, at: j.tick.at, done: j.tick.done } },
+        stepsDone: Object.values(steps).filter((v) => v === true).length,
+      };
+    });
+  }
+
   const open = (id) => { setOpenId(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openJob = openId && jobs.find((j) => j.id === openId);
   const h2 = { margin: '22px 0 10px', fontSize: '20px', color: BROWN };
 
-  if (openJob) return (<><style>{css}</style><JobDetail job={openJob} onBack={() => setOpenId(null)} /></>);
+  if (openJob) return (<><style>{css}</style><JobDetail job={openJob} onBack={() => setOpenId(null)} onStep={setStep} /></>);
 
   const listed = station ? active.filter((j) => jobStations(j).current === station) : active;
   const stationLabel = STATIONS.find((s) => s.key === station)?.label;

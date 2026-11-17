@@ -76,8 +76,28 @@ export function orphanOrders({ list, hardware, parts = [] }) {
   }));
 }
 
-export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(), parts = [] }) {
+/**
+ * The sheet's step boxes with the Shop view's ticks laid over them. A tick row (dev_job_step_ticks) wins over the
+ * sheet for its step; only steps the sheet has are touched. Returns the merged steps and who ticked each one here.
+ */
+export function mergeStepTicks(sheetSteps, ticks = []) {
+  const steps = { ...(sheetSteps ?? {}) };
+  const tickedBy = {};
+  for (const t of ticks) {
+    if (!Object.prototype.hasOwnProperty.call(steps, t.step)) continue;
+    steps[t.step] = t.done === true;
+    tickedBy[t.step] = { by: t.ticked_by ?? null, at: t.ticked_at ?? null, done: t.done === true };
+  }
+  return { steps, tickedBy };
+}
+
+export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(), parts = [], ticks = [] }) {
   const partsOf = partsLookup(parts);
+  const ticksByRef = new Map();
+  for (const t of ticks) {
+    const list = ticksByRef.get(t.job_row_id);
+    if (list) list.push(t); else ticksByRef.set(t.job_row_id, [t]);
+  }
   const inst0 = byRef(installs);
   const hw0 = byRef(hardware);
   // A sheet heading such as "JOBS IN THE SHOP" is read as a job: no invoice number, nothing ticked, nothing filled in.
@@ -89,12 +109,14 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(),
   const inst = byRef(installs);
   const hw = byRef(hardware);
   return jobs.map((j) => {
-    const entries = Object.entries(j.steps ?? {});
+    const { steps, tickedBy } = mergeStepTicks(j.steps, ticksByRef.get(j.source_row_id));
+    const entries = Object.entries(steps);
     const events = [...(inst.get(j.job_ref) ?? [])].sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
     const orders = hw.get(j.job_ref) ?? [];
     return {
       id: j.id,
       jobRef: j.job_ref,
+      rowId: j.source_row_id ?? null,
       isTemp: j.ref_is_temp,
       name: j.job_name,
       section: j.section,
@@ -102,7 +124,8 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(),
       priority: j.priority,
       stepsDone: entries.filter(([, v]) => v === true).length,
       stepsTotal: entries.length,
-      steps: j.steps ?? {},
+      steps,
+      stepTicks: tickedBy,
       paintColor: j.paint_color,
       pvcTapeColor: j.pvc_tape_color,
       paintOrdered: j.paint_ordered,

@@ -38,6 +38,7 @@ const TABLES = [
   'hardware_orders',
   'hardware_parts',
   'job_links',
+  'job_step_ticks',
 ];
 
 export const isProductionModuleEnabled = () => process.env.PRODUCTION_MODULE_ENABLED === '1';
@@ -199,15 +200,17 @@ export async function handleProduction(req, res, auth) {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
       const live = (q) => q.is('removed_at', null);
-      const [jobs, installs, hardware, raw, parts] = await Promise.all([
+      const [jobs, installs, hardware, raw, parts, ticks] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
         readAll(supabase, tbl('hardware_orders'), 'source_row_id, job_ref, job_name, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
         readAll(supabase, tbl('sheet_rows_raw'), 'row_id, row_number', (q) => q.eq('sheet_key', 'production_status')),
         readAll(supabase, tbl('hardware_parts'), 'id, order_source_row_id, line_no, qty, part_name, source, edited, removed_at'),
+        // Ticks from the Shop view; if they cannot be read the jobs still load, with the sheet's boxes only.
+        readAll(supabase, tbl('job_step_ticks'), 'job_row_id, step, done, ticked_by, ticked_at').catch(() => []),
       ]);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));
-      const list = buildJobList({ jobs, installs, hardware, rowNumbers, parts });
+      const list = buildJobList({ jobs, installs, hardware, rowNumbers, parts, ticks });
 
       // Deal links. payment_schedule is a live table, read only here; links are in dev_job_links.
       // A failure here never hides the jobs: they load with no link info and a note.
@@ -298,6 +301,35 @@ export async function handleProduction(req, res, auth) {
       }, { onConflict: 'job_ref,system,external_id' }).select('job_ref, external_id, room, status, basis, decided_by, decided_at').single();
       if (error) throw new Error(error.message);
       return res.status(200).json({ link: data });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Ticking a step box on the Shop view. Writes only dev_job_step_ticks; the sheet is never changed.
+  //   step-set  POST { rowId, step, done }   rowId = the job's source_row_id; step must be one of its step boxes
+  if (req.method === 'POST' && req.query?.action === 'step-set') {
+    if (tableMode() !== 'dev') return res.status(403).json({ error: 'Ticking steps writes only to dev_ tables for now' });
+    const body = req.body ?? {};
+    const rowId = typeof body.rowId === 'string' && /^[0-9a-f-]{36}$/i.test(body.rowId) ? body.rowId : '';
+    const step = typeof body.step === 'string' ? body.step : '';
+    if (!rowId || !step || step.length > 200 || typeof body.done !== 'boolean') {
+      return res.status(400).json({ error: 'rowId, step and done (true or false) are required' });
+    }
+    const who = String(auth.user?.name ?? auth.user?.email ?? 'admin');
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const { data: job, error: jobErr } = await supabase.from(tbl('production_jobs'))
+        .select('source_row_id, job_ref, steps').eq('source_row_id', rowId).is('removed_at', null).maybeSingle();
+      if (jobErr) throw new Error(jobErr.message);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      if (!Object.prototype.hasOwnProperty.call(job.steps ?? {}, step)) return res.status(400).json({ error: 'That step is not on this job' });
+      const { data, error } = await supabase.from(tbl('job_step_ticks'))
+        .upsert({ job_row_id: job.source_row_id, job_ref: job.job_ref, step, done: body.done, ticked_by: who, ticked_at: new Date().toISOString() }, { onConflict: 'job_row_id,step' })
+        .select('step, done, ticked_by, ticked_at').single();
+      if (error) throw new Error(error.message);
+      return res.status(200).json({ tick: { step: data.step, done: data.done, by: data.ticked_by, at: data.ticked_at } });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
     }

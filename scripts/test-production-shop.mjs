@@ -1,5 +1,6 @@
 // Checks the Shop view station helpers. Run: node scripts/test-production-shop.mjs
 import assert from 'node:assert/strict';
+import { buildJobList, mergeStepTicks } from '../api/_lib/productionJobs.js';
 import { activeJobs, jobStations, nextVisit, stationCounts } from '../src/components/production/shopStages.js';
 
 let failed = 0;
@@ -55,6 +56,27 @@ check('nextVisit skips completed rows and prefers the install date', () => {
   const j = { installs: [{ installOn: '2026-10-01', completed: true }, { deliveryOn: '2026-11-20', installOn: '2026-11-21' }] };
   assert.deepEqual(nextVisit(j), { kind: 'Install', on: '2026-11-21', text: null });
   assert.equal(nextVisit({ installs: [] }), null);
+});
+
+check('a tick made on the Shop view wins over the sheet box, and only for steps the sheet has', () => {
+  const r = mergeStepTicks({ 'Body Cut': false, 'Final Coat': true }, [
+    { step: 'Body Cut', done: true, ticked_by: 'A', ticked_at: '2026-11-17T10:00:00Z' },
+    { step: 'Final Coat', done: false, ticked_by: 'B', ticked_at: '2026-11-17T11:00:00Z' },
+    { step: 'Made Up', done: true, ticked_by: 'C', ticked_at: '2026-11-17T12:00:00Z' },
+  ]);
+  assert.deepEqual(r.steps, { 'Body Cut': true, 'Final Coat': false });
+  assert.equal(r.tickedBy['Body Cut'].by, 'A');
+  assert.equal(r.tickedBy['Made Up'], undefined);
+});
+
+check('ticks follow the sheet row, so two jobs sharing a number are ticked separately', () => {
+  const job = (row, ref) => ({ id: row, source_row_id: row, job_ref: ref, ref_is_temp: false, job_name: row, steps: { 'Body Cut': false } });
+  const list = buildJobList({ jobs: [job('r1', '#5971'), job('r2', '#5971')], installs: [], hardware: [], ticks: [{ job_row_id: 'r2', step: 'Body Cut', done: true, ticked_by: 'A', ticked_at: '2026-11-17T10:00:00Z' }] });
+  const by = Object.fromEntries(list.map((j) => [j.id, j]));
+  assert.equal(by.r1.steps['Body Cut'], false);
+  assert.equal(by.r2.steps['Body Cut'], true);
+  assert.equal(by.r2.stepsDone, 1);
+  assert.equal(by.r2.rowId, 'r2');
 });
 
 if (failed) { console.log(`${failed} failed`); process.exit(1); }

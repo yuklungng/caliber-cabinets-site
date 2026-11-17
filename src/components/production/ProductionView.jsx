@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
+import { daysBefore, flattenOrders, isReceived, ordersSince, searchParts } from './partsIndex.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). Two things can be edited: a hardware order's part list
@@ -7,6 +8,7 @@ import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSch
 // this screen can change a sheet, a deal, an invoice or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
+// A "Parts" tab lists hardware orders across jobs, newest first, with a part search (read-only).
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
 const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
@@ -449,6 +451,113 @@ function JobCard({ job, open, onToggle, onParts, onLinked }) {
   );
 }
 
+// Parts tab: every hardware order across jobs (newest first) and a part search. Read-only; parts are edited
+// on the job card. Tapping a job name opens that job in the Jobs list.
+const PARTS_RANGES = [
+  { key: '30', label: 'Last 30 days', days: 30 },
+  { key: '90', label: 'Last 90 days', days: 90 },
+  { key: '365', label: 'Last 12 months', days: 365 },
+  { key: 'all', label: 'All orders', days: null },
+];
+const PARTS_SHOWN = 100;
+
+function ReceivedChip({ order }) {
+  const got = isReceived(order);
+  const when = fmtDate(order.receivedOn, order.receivedText);
+  return (
+    <span
+      title={got ? 'Marked received on the hardware sheet' : 'The sheet has no received date for this order (not tracked since 2021)'}
+      style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap', ...(got ? { background: '#f0fdf4', color: '#15803d' } : { background: '#f3f4f6', color: '#6b7280' }) }}
+    >
+      {got ? `Received${when ? ` ${when}` : ''}` : 'Receipt not recorded'}
+    </span>
+  );
+}
+
+const jobLinkStyle = { background: 'none', border: 0, padding: 0, color: '#78350f', fontWeight: '600', fontSize: '13px', cursor: 'pointer', textAlign: 'left', textDecoration: 'underline' };
+
+function PartsView({ jobs, onOpenJob }) {
+  const [range, setRange] = useState('365');
+  const [q, setQ] = useState('');
+  const all = useMemo(() => flattenOrders(jobs), [jobs]);
+  const days = PARTS_RANGES.find((r) => r.key === range)?.days ?? null;
+  const since = days ? daysBefore(todayIso(), days) : null;
+  const orders = useMemo(() => ordersSince(all, since), [all, since]);
+  const found = useMemo(() => searchParts(orders, q), [orders, q]);
+  const searching = Boolean(q.trim());
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          type="search"
+          placeholder="Find a part (e.g. hinge, slide, pull)"
+          aria-label="Find a part"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ flex: '1 1 100%', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+        />
+        <select
+          value={range}
+          onChange={(e) => setRange(e.target.value)}
+          aria-label="Order date range"
+          style={{ ...controlStyle, padding: '7px 30px 7px 12px', appearance: 'auto' }}
+        >
+          {PARTS_RANGES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+        </select>
+        <span style={{ fontSize: '12px', color: '#6b7280' }}>
+          {searching
+            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}` : ''}`
+            : `${orders.length} hardware order${orders.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      {searching && (
+        <div style={{ display: 'grid', gap: '6px' }}>
+          {found.lines.length === 0 && <p style={{ color: '#6b7280', fontSize: '13px' }}>No part matches in this date range. Try All orders, or fewer words.</p>}
+          {found.lines.slice(0, PARTS_SHOWN).map((l, i) => (
+            <div key={`${l.order.key}:${i}`} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px 12px', display: 'grid', gap: '2px' }}>
+              <div style={{ fontSize: '14px', color: '#111827' }}><strong>{l.qty ?? '?'}</strong> × {l.name}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
+                <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(l.order.jobId)}>{l.order.jobName}</button>
+                <span>Ordered {fmtDate(l.order.orderedOn, l.order.orderedText) || 'no date'}</span>
+                <ReceivedChip order={l.order} />
+              </div>
+            </div>
+          ))}
+          {found.lines.length > PARTS_SHOWN && <p style={{ color: '#6b7280', fontSize: '12px' }}>Showing the newest {PARTS_SHOWN}. Add a word to narrow the search.</p>}
+        </div>
+      )}
+
+      {!searching && (
+        <div style={{ display: 'grid', gap: '8px' }}>
+          {orders.length === 0 && <p style={{ color: '#6b7280', fontSize: '13px' }}>No hardware orders in this date range.</p>}
+          {orders.slice(0, PARTS_SHOWN).map((o) => (
+            <div key={o.key} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <button type="button" style={jobLinkStyle} onClick={() => onOpenJob(o.jobId)}>{o.jobName}</button>
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>Ordered {fmtDate(o.orderedOn, o.orderedText) || 'no date'}</span>
+              </div>
+              <div style={{ margin: '6px 0', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <ReceivedChip order={o} />
+                {o.photoUrl && <a href={o.photoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#b45309' }}>View photo</a>}
+              </div>
+              {o.parts.length > 0 ? (
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#374151' }}>
+                  {o.parts.map((p, i) => <li key={p.id ?? i}>{p.qty ?? '?'} × {p.name}</li>)}
+                </ul>
+              ) : <div style={{ fontSize: '12px', color: '#9ca3af' }}>No parts read from this order.</div>}
+              {o.notes && <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Notes: {o.notes}</div>}
+            </div>
+          ))}
+          {orders.length > PARTS_SHOWN && <p style={{ color: '#6b7280', fontSize: '12px' }}>Showing the newest {PARTS_SHOWN} of {orders.length}. Use a shorter range or search for a part.</p>}
+          <div style={{ fontSize: '11px', color: '#9ca3af' }}>Parts are read from the sheet photos and may contain misread text. Edit them on the job card.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductionView() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -457,7 +566,7 @@ export default function ProductionView() {
   const [section, setSection] = useState('all');
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
-  const [view, setView] = useState('jobs'); // 'jobs' | 'week'
+  const [view, setView] = useState('jobs'); // 'jobs' | 'week' | 'parts'
   const [thisYear, setThisYear] = useState(false); // only jobs with a real date in the current year
   const [dealFilter, setDealFilter] = useState('all'); // 'all' | 'linked' | 'suggested' | 'unlinked'
   const year = new Date().getFullYear();
@@ -556,7 +665,7 @@ export default function ProductionView() {
       {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
       {data && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-          {[['jobs', 'Jobs'], ['week', 'This week']].map(([key, label]) => (
+          {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Parts']].map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -570,6 +679,7 @@ export default function ProductionView() {
         </div>
       )}
       {data && view === 'week' && <WeekView jobs={data.jobs} onOpenJob={openJob} />}
+      {data && view === 'parts' && <PartsView jobs={data.jobs} onOpenJob={openJob} />}
       {data && view === 'jobs' && (
         <>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>

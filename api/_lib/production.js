@@ -4,6 +4,16 @@ import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, read
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
 import { buildJobList, readAll } from './productionJobs.js';
+import { DEAL_SYSTEM, candidateOptions, cleanDecision, dealIdsToName, resolveLinks, scheduleGroups } from './productionLinks.js';
+import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
+
+const SCHEDULE_COLS = 'hubspot_deal_id, room, stage, label, qb_invoice_number, invoice_date, paid_date, qb_paid_amount';
+
+// Display name for a deal, the way Financial Management shows it: the contact's name, else the deal name.
+const dealName = (d) => {
+  const f = d.fields ?? {};
+  return [f.firstName, f.lastName].filter(Boolean).join(' ') || f.dealName || '(no name)';
+};
 
 /**
  * Production module: feature flags, table names and the status endpoint.
@@ -197,11 +207,95 @@ export async function handleProduction(req, res, auth) {
         readAll(supabase, tbl('hardware_parts'), 'id, order_source_row_id, line_no, qty, part_name, source, edited, removed_at'),
       ]);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));
+      const list = buildJobList({ jobs, installs, hardware, rowNumbers, parts });
+
+      // Deal links. payment_schedule is a live table, read only here; links are in dev_job_links.
+      // A failure here never hides the jobs: they load with no link info and a note.
+      let linkMap = new Map();
+      let linkError = null;
+      try {
+        const [links, schedule] = await Promise.all([
+          readAll(supabase, tbl('job_links'), 'job_ref, system, external_id, room, status, basis, decided_by, decided_at'),
+          readAll(supabase, 'payment_schedule', SCHEDULE_COLS),
+        ]);
+        const groups = scheduleGroups(schedule);
+        linkMap = resolveLinks(list, { links, groups });
+        const ids = dealIdsToName(linkMap);
+        if (ids.length && process.env.HUBSPOT_ACCESS_TOKEN) {
+          const names = await batchGetDealNames(ids);
+          for (const l of linkMap.values()) if (l.dealId) l.name = names[l.dealId] ?? null;
+        }
+      } catch (e) {
+        linkError = String(e.message ?? e);
+      }
+
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({
         mode: tableMode(),
-        jobs: buildJobList({ jobs, installs, hardware, rowNumbers, parts }),
+        linkError,
+        jobs: list.map((j) => ({ ...j, link: linkMap.get(j.jobRef) ?? { state: 'unlinked' } })),
       });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Deals a job can be linked to: closed-won deals in HubSpot, one option per room group (invoice) that
+  // Financial Management knows about. Read-only; loaded only when someone opens the picker.
+  if (req.method === 'GET' && req.query?.action === 'link-candidates') {
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      if (!process.env.HUBSPOT_ACCESS_TOKEN) return res.status(200).json({ options: [], note: 'HubSpot is not connected' });
+      const [deals, schedule] = await Promise.all([
+        getAllPipelineDeals(),
+        readAll(supabase, 'payment_schedule', SCHEDULE_COLS),
+      ]);
+      const won = deals.filter((d) => d.hs_stage_id === 'closedwon').map((d) => ({
+        hubspot_deal_id: d.hubspot_deal_id,
+        name: dealName(d),
+        closed_at: d.hs_date_entered_closed_won ?? d.created_at ?? null,
+      }));
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json({ options: candidateOptions(won, scheduleGroups(schedule)) });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // Confirm, reject or remove a job's deal link. Writes only dev_job_links; never deletes a row.
+  //   POST { jobRef, dealId, room, decision: 'confirm' | 'reject' | 'unlink', basis }
+  // confirm: this deal (and room) is the job's deal; any other confirmed deal for the job is set aside.
+  // reject:  "not this one" for a suggestion, so it is not suggested again.
+  // unlink:  removes a confirmed link (kept as rejected, with who and when).
+  if (req.method === 'POST' && req.query?.action === 'link-decide') {
+    if (tableMode() !== 'dev') return res.status(403).json({ error: 'Linking writes only to dev_ tables for now' });
+    let input;
+    try { input = cleanDecision(req.body); } catch (e) { return res.status(400).json({ error: e.message }); }
+    const who = String(auth.user?.name ?? auth.user?.email ?? 'admin');
+    const now = new Date().toISOString();
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const links = tbl('job_links');
+      const { data: job, error: jobErr } = await supabase.from(tbl('production_jobs'))
+        .select('job_ref').eq('job_ref', input.jobRef).is('removed_at', null).limit(1);
+      if (jobErr) throw new Error(jobErr.message);
+      if (!job?.length) return res.status(404).json({ error: 'Job not found' });
+
+      if (input.decision === 'confirm') {
+        const { error: offErr } = await supabase.from(links)
+          .update({ status: 'rejected', decided_by: who, decided_at: now })
+          .eq('job_ref', input.jobRef).eq('system', DEAL_SYSTEM).eq('status', 'confirmed').neq('external_id', input.dealId);
+        if (offErr) throw new Error(offErr.message);
+      }
+      const { data, error } = await supabase.from(links).upsert({
+        job_ref: input.jobRef, system: DEAL_SYSTEM, external_id: input.dealId, room: input.room,
+        status: input.decision === 'confirm' ? 'confirmed' : 'rejected',
+        basis: input.basis, decided_by: who, decided_at: now,
+      }, { onConflict: 'job_ref,system,external_id' }).select('job_ref, external_id, room, status, basis, decided_by, decided_at').single();
+      if (error) throw new Error(error.message);
+      return res.status(200).json({ link: data });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
     }

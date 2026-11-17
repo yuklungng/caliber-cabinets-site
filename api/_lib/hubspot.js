@@ -107,6 +107,24 @@ export async function createDeal(properties, contactId) {
  * Returns a map of dealId → { stageId, stageLabel, dealUrl }
  * Requires scope: crm.objects.deals.read
  */
+/** Deal names only, for screens that just need a label. Returns { dealId: name }. Read-only (batch/read). */
+export async function batchGetDealNames(dealIds) {
+  const uniqueIds = [...new Set((dealIds ?? []).filter(Boolean))];
+  const out = {};
+  for (const idsChunk of chunk(uniqueIds, 100)) {
+    const res = await hs('/crm/v3/objects/deals/batch/read', 'POST', {
+      properties: ['dealname'],
+      inputs: idsChunk.map((id) => ({ id })),
+    });
+    if (!res.ok) {
+      console.error('[hubspot] batchGetDealNames error:', res.status, await res.text());
+      continue;
+    }
+    for (const d of (await res.json()).results ?? []) out[d.id] = d.properties?.dealname ?? null;
+  }
+  return out;
+}
+
 export async function batchGetDealStages(dealIds) {
   if (!dealIds || dealIds.length === 0) return {};
 

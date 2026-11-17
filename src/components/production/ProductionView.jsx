@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
-// (/api/admin-settings?resource=production&action=jobs). The one thing that can be edited is a hardware order's
-// part list (qty and name, saved to dev_hardware_parts); nothing on this screen can change a sheet or any other record.
+// (/api/admin-settings?resource=production&action=jobs). Two things can be edited: a hardware order's part list
+// (qty and name, saved to dev_hardware_parts) and a job's HubSpot deal link (saved to dev_job_links). Nothing on
+// this screen can change a sheet, a deal, an invoice or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
@@ -216,7 +217,152 @@ function WeekView({ jobs, onOpenJob }) {
   );
 }
 
-function JobCard({ job, open, onToggle, onParts }) {
+// Payment stage chips, same colours as Financial Management.
+const STATUS_STYLE = {
+  Paid: { background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' },
+  'Partially Paid': { background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' },
+  Invoiced: { background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' },
+  Pending: { background: '#f9fafb', color: '#6b7280', border: '1px solid #e5e7eb' },
+};
+
+function StageChips({ stages }) {
+  if (!stages?.length) return <div style={{ fontSize: '12px', color: '#9ca3af' }}>No payment schedule for this deal yet.</div>;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+      {stages.map((s) => (
+        <span key={s.stage} style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '999px', ...(STATUS_STYLE[s.status] ?? STATUS_STYLE.Pending) }}>
+          {s.label}: {s.status}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const dealLine = (l) => [l.name || `Deal ${l.dealId}`, l.room, l.invoiceNumber && `Invoice #${l.invoiceNumber}`].filter(Boolean).join(' · ');
+
+// Picker options are the same for every job, so they are fetched once per page load.
+let candidatesPromise = null;
+function loadCandidates() {
+  candidatesPromise ??= fetch('/api/admin-settings?resource=production&action=link-candidates', { headers: authHeaders() })
+    .then((r) => r.json().then((d) => (r.ok ? d : Promise.reject(new Error(d.error || `Status ${r.status}`)))))
+    .catch((e) => { candidatesPromise = null; throw e; });
+  return candidatesPromise;
+}
+
+function DealPicker({ onPick, onCancel, busy }) {
+  const [options, setOptions] = useState(null);
+  const [err, setErr] = useState('');
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    loadCandidates().then((d) => setOptions(d.options ?? [])).catch((e) => setErr(e.message));
+  }, []);
+  const needle = q.trim().toLowerCase();
+  const shown = (options ?? []).filter((o) => `${o.name} ${o.room ?? ''} ${o.invoiceNumber ?? ''}`.toLowerCase().includes(needle)).slice(0, 30);
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px', marginTop: '6px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+        <input type="search" autoFocus placeholder="Search won deals by name or invoice #" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...fieldStyle, flex: 1, minWidth: 0 }} aria-label="Search deals" />
+        <button type="button" onClick={onCancel} style={smallBtn}>Cancel</button>
+      </div>
+      {err && <div style={{ fontSize: '12px', color: '#b91c1c' }}>Could not load deals: {err}</div>}
+      {!options && !err && <div style={{ fontSize: '12px', color: '#6b7280' }}>{'Loading deals…'}</div>}
+      {options && shown.length === 0 && <div style={{ fontSize: '12px', color: '#6b7280' }}>No won deal matches.</div>}
+      <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+        {shown.map((o) => (
+          <button
+            key={`${o.dealId}|${o.room ?? ''}`}
+            type="button"
+            disabled={busy}
+            onClick={() => onPick(o)}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 0, borderBottom: '1px solid #f3f4f6', background: '#fff', cursor: 'pointer', fontSize: '13px', minHeight: '40px' }}
+          >
+            <div style={{ fontWeight: '600', color: '#111827' }}>{o.name}</div>
+            <div style={{ fontSize: '12px', color: '#6b7280' }}>
+              {[o.room, o.invoiceNumber ? `Invoice #${o.invoiceNumber}` : 'No invoice linked yet', o.closedAt && `won ${fmtDate(String(o.closedAt).slice(0, 10))}`].filter(Boolean).join(' · ')}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// The job's HubSpot deal and its payment status. Links are saved to dev_job_links only.
+function DealPanel({ job, onLinked }) {
+  const link = job.link ?? { state: 'unlinked' };
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function decide(decision, target, basis) {
+    setBusy(true);
+    setErr('');
+    try {
+      const r = await fetch('/api/admin-settings?resource=production&action=link-decide', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobRef: job.jobRef, dealId: target.dealId, room: target.room ?? null, decision, basis }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Status ${r.status}`);
+      setPicking(false);
+      await onLinked();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const primaryBtn = { ...smallBtn, background: '#78350f', color: '#fff', borderColor: '#78350f' };
+  return (
+    <div style={{ border: '1px solid #f3f4f6', borderRadius: '6px', padding: '8px 10px', margin: '0 0 8px', display: 'grid', gap: '6px' }}>
+      <div style={{ fontSize: '12px', fontWeight: '600', color: '#78350f' }}>Deal</div>
+      {link.state === 'linked' && (
+        <>
+          <div style={{ fontSize: '13px', color: '#111827' }}>{dealLine(link)}</div>
+          <StageChips stages={link.stages} />
+          <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+            Linked{link.decidedBy ? ` by ${link.decidedBy}` : ''}{link.decidedAt ? ` on ${fmtDate(String(link.decidedAt).slice(0, 10))}` : ''}{link.basis === 'invoice number' ? ' (invoice number matched)' : ''}
+          </div>
+          {!picking && (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button type="button" style={smallBtn} disabled={busy} onClick={() => setPicking(true)}>Change deal</button>
+              <button type="button" style={smallBtn} disabled={busy} onClick={() => decide('unlink', link, link.basis)}>Unlink</button>
+            </div>
+          )}
+        </>
+      )}
+      {link.state === 'suggested' && (
+        <>
+          <div style={{ fontSize: '13px', color: '#111827' }}>
+            <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', marginRight: '6px' }}>Suggested</span>
+            {dealLine(link)}
+          </div>
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>The job number matches this deal&apos;s invoice in Financial Management.</div>
+          <StageChips stages={link.stages} />
+          {!picking && (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button type="button" style={primaryBtn} disabled={busy} onClick={() => decide('confirm', link, 'invoice number')}>Confirm</button>
+              <button type="button" style={smallBtn} disabled={busy} onClick={() => decide('reject', link, 'invoice number')}>Not this one</button>
+              <button type="button" style={smallBtn} disabled={busy} onClick={() => setPicking(true)}>Pick another deal</button>
+            </div>
+          )}
+        </>
+      )}
+      {link.state === 'unlinked' && !picking && (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>No deal linked.</span>
+          <button type="button" style={smallBtn} disabled={busy} onClick={() => setPicking(true)}>Link to a deal</button>
+        </div>
+      )}
+      {picking && <DealPicker busy={busy} onCancel={() => setPicking(false)} onPick={(o) => decide('confirm', o, 'manual')} />}
+      {err && <div style={{ fontSize: '12px', color: '#b91c1c' }}>{err}</div>}
+    </div>
+  );
+}
+
+function JobCard({ job, open, onToggle, onParts, onLinked }) {
   const nextEvent = job.installs.find((e) => (e.installOn ?? e.deliveryOn) && !e.completed) ?? job.installs[job.installs.length - 1];
   const nextWhen = nextEvent && (nextEvent.installOn || nextEvent.installText || nextEvent.deliveryOn || nextEvent.deliveryText);
   return (
@@ -236,10 +382,13 @@ function JobCard({ job, open, onToggle, onParts }) {
           <span>{sectionLabel(job.section)}</span>
           {nextWhen && <span>{(nextEvent.installOn || nextEvent.installText) ? 'Install' : 'Delivery'}: {fmtDate(nextEvent.installOn ?? nextEvent.deliveryOn, nextEvent.installText ?? nextEvent.deliveryText)}</span>}
           {job.hardwareOrders > 0 && <span>Hardware orders: {job.hardwareOrders}</span>}
+          {job.link?.state === 'linked' && <span style={{ color: '#15803d' }}>Deal: {job.link.name || 'linked'}</span>}
+          {job.link?.state === 'suggested' && <span style={{ color: '#92400e' }}>Deal suggested</span>}
         </div>
       </button>
       {open && (
         <div style={{ borderTop: '1px solid #f3f4f6', padding: '10px 14px 12px', display: 'grid', gap: '4px' }}>
+          <DealPanel job={job} onLinked={onLinked} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '0 0 6px' }}>
             {Object.entries(job.steps).map(([k, v]) => (
               <span key={k} style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '999px', background: v ? '#dcfce7' : '#f3f4f6', color: v ? '#166534' : '#6b7280' }}>
@@ -305,14 +454,18 @@ export default function ProductionView() {
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState('jobs'); // 'jobs' | 'week'
   const [thisYear, setThisYear] = useState(false); // only jobs with a real date in the current year
+  const [dealFilter, setDealFilter] = useState('all'); // 'all' | 'linked' | 'suggested' | 'unlinked'
   const year = new Date().getFullYear();
   const scrollTimer = useRef(null);
 
+  // Reloaded after a deal link changes, so suggestions and payment status stay in step with the server.
+  const loadJobs = () => fetch('/api/admin-settings?resource=production&action=jobs', { headers: authHeaders() })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Status ${r.status}`))))
+    .then(setData)
+    .catch((e) => setError(e.message));
+
   useEffect(() => {
-    fetch('/api/admin-settings?resource=production&action=jobs', { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Status ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message));
+    loadJobs();
     return () => clearTimeout(scrollTimer.current);
   }, []);
 
@@ -329,11 +482,17 @@ export default function ProductionView() {
     return ordered.filter((j) => (
       (section === 'all' || sectionLabel(j.section) === section)
       && (!thisYear || jobTouchesYear(j, year))
+      && (dealFilter === 'all' || (j.link?.state ?? 'unlinked') === dealFilter)
       && (!q || `${j.name} ${j.jobRef} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
     ));
-  }, [ordered, searchQuery, section, thisYear, year]);
+  }, [ordered, searchQuery, section, thisYear, year, dealFilter]);
 
   const yearCount = useMemo(() => ordered.filter((j) => jobTouchesYear(j, year)).length, [ordered, year]);
+  const dealCounts = useMemo(() => {
+    const c = { linked: 0, suggested: 0, unlinked: 0 };
+    for (const j of ordered) c[j.link?.state ?? 'unlinked'] += 1;
+    return c;
+  }, [ordered]);
 
   // Up to 6 jobs matching the search, from every section, like the Leads suggestions.
   const suggestions = useMemo(() => {
@@ -373,20 +532,22 @@ export default function ProductionView() {
     setSearchQuery('');
     setSection('all');
     setThisYear(false);
+    setDealFilter('all');
     setSortKey('newest');
     setOpenId(null);
   }
 
   const sortLabel = SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? 'Sort';
-  const isFiltered = Boolean(searchQuery.trim()) || section !== 'all' || thisYear;
+  const isFiltered = Boolean(searchQuery.trim()) || section !== 'all' || thisYear || dealFilter !== 'all';
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '16px' }}>
       <h2 style={{ margin: '0 0 4px', color: '#78350f' }}>Production</h2>
       <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '13px' }}>
-        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists can be edited here; all other changes still go in the Google Sheets.
+        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists and deal links can be changed here; all other changes still go in the Google Sheets.
       </p>
       {error && <p style={{ color: '#b91c1c' }}>Could not load jobs: {error}</p>}
+      {data?.linkError && <p style={{ color: '#b45309', fontSize: '13px' }}>Deal links could not be loaded, so jobs show without them. ({data.linkError})</p>}
       {!data && !error && <p style={{ color: '#6b7280' }}>{'Loading jobs…'}</p>}
       {data && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -427,6 +588,18 @@ export default function ProductionView() {
             >
               This year ({yearCount})
             </button>
+
+            <select
+              value={dealFilter}
+              onChange={(e) => setDealFilter(e.target.value)}
+              aria-label="Deal link"
+              style={{ ...controlStyle, padding: '7px 30px 7px 12px', flexShrink: 0, appearance: 'auto', maxWidth: '100%' }}
+            >
+              <option value="all">Any deal link</option>
+              <option value="suggested">Deal suggested ({dealCounts.suggested})</option>
+              <option value="linked">Deal linked ({dealCounts.linked})</option>
+              <option value="unlinked">No deal ({dealCounts.unlinked})</option>
+            </select>
 
             {/* Search with suggestions */}
             <div style={{ flex: '1 1 100%', order: -1, position: 'relative' }}>
@@ -488,7 +661,7 @@ export default function ProductionView() {
           ) : (
             <div style={{ display: 'grid', gap: '10px' }}>
               {filtered.map((j) => (
-                <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} onParts={(orderIdx, fn) => updateParts(j.id, orderIdx, fn)} />
+                <JobCard key={j.id} job={j} open={openId === j.id} onToggle={() => setOpenId(openId === j.id ? null : j.id)} onParts={(orderIdx, fn) => updateParts(j.id, orderIdx, fn)} onLinked={loadJobs} />
               ))}
             </div>
           )}

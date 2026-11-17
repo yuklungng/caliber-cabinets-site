@@ -539,7 +539,7 @@ function PartsView({ jobs, orphans, onOpenJob }) {
         )}
         <span style={{ fontSize: '12px', color: '#6b7280' }}>
           {searching
-            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}${found.toCheck ? ` · includes ${found.toCheck} to check` : ''}` : ''}`
+            ? `${found.lines.length} part line${found.lines.length === 1 ? '' : 's'} on ${found.jobs} job${found.jobs === 1 ? '' : 's'}${found.noJob ? ` (+${found.noJob} with no matching job)` : ''}${found.lines.length ? ` · total qty ${found.totalQty}${found.uncounted ? ` (+${found.uncounted} with no qty)` : ''}${found.toCheck ? ` · includes ${found.toCheck} to check` : ''}` : ''}`
             : `${orders.length} hardware order${orders.length === 1 ? '' : 's'}`}
         </span>
       </div>

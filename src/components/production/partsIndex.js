@@ -87,7 +87,7 @@ const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
  */
 export function searchParts(orders, query) {
   const words = norm(query).split(' ').filter(Boolean);
-  if (!words.length) return { lines: [], totalQty: 0, uncounted: 0, toCheck: 0, jobs: 0 };
+  if (!words.length) return { lines: [], totalQty: 0, uncounted: 0, toCheck: 0, jobs: 0, noJob: 0 };
   const lines = [];
   for (const o of orders) {
     for (const p of o.parts) {
@@ -102,5 +102,5 @@ export function searchParts(orders, query) {
     const n = Number(l.qty);
     if (l.qty !== null && l.qty !== '' && Number.isFinite(n)) totalQty += n; else uncounted += 1;
   }
-  return { lines, totalQty, uncounted, toCheck: lines.filter((l) => l.check).length, jobs: new Set(lines.map((l) => l.order.jobId)).size };
+  return { lines, totalQty, uncounted, toCheck: lines.filter((l) => l.check).length, jobs: new Set(lines.map((l) => l.order.jobId).filter(Boolean)).size, noJob: lines.filter((l) => !l.order.jobId).length };
 }

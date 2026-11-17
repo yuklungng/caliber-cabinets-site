@@ -113,6 +113,8 @@ check('orders with no job are listed with their own label and no job link', () =
   assert.equal(flat[0].jobId, null);
   assert.equal(flat[0].jobName, 'Estrada main');
   assert.equal(searchParts(flat, 'hinge').lines.length, 1);
+  assert.equal(searchParts(flat, 'hinge').jobs, 0);
+  assert.equal(searchParts(flat, 'hinge').noJob, 1);
 });
 
 check('an order shown on two jobs with the same number is listed once', () => {

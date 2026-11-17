@@ -238,7 +238,12 @@ function StageChips({ stages }) {
   );
 }
 
-const dealLine = (l) => [l.name || `Deal ${l.dealId}`, l.room, l.invoiceNumber && `Invoice #${l.invoiceNumber}`].filter(Boolean).join(' · ');
+// HubSpot deal names start with the form they came from ("Design Consultation – Peter & Deme"); the client is what matters here.
+const shortDealName = (name) => String(name ?? '').replace(/^(Design Consultation|Trade Estimate|Estimate Request)\s*[–-]\s*/i, '').trim();
+// A timestamp shown as the viewer's local date (slicing the UTC string shows tomorrow's date in the evening).
+const fmtStamp = (ts) => new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+const dealLine = (l) => [shortDealName(l.name) || `Deal ${l.dealId}`, l.room, l.invoiceNumber && `Invoice #${l.invoiceNumber}`].filter(Boolean).join(' · ');
 
 // Picker options are the same for every job, so they are fetched once per page load.
 let candidatesPromise = null;
@@ -276,9 +281,9 @@ function DealPicker({ onPick, onCancel, busy }) {
             onClick={() => onPick(o)}
             style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 0, borderBottom: '1px solid #f3f4f6', background: '#fff', cursor: 'pointer', fontSize: '13px', minHeight: '40px' }}
           >
-            <div style={{ fontWeight: '600', color: '#111827' }}>{o.name}</div>
+            <div style={{ fontWeight: '600', color: '#111827' }}>{shortDealName(o.name)}</div>
             <div style={{ fontSize: '12px', color: '#6b7280' }}>
-              {[o.room, o.invoiceNumber ? `Invoice #${o.invoiceNumber}` : 'No invoice linked yet', o.closedAt && `won ${fmtDate(String(o.closedAt).slice(0, 10))}`].filter(Boolean).join(' · ')}
+              {[o.room, o.invoiceNumber ? `Invoice #${o.invoiceNumber}` : 'No invoice linked yet', o.closedAt && `won ${fmtStamp(o.closedAt)}`].filter(Boolean).join(' · ')}
             </div>
           </button>
         ))}
@@ -323,7 +328,7 @@ function DealPanel({ job, onLinked }) {
           <div style={{ fontSize: '13px', color: '#111827' }}>{dealLine(link)}</div>
           <StageChips stages={link.stages} />
           <div style={{ fontSize: '11px', color: '#9ca3af' }}>
-            Linked{link.decidedBy ? ` by ${link.decidedBy}` : ''}{link.decidedAt ? ` on ${fmtDate(String(link.decidedAt).slice(0, 10))}` : ''}{link.basis === 'invoice number' ? ' (invoice number matched)' : ''}
+            Linked{link.decidedBy ? ` by ${link.decidedBy}` : ''}{link.decidedAt ? ` on ${fmtStamp(link.decidedAt)}` : ''}{link.basis === 'invoice number' ? ' (invoice number matched)' : ''}
           </div>
           {!picking && (
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -382,7 +387,7 @@ function JobCard({ job, open, onToggle, onParts, onLinked }) {
           <span>{sectionLabel(job.section)}</span>
           {nextWhen && <span>{(nextEvent.installOn || nextEvent.installText) ? 'Install' : 'Delivery'}: {fmtDate(nextEvent.installOn ?? nextEvent.deliveryOn, nextEvent.installText ?? nextEvent.deliveryText)}</span>}
           {job.hardwareOrders > 0 && <span>Hardware orders: {job.hardwareOrders}</span>}
-          {job.link?.state === 'linked' && <span style={{ color: '#15803d' }}>Deal: {job.link.name || 'linked'}</span>}
+          {job.link?.state === 'linked' && <span style={{ color: '#15803d' }}>Deal: {shortDealName(job.link.name) || 'linked'}</span>}
           {job.link?.state === 'suggested' && <span style={{ color: '#92400e' }}>Deal suggested</span>}
         </div>
       </button>

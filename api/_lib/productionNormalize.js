@@ -318,11 +318,14 @@ export async function writeNormalized({ supabase, table, rows }) {
     if (data.length < 1000) break;
   }
   const now = new Date().toISOString();
+  // A bulk upsert fills a key missing from some rows with null, so new rows need the history column too.
+  const hasHistory = [...existing.values()].some((e) => 'job_ref_history' in e);
   let inserted = 0, updated = 0, unchanged = 0, refChanged = 0;
   const upserts = [];
   for (const r of rows) {
     const e = existing.get(r.source_row_id);
     const next = { ...r };
+    if (!e && hasHistory) next.job_ref_history = [];
     if (e && 'job_ref_history' in e) {
       next.job_ref_history = e.job_ref_history ?? [];
       if (e.job_ref !== r.job_ref) { next.job_ref_history = [...next.job_ref_history, e.job_ref]; refChanged++; }

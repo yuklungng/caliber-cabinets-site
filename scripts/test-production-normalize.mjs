@@ -159,6 +159,25 @@ const fakeSupabase = (rows) => ({
   }),
 });
 
+await check('write: a new job in the same batch as a changed one still gets a job_ref_history', async () => {
+  // PostgREST bulk upsert sends the union of the batch's keys and fills a missing one with null,
+  // so the column default does not apply; the not-null history column then rejects the row.
+  const store = [{ ...productionJobFrom(raw({ 'Job Name': '#6001 Old' }, { job_number: '6001' })), job_ref_history: [] }];
+  const strict = {
+    from: () => ({
+      select: () => ({ range: async () => ({ data: store, error: null }) }),
+      upsert: async (batch) => {
+        const keys = new Set(batch.flatMap(Object.keys));
+        for (const b of batch) if (keys.has('job_ref_history') && b.job_ref_history == null) return { error: { message: 'null value in column "job_ref_history"' } };
+        return { error: null };
+      },
+    }),
+  };
+  const changed = { ...productionJobFrom(raw({ 'Job Name': '#6001 Old', 'Paint Color / Stain Color': 'White' }, { job_number: '6001' })) };
+  const fresh = { ...productionJobFrom(raw({ 'Job Name': '#6002 New' }, { job_number: '6002' })), source_row_id: 'r2' };
+  assert.deepEqual(await writeNormalized({ supabase: strict, table: 't', rows: [changed, fresh] }), { inserted: 1, updated: 1, unchanged: 0, refChanged: 0 });
+});
+
 await check('write: insert, then unchanged, then a temp ref replaced by a real number keeps the old one', async () => {
   const store = [];
   const sb = fakeSupabase(store);

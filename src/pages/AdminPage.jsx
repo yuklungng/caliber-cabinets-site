@@ -125,6 +125,8 @@ const DEFAULT_STAGE_FORECAST = [
 const SORT_OPTIONS = [
   { key: 'newest',     label: '↓ Newest' },
   { key: 'oldest',     label: '↑ Oldest' },
+  { key: 'activity-desc', label: '↓ Activity' },
+  { key: 'activity-asc',  label: '↑ Activity' },
   { key: 'quote-desc', label: '$ High→Low' },
   { key: 'quote-asc',  label: '$ Low→High' },
   { key: 'prob-desc',  label: '% High→Low' },
@@ -3486,6 +3488,12 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         const ta = new Date(a.created_at).getTime();
         const tb = new Date(b.created_at).getTime();
         return sortKey === 'newest' ? tb - ta : ta - tb;
+      }
+      if (sortKey === 'activity-desc' || sortKey === 'activity-asc') {
+        // Same "last touched" date the stale badge uses (see leadActivityDate).
+        const ta = new Date(leadActivityDate(a) ?? 0).getTime() || 0;
+        const tb = new Date(leadActivityDate(b) ?? 0).getTime() || 0;
+        return sortKey === 'activity-desc' ? tb - ta : ta - tb;
       }
       if (sortKey === 'quote-desc' || sortKey === 'quote-asc') {
         const qa = a.fields?.quote_amount ?? -1;

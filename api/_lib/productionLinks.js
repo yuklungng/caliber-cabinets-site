@@ -115,9 +115,9 @@ export function dealIdsToName(linkMap) {
 }
 
 /**
- * Picker options: closed-won deals (from HubSpot) with their room groups, newest first.
- * deals: [{ hubspot_deal_id, name, closed_at }]. One option per room group; a deal with no schedule yet
- * is one option with no room.
+ * Picker options: closed-won deals (from HubSpot), newest first, one option per deal with the invoice numbers
+ * of its room groups (so the picker can be searched by any of them). A job links to the whole deal; which of its
+ * invoices belong to the job is kept in dev_job_invoices.
  */
 export function candidateOptions(deals, groups) {
   const groupsByDeal = new Map();
@@ -125,18 +125,135 @@ export function candidateOptions(deals, groups) {
     const list = groupsByDeal.get(g.dealId);
     if (list) list.push(g); else groupsByDeal.set(g.dealId, [g]);
   }
-  const out = [];
-  for (const d of [...deals].sort((a, b) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')))) {
-    const gs = groupsByDeal.get(d.hubspot_deal_id) ?? [];
-    if (gs.length === 0) {
-      out.push({ dealId: d.hubspot_deal_id, name: d.name, room: null, invoiceNumber: null, closedAt: d.closed_at ?? null });
-      continue;
-    }
-    for (const g of [...gs].sort((a, b) => (a.room ?? '').localeCompare(b.room ?? ''))) {
-      out.push({ dealId: d.hubspot_deal_id, name: d.name, room: g.room, invoiceNumber: g.invoiceNumber, closedAt: d.closed_at ?? null });
+  return [...deals].sort((a, b) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? ''))).map((d) => {
+    const gs = [...(groupsByDeal.get(d.hubspot_deal_id) ?? [])].sort((a, b) => (a.room ?? '').localeCompare(b.room ?? ''));
+    return {
+      dealId: d.hubspot_deal_id,
+      name: d.name,
+      room: null,
+      rooms: gs.map((g) => g.room).filter(Boolean),
+      invoiceNumbers: gs.map((g) => g.invoiceNumber).filter(Boolean),
+      closedAt: d.closed_at ?? null,
+    };
+  });
+}
+
+// ---- Several invoices per job (dev_job_invoices) ----------------------------------------------------------------
+//
+// A split-room job (one PO, one delivery and install) has an invoice per room plus any change orders. One of them is
+// the primary: the number the job is known by. A job with no rows in dev_job_invoices has one invoice, its own sheet
+// number. The office adds the others; nothing is added automatically.
+
+export const INVOICE_SOURCES = ['sheet', 'deal', 'manual'];
+
+const liveInvoiceRows = (rows) => (rows ?? []).filter((r) => !r.removed_at);
+
+/**
+ * Secondary invoice refs that roll up into another job: Map '#1235' -> '#1234'. Install, hardware and other rows the
+ * sheets file under '#1235' then show on the '#1234' job. A number that is itself a live job's ref is never redirected
+ * (that sheet row stays its own job).
+ */
+export function invoiceAliases(rows, jobRefs) {
+  const m = new Map();
+  for (const r of liveInvoiceRows(rows)) {
+    const ref = `#${r.invoice_number}`;
+    if (ref === r.job_ref || jobRefs.has(ref)) continue;
+    m.set(ref, r.job_ref);
+  }
+  return m;
+}
+
+/**
+ * One status per payment stage over several invoices. Labels only, no amounts:
+ * all Paid -> Paid; any Paid or Partially Paid -> Partially Paid; any Invoiced -> Invoiced; else Pending.
+ */
+export function rollupStages(stageLists) {
+  const byStage = new Map();
+  for (const list of stageLists) {
+    for (const s of list ?? []) {
+      const e = byStage.get(s.stage) ?? { stage: s.stage, label: s.label, statuses: [] };
+      e.statuses.push(s.status);
+      byStage.set(s.stage, e);
     }
   }
+  const rank = (st) => (STAGE_ORDER.indexOf(st) < 0 ? 99 : STAGE_ORDER.indexOf(st));
+  return [...byStage.values()].sort((a, b) => rank(a.stage) - rank(b.stage)).map(({ stage, label, statuses }) => {
+    let status = 'Pending';
+    if (statuses.every((x) => x === 'Paid')) status = 'Paid';
+    else if (statuses.some((x) => x === 'Paid' || x === 'Partially Paid')) status = 'Partially Paid';
+    else if (statuses.some((x) => x === 'Invoiced')) status = 'Invoiced';
+    return { stage, label, status };
+  });
+}
+
+/**
+ * The invoices on each job, the payment stages rolled up over them, and, for a job linked to a deal, that deal's other
+ * invoices the office could add (pre-ticked in the screen, saved only on confirm). An invoice already on another job,
+ * or that is another live job's own number, is never suggested.
+ * jobs: buildJobList output. invoiceRows: dev_job_invoices rows. linkMap: resolveLinks output. groups: scheduleGroups.
+ * Returns Map jobRef -> { primary, invoices: [{ number, primary, source, room, inSchedule, stages }], payment, suggestions }.
+ */
+export function resolveInvoices(jobs, { invoiceRows = [], linkMap = new Map(), groups = new Map() }) {
+  const byInvoice = groupsByInvoice(groups);
+  const live = liveInvoiceRows(invoiceRows);
+  const rowsByJob = new Map();
+  for (const r of live) {
+    const list = rowsByJob.get(r.job_ref);
+    if (list) list.push(r); else rowsByJob.set(r.job_ref, [r]);
+  }
+  const taken = new Set(live.map((r) => String(r.invoice_number)));
+  const jobNumbers = new Set(jobs.map(jobNumberOf).filter(Boolean));
+
+  const out = new Map();
+  for (const job of jobs) {
+    const own = jobNumberOf(job);
+    const rows = rowsByJob.get(job.jobRef);
+    let list = rows
+      ? rows.map((r) => ({ number: String(r.invoice_number), primary: !!r.is_primary, source: r.source, addedBy: r.added_by ?? null, addedAt: r.added_at ?? null }))
+      : (own ? [{ number: own, primary: true, source: 'sheet', addedBy: null, addedAt: null }] : []);
+    if (list.length && !list.some((i) => i.primary)) {
+      const fallback = list.find((i) => i.number === own) ?? list[0];
+      list = list.map((i) => ({ ...i, primary: i === fallback }));
+    }
+    const invoices = list.map((i) => {
+      const g = byInvoice.get(i.number);
+      return { ...i, room: g?.room ?? null, inSchedule: !!g, stages: g?.stages ?? [] };
+    }).sort((a, b) => (b.primary - a.primary) || a.number.localeCompare(b.number, undefined, { numeric: true }));
+
+    const link = linkMap.get(job.jobRef);
+    const onJob = new Set(invoices.map((i) => i.number));
+    const suggestions = link?.state === 'linked'
+      ? [...groups.values()]
+        .filter((g) => g.dealId === link.dealId && g.invoiceNumber && !onJob.has(g.invoiceNumber)
+          && !taken.has(g.invoiceNumber) && !(jobNumbers.has(g.invoiceNumber) && g.invoiceNumber !== own))
+        .map((g) => ({ number: g.invoiceNumber, room: g.room }))
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }))
+      : [];
+
+    out.set(job.jobRef, {
+      primary: invoices.find((i) => i.primary)?.number ?? null,
+      invoices,
+      payment: rollupStages(invoices.map((i) => i.stages)),
+      suggestions,
+    });
+  }
   return out;
+}
+
+/** Validates an invoice-edit request body. Throws with a message for the person on bad input. */
+export function cleanInvoiceEdit(body) {
+  const op = String(body?.op ?? '');
+  if (!['add', 'remove', 'primary'].includes(op)) throw new Error('op must be add, remove or primary');
+  const jobRef = String(body?.jobRef ?? '').trim();
+  if (!jobRef || jobRef.length > 200) throw new Error('jobRef is required');
+  const clean = (v) => String(v ?? '').trim().replace(/^#/, '');
+  const raw = op === 'add' ? (Array.isArray(body?.numbers) ? body.numbers : [body?.number]) : [body?.number];
+  const numbers = [...new Set(raw.map(clean))];
+  if (!numbers.length || numbers.length > 20 || numbers.some((n) => !/^\d{1,12}$/.test(n))) {
+    throw new Error('Invoice numbers are digits only, e.g. 1235');
+  }
+  const source = op === 'add' && body?.source === 'deal' ? 'deal' : 'manual';
+  return { op, jobRef, numbers, source };
 }
 
 /** Validates a link-decide request body. Throws with a message for the person on bad input. */

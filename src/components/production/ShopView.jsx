@@ -230,7 +230,7 @@ function JobDetail({ job, onBack, onStep }) {
     <div>
       <button type="button" onClick={onBack} style={{ background: 'none', border: 0, color: BROWN, fontSize: '17px', fontWeight: '700', padding: '8px 0', cursor: 'pointer', minHeight: '44px' }}>‹ Back</button>
       <h2 style={{ margin: '0 0 2px', fontSize: '26px', color: '#111827', wordBreak: 'break-word' }}>{job.name || job.jobRef}</h2>
-      {!job.isTemp && <div style={{ fontSize: '15px', color: '#78716c', marginBottom: '14px' }}>Job {job.jobRef}</div>}
+      {(job.primaryInvoice || !job.isTemp) && <div style={{ fontSize: '15px', color: '#78716c', marginBottom: '14px' }}>Job {job.primaryInvoice ? `#${job.primaryInvoice}` : job.jobRef}</div>}
 
       {(facts.length > 0 || visits.length > 0) && (
         <div style={box}>
@@ -337,7 +337,7 @@ export default function ShopView({ jobs, onJobChange }) {
   const found = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return [...jobs].reverse().filter((j) => `${j.name} ${j.jobRef}`.toLowerCase().includes(q)).slice(0, 8);
+    return [...jobs].reverse().filter((j) => `${j.name} ${j.jobRef} ${(j.invoices ?? []).map((i) => `#${i.number}`).join(' ')}`.toLowerCase().includes(q)).slice(0, 8);
   }, [jobs, query]);
 
   // Saves a tick and updates the loaded job, so the screen changes without reloading every job.

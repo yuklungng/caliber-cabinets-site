@@ -5,8 +5,9 @@ import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToC
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
 // (/api/admin-settings?resource=production&action=jobs). Two things can be edited: a hardware order's part list
-// (qty and name, saved to dev_hardware_parts) and a job's HubSpot deal link (saved to dev_job_links). Nothing on
-// this screen can change a sheet, a deal, an invoice or any other record.
+// (qty and name, saved to dev_hardware_parts), a job's HubSpot deal link (saved to dev_job_links) and which QuickBooks
+// invoices belong to the job (saved to dev_job_invoices). Nothing on this screen can change a sheet, a deal, an
+// invoice or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
 // A "Hardware" tab (key 'parts') lists hardware orders across jobs, newest first, with a part search (read-only).
@@ -57,13 +58,13 @@ function Line({ label, children }) {
 function RefBadge({ job }) {
   return (
     <span
-      title={job.isTemp ? 'No invoice number yet: temporary label' : 'QuickBooks invoice number'}
+      title={job.primaryInvoice ? 'Primary QuickBooks invoice number' : job.isTemp ? 'No invoice number yet: temporary label' : 'QuickBooks invoice number'}
       style={{
         fontSize: '11px', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
-        background: job.isTemp ? '#fef3c7' : '#e5e7eb', color: job.isTemp ? '#92400e' : '#374151',
+        background: job.isTemp && !job.primaryInvoice ? '#fef3c7' : '#e5e7eb', color: job.isTemp && !job.primaryInvoice ? '#92400e' : '#374151',
       }}
     >
-      {job.jobRef}
+      {job.primaryInvoice ? `#${job.primaryInvoice}` : job.jobRef}{job.invoices?.length > 1 ? ` +${job.invoices.length - 1}` : ''}
     </span>
   );
 }
@@ -259,7 +260,8 @@ const shortDealName = (name) => String(name ?? '').replace(/^(Design Consultatio
 // A timestamp shown as the viewer's local date (slicing the UTC string shows tomorrow's date in the evening).
 const fmtStamp = (ts) => new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-const dealLine = (l) => [shortDealName(l.name) || `Deal ${l.dealId}`, l.room, l.invoiceNumber && `Invoice #${l.invoiceNumber}`].filter(Boolean).join(' · ');
+// A suggested link names the invoice that matched; a confirmed link is to the whole deal (its invoices are listed below).
+const dealLine = (l) => [shortDealName(l.name) || `Deal ${l.dealId}`, l.state === 'suggested' && l.invoiceNumber && `Invoice #${l.invoiceNumber}`].filter(Boolean).join(' · ');
 
 // Picker options are the same for every job, so they are fetched once per page load.
 let candidatesPromise = null;
@@ -278,7 +280,7 @@ function DealPicker({ onPick, onCancel, busy }) {
     loadCandidates().then((d) => setOptions(d.options ?? [])).catch((e) => setErr(e.message));
   }, []);
   const needle = q.trim().toLowerCase();
-  const shown = (options ?? []).filter((o) => `${o.name} ${o.room ?? ''} ${o.invoiceNumber ?? ''}`.toLowerCase().includes(needle)).slice(0, 30);
+  const shown = (options ?? []).filter((o) => `${o.name} ${(o.rooms ?? []).join(' ')} ${(o.invoiceNumbers ?? []).join(' ')}`.toLowerCase().includes(needle)).slice(0, 30);
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px', marginTop: '6px' }}>
       <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
@@ -291,7 +293,7 @@ function DealPicker({ onPick, onCancel, busy }) {
       <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
         {shown.map((o) => (
           <button
-            key={`${o.dealId}|${o.room ?? ''}`}
+            key={o.dealId}
             type="button"
             disabled={busy}
             onClick={() => onPick(o)}
@@ -299,7 +301,10 @@ function DealPicker({ onPick, onCancel, busy }) {
           >
             <div style={{ fontWeight: '600', color: '#111827' }}>{shortDealName(o.name)}</div>
             <div style={{ fontSize: '12px', color: '#6b7280' }}>
-              {[o.room, o.invoiceNumber ? `Invoice #${o.invoiceNumber}` : 'No invoice linked yet', o.closedAt && `won ${fmtStamp(o.closedAt)}`].filter(Boolean).join(' · ')}
+              {[
+                o.invoiceNumbers?.length ? `Invoice${o.invoiceNumbers.length > 1 ? 's' : ''} ${o.invoiceNumbers.map((n) => `#${n}`).join(', ')}` : 'No invoice linked yet',
+                o.closedAt && `won ${fmtStamp(o.closedAt)}`,
+              ].filter(Boolean).join(' · ')}
             </div>
           </button>
         ))}
@@ -342,7 +347,6 @@ function DealPanel({ job, onLinked }) {
       {link.state === 'linked' && (
         <>
           <div style={{ fontSize: '13px', color: '#111827' }}>{dealLine(link)}</div>
-          <StageChips stages={link.stages} />
           <div style={{ fontSize: '11px', color: '#9ca3af' }}>
             Linked{link.decidedBy ? ` by ${link.decidedBy}` : ''}{link.decidedAt ? ` on ${fmtStamp(link.decidedAt)}` : ''}{link.basis === 'invoice number' ? ' (invoice number matched)' : ''}
           </div>
@@ -378,6 +382,111 @@ function DealPanel({ job, onLinked }) {
         </div>
       )}
       {picking && <DealPicker busy={busy} onCancel={() => setPicking(false)} onPick={(o) => decide('confirm', o, 'manual')} />}
+      {err && <div style={{ fontSize: '12px', color: '#b91c1c' }}>{err}</div>}
+      {link.state !== 'suggested' && <InvoicesPanel job={job} onChanged={onLinked} />}
+    </div>
+  );
+}
+
+const invoiceText = (j) => (j.invoices ?? []).map((i) => `#${i.number}`).join(' ');
+const statusLine = (stages) => stages.map((s) => `${s.label.replace(/ Payment$/, '')} ${s.status}`).join(' · ');
+
+// The job's QuickBooks invoices (one primary, the job number), the payment stages rolled up over all of them, and the
+// linked deal's other invoices, pre-ticked, added only when someone presses Add. Saved to dev_job_invoices only.
+function InvoicesPanel({ job, onChanged }) {
+  const invoices = job.invoices ?? [];
+  const suggestions = job.invoiceSuggestions ?? [];
+  const sugKey = suggestions.map((s) => s.number).join(',');
+  const [ticked, setTicked] = useState(() => new Set(suggestions.map((s) => s.number)));
+  useEffect(() => { setTicked(new Set(sugKey ? sugKey.split(',') : [])); }, [sugKey]);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function edit(body) {
+    setBusy(true);
+    setErr('');
+    try {
+      const r = await fetch('/api/admin-settings?resource=production&action=invoice-edit', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobRef: job.jobRef, ...body }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Status ${r.status}`);
+      setTyped('');
+      await onChanged();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const several = invoices.length > 1;
+  const toAdd = suggestions.filter((s) => ticked.has(s.number)).map((s) => s.number);
+  return (
+    <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: '6px', display: 'grid', gap: '6px' }}>
+      <div style={{ fontSize: '12px', fontWeight: '600', color: '#78350f' }}>
+        {several ? `Invoices (${invoices.length}) · payment over all of them` : 'Invoice and payment'}
+      </div>
+      {invoices.length > 0 && <StageChips stages={job.payment} />}
+      {several && (
+        <details>
+          <summary style={{ fontSize: '12px', color: '#374151', cursor: 'pointer' }}>Each invoice</summary>
+          <div style={{ display: 'grid', gap: '4px', marginTop: '4px' }}>
+            {invoices.map((i) => (
+              <div key={i.number} style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', fontSize: '12px', color: '#374151' }}>
+                <strong>#{i.number}</strong>
+                {i.primary && <span style={{ fontSize: '11px', padding: '1px 6px', borderRadius: '4px', background: '#78350f', color: '#fff' }}>Primary</span>}
+                {i.room && <span>{i.room}</span>}
+                <span style={{ color: '#6b7280' }}>{i.inSchedule ? statusLine(i.stages) || 'No stages' : 'Not in Financial Management'}</span>
+                {!i.primary && (
+                  <>
+                    <button type="button" style={smallBtn} disabled={busy} onClick={() => edit({ op: 'primary', number: i.number })}>Make primary</button>
+                    <button type="button" style={smallBtn} disabled={busy} onClick={() => edit({ op: 'remove', number: i.number })}>Remove</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {suggestions.length > 0 && (
+        <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: '6px', padding: '6px 8px', display: 'grid', gap: '4px' }}>
+          <div style={{ fontSize: '12px', color: '#92400e' }}>Other invoices on this deal. Tick the ones that are part of this job:</div>
+          {suggestions.map((s) => (
+            <label key={s.number} style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '13px', color: '#111827', minHeight: '28px' }}>
+              <input
+                type="checkbox"
+                checked={ticked.has(s.number)}
+                onChange={(e) => setTicked((prev) => { const n = new Set(prev); if (e.target.checked) n.add(s.number); else n.delete(s.number); return n; })}
+              />
+              #{s.number}{s.room ? ` · ${s.room}` : ''}
+            </label>
+          ))}
+          <div>
+            <button
+              type="button"
+              disabled={busy || toAdd.length === 0}
+              onClick={() => edit({ op: 'add', numbers: toAdd, source: 'deal' })}
+              style={{ ...smallBtn, background: '#78350f', color: '#fff', borderColor: '#78350f' }}
+            >
+              Add {toAdd.length} to this job
+            </button>
+          </div>
+        </div>
+      )}
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (typed.trim()) edit({ op: 'add', numbers: [typed.trim()], source: 'manual' }); }}
+        style={{ display: 'flex', gap: '6px', alignItems: 'center' }}
+      >
+        <input
+          type="text" inputMode="numeric" placeholder="Add invoice #" value={typed}
+          onChange={(e) => setTyped(e.target.value)} style={{ ...fieldStyle, width: '130px' }} aria-label="Add an invoice number to this job"
+        />
+        <button type="submit" style={smallBtn} disabled={busy || !typed.trim()}>Add</button>
+      </form>
       {err && <div style={{ fontSize: '12px', color: '#b91c1c' }}>{err}</div>}
     </div>
   );
@@ -646,7 +755,7 @@ export default function ProductionView() {
       (section === 'all' || sectionLabel(j.section) === section)
       && (!thisYear || jobTouchesYear(j, year))
       && (dealFilter === 'all' || (j.link?.state ?? 'unlinked') === dealFilter)
-      && (!q || `${j.name} ${j.jobRef} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
+      && (!q || `${j.name} ${j.jobRef} ${invoiceText(j)} ${sectionLabel(j.section)}`.toLowerCase().includes(q))
     ));
   }, [ordered, searchQuery, section, thisYear, year, dealFilter]);
 
@@ -661,7 +770,7 @@ export default function ProductionView() {
   const suggestions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    return ordered.filter((j) => `${j.name} ${j.jobRef}`.toLowerCase().includes(q)).slice(0, 6);
+    return ordered.filter((j) => `${j.name} ${j.jobRef} ${invoiceText(j)}`.toLowerCase().includes(q)).slice(0, 6);
   }, [ordered, searchQuery]);
 
   function selectSuggestion(job) {

@@ -3,8 +3,8 @@ import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, matchOrdersToJobs, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
-import { INSTALL_STEPS, buildJobList, orphanOrders, readAll } from './productionJobs.js';
-import { DEAL_SYSTEM, candidateOptions, cleanDecision, dealIdsToName, resolveLinks, scheduleGroups } from './productionLinks.js';
+import { INSTALL_STEPS, applyAliases, buildJobList, orphanOrders, readAll } from './productionJobs.js';
+import { DEAL_SYSTEM, candidateOptions, cleanDecision, cleanInvoiceEdit, dealIdsToName, invoiceAliases, resolveInvoices, resolveLinks, scheduleGroups } from './productionLinks.js';
 import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
 
 const SCHEDULE_COLS = 'hubspot_deal_id, room, stage, label, qb_invoice_number, invoice_date, paid_date, qb_paid_amount';
@@ -39,6 +39,7 @@ const TABLES = [
   'hardware_parts',
   'job_links',
   'job_step_ticks',
+  'job_invoices',
 ];
 
 export const isProductionModuleEnabled = () => process.env.PRODUCTION_MODULE_ENABLED === '1';
@@ -200,7 +201,7 @@ export async function handleProduction(req, res, auth) {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
       const live = (q) => q.is('removed_at', null);
-      const [jobs, installs, hardware, raw, parts, ticks] = await Promise.all([
+      const [jobs, installs0, hardware0, raw, parts, ticks, invoiceRows] = await Promise.all([
         readAll(supabase, tbl('production_jobs'), '*', live),
         readAll(supabase, tbl('install_events'), '*', live),
         readAll(supabase, tbl('hardware_orders'), 'source_row_id, job_ref, job_name, order_text, ordered_on, ordered_text, received_on, received_text, status, notes, photo_url', live),
@@ -208,13 +209,20 @@ export async function handleProduction(req, res, auth) {
         readAll(supabase, tbl('hardware_parts'), 'id, order_source_row_id, line_no, qty, part_name, source, edited, removed_at'),
         // Ticks from the Shop view; if they cannot be read the jobs still load, with the sheet's boxes only.
         readAll(supabase, tbl('job_step_ticks'), 'job_row_id, step, done, ticked_by, ticked_at').catch(() => []),
+        // A job's extra invoices (db/production/008). If they cannot be read, each job has its own number only.
+        readAll(supabase, tbl('job_invoices'), 'job_ref, invoice_number, is_primary, source, added_by, added_at', live).catch(() => []),
       ]);
+      // Rows the sheets file under a job's secondary invoice number (e.g. #1235) show on that job (#1234).
+      const aliases = invoiceAliases(invoiceRows, new Set(jobs.map((j) => j.job_ref)));
+      const installs = applyAliases(installs0, aliases);
+      const hardware = applyAliases(hardware0, aliases);
       const rowNumbers = new Map(raw.map((r) => [r.row_id, r.row_number]));
       const list = buildJobList({ jobs, installs, hardware, rowNumbers, parts, ticks });
 
       // Deal links. payment_schedule is a live table, read only here; links are in dev_job_links.
       // A failure here never hides the jobs: they load with no link info and a note.
       let linkMap = new Map();
+      let invoiceMap = new Map();
       let linkError = null;
       try {
         const [links, schedule] = await Promise.all([
@@ -223,6 +231,7 @@ export async function handleProduction(req, res, auth) {
         ]);
         const groups = scheduleGroups(schedule);
         linkMap = resolveLinks(list, { links, groups });
+        invoiceMap = resolveInvoices(list, { invoiceRows, linkMap, groups });
         const ids = dealIdsToName(linkMap);
         if (ids.length && process.env.HUBSPOT_ACCESS_TOKEN) {
           const names = await batchGetDealNames(ids);
@@ -230,13 +239,21 @@ export async function handleProduction(req, res, auth) {
         }
       } catch (e) {
         linkError = String(e.message ?? e);
+        // Without the payment schedule the invoices still list, with no stages.
+        invoiceMap = resolveInvoices(list, { invoiceRows, linkMap });
       }
 
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({
         mode: tableMode(),
         linkError,
-        jobs: list.map((j) => ({ ...j, link: linkMap.get(j.jobRef) ?? { state: 'unlinked' } })),
+        jobs: list.map((j) => {
+          const inv = invoiceMap.get(j.jobRef) ?? { primary: null, invoices: [], payment: [], suggestions: [] };
+          return {
+            ...j, link: linkMap.get(j.jobRef) ?? { state: 'unlinked' },
+            primaryInvoice: inv.primary, invoices: inv.invoices, payment: inv.payment, invoiceSuggestions: inv.suggestions,
+          };
+        }),
         // Hardware orders that match no job, for the Parts tab's "No matching job" list.
         orphanOrders: orphanOrders({ list, hardware, parts }),
       });
@@ -288,6 +305,23 @@ export async function handleProduction(req, res, auth) {
       if (jobErr) throw new Error(jobErr.message);
       if (!job?.length) return res.status(404).json({ error: 'Job not found' });
 
+      // Invoices added from a deal belong with that deal: changing the deal or unlinking takes them off the job
+      // (kept with removed_at). Invoices from the sheet or typed in stay.
+      if (input.decision === 'confirm' || input.decision === 'unlink') {
+        let sameDeal = false;
+        if (input.decision === 'confirm') {
+          const { data: same, error: sameErr } = await supabase.from(links).select('external_id')
+            .eq('job_ref', input.jobRef).eq('system', DEAL_SYSTEM).eq('status', 'confirmed').eq('external_id', input.dealId).limit(1);
+          if (sameErr) throw new Error(sameErr.message);
+          sameDeal = !!same?.length;
+        }
+        if (!sameDeal) {
+          const { error: invErr } = await supabase.from(tbl('job_invoices')).update({ removed_at: now })
+            .eq('job_ref', input.jobRef).eq('source', 'deal').eq('is_primary', false).is('removed_at', null);
+          // Before db/production/008 is applied the table is missing; the link change still goes through.
+          if (invErr && !/does not exist|schema cache/i.test(invErr.message)) throw new Error(invErr.message);
+        }
+      }
       if (input.decision === 'confirm') {
         const { error: offErr } = await supabase.from(links)
           .update({ status: 'rejected', decided_by: who, decided_at: now })
@@ -295,12 +329,97 @@ export async function handleProduction(req, res, auth) {
         if (offErr) throw new Error(offErr.message);
       }
       const { data, error } = await supabase.from(links).upsert({
-        job_ref: input.jobRef, system: DEAL_SYSTEM, external_id: input.dealId, room: input.room,
+        // Links are to the whole deal; which of its invoices are on the job is kept in dev_job_invoices.
+        job_ref: input.jobRef, system: DEAL_SYSTEM, external_id: input.dealId, room: null,
         status: input.decision === 'confirm' ? 'confirmed' : 'rejected',
         basis: input.basis, decided_by: who, decided_at: now,
       }, { onConflict: 'job_ref,system,external_id' }).select('job_ref, external_id, room, status, basis, decided_by, decided_at').single();
       if (error) throw new Error(error.message);
       return res.status(200).json({ link: data });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message ?? e) });
+    }
+  }
+
+  // A job's invoices. Writes only dev_job_invoices; never QuickBooks, a sheet or Financial Management.
+  //   invoice-edit POST { jobRef, op: 'add', numbers: ['1235', ...], source: 'deal' | 'manual' }
+  //                POST { jobRef, op: 'remove', number }   not the primary; kept with removed_at
+  //                POST { jobRef, op: 'primary', number }  the number the job is shown by; the sheet row keeps its ref
+  // The first change to a job writes its own sheet number as the primary, so the job never loses it.
+  if (req.method === 'POST' && req.query?.action === 'invoice-edit') {
+    if (tableMode() !== 'dev') return res.status(403).json({ error: 'Invoice changes write only to dev_ tables for now' });
+    let input;
+    try { input = cleanInvoiceEdit(req.body); } catch (e) { return res.status(400).json({ error: e.message }); }
+    const who = String(auth.user?.name ?? auth.user?.email ?? 'admin');
+    const now = new Date().toISOString();
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const inv = tbl('job_invoices');
+      const { data: jobRows, error: jobErr } = await supabase.from(tbl('production_jobs'))
+        .select('job_ref, job_number, ref_is_temp').eq('job_ref', input.jobRef).is('removed_at', null).limit(1);
+      if (jobErr) throw new Error(jobErr.message);
+      const job = jobRows?.[0];
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      const own = job.ref_is_temp ? null : String(job.job_number);
+
+      const { data: current, error: curErr } = await supabase.from(inv)
+        .select('invoice_number, is_primary').eq('job_ref', input.jobRef).is('removed_at', null);
+      if (curErr) throw new Error(curErr.message);
+      let rows = current ?? [];
+      if (rows.length === 0 && own) {
+        const { error } = await supabase.from(inv).upsert(
+          { job_ref: input.jobRef, invoice_number: own, is_primary: true, source: 'sheet', added_by: who, added_at: now, removed_at: null },
+          { onConflict: 'job_ref,invoice_number' },
+        );
+        if (error) throw new Error(error.message);
+        rows = [{ invoice_number: own, is_primary: true }];
+      }
+      const onJob = new Set(rows.map((r) => String(r.invoice_number)));
+      const primary = rows.find((r) => r.is_primary)?.invoice_number ?? null;
+
+      if (input.op === 'add') {
+        const numbers = input.numbers.filter((n) => !onJob.has(n));
+        if (numbers.length) {
+          // A number that is another live sheet row is its own job; one already on another job stays there.
+          const [{ data: otherJobs, error: e1 }, { data: elsewhere, error: e2 }] = await Promise.all([
+            supabase.from(tbl('production_jobs')).select('job_ref, job_number').in('job_number', numbers).is('removed_at', null).neq('job_ref', input.jobRef),
+            supabase.from(inv).select('job_ref, invoice_number').in('invoice_number', numbers).is('removed_at', null).neq('job_ref', input.jobRef),
+          ]);
+          if (e1 || e2) throw new Error((e1 ?? e2).message);
+          const clash = [
+            ...(otherJobs ?? []).map((r) => `#${r.job_number} is its own job on the sheet`),
+            ...(elsewhere ?? []).map((r) => `#${r.invoice_number} is already on job ${r.job_ref}`),
+          ];
+          if (clash.length) return res.status(409).json({ error: clash.join('; ') });
+          const { error } = await supabase.from(inv).upsert(numbers.map((n, i) => ({
+            job_ref: input.jobRef, invoice_number: n, is_primary: !primary && i === 0,
+            source: input.source, added_by: who, added_at: now, removed_at: null,
+          })), { onConflict: 'job_ref,invoice_number' });
+          if (error) throw new Error(error.message);
+        }
+        return res.status(200).json({ ok: true, added: numbers });
+      }
+
+      const number = input.numbers[0];
+      if (!onJob.has(number)) return res.status(404).json({ error: `#${number} is not on this job` });
+      if (input.op === 'remove') {
+        if (String(primary) === number) return res.status(400).json({ error: 'Make another invoice the primary first' });
+        const { error } = await supabase.from(inv).update({ removed_at: now })
+          .eq('job_ref', input.jobRef).eq('invoice_number', number).is('removed_at', null);
+        if (error) throw new Error(error.message);
+        return res.status(200).json({ ok: true, removed: number });
+      }
+      // primary: clear the old one first (an index allows one live primary per job).
+      if (String(primary) !== number) {
+        const { error: offErr } = await supabase.from(inv).update({ is_primary: false })
+          .eq('job_ref', input.jobRef).eq('is_primary', true).is('removed_at', null);
+        if (offErr) throw new Error(offErr.message);
+        const { error } = await supabase.from(inv).update({ is_primary: true })
+          .eq('job_ref', input.jobRef).eq('invoice_number', number).is('removed_at', null);
+        if (error) throw new Error(error.message);
+      }
+      return res.status(200).json({ ok: true, primary: number });
     } catch (e) {
       return res.status(502).json({ error: String(e.message ?? e) });
     }

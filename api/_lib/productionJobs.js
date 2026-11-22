@@ -26,6 +26,12 @@ const byRef = (rows) => {
   return m;
 };
 
+/** Rows filed under a job's secondary invoice ref, moved to that job's ref. aliases: Map '#1235' -> '#1234'. */
+export function applyAliases(rows, aliases) {
+  if (!aliases?.size) return rows;
+  return rows.map((r) => (aliases.has(r.job_ref) ? { ...r, job_ref: aliases.get(r.job_ref) } : r));
+}
+
 // Events sort by their first known date; ones with no date go last.
 const dateOf = (e) => e.install_on ?? e.delivery_on ?? '9999-12-31';
 

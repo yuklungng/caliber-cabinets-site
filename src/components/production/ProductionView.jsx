@@ -827,7 +827,7 @@ export default function ProductionView() {
       {data && mode === 'shop' && <ShopView jobs={data.jobs} onJobChange={(id, fn) => setData((d) => ({ ...d, jobs: d.jobs.map((j) => (j.id === id ? fn(j) : j)) }))} />}
       {mode === 'office' && (<>
       <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '13px' }}>
-        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists and deal links can be changed here; all other changes still go in the Google Sheets.
+        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists, deal links and a job's invoices can be changed here; all other changes still go in the Google Sheets.
       </p>
       {data?.linkError && <p style={{ color: '#b45309', fontSize: '13px' }}>Deal links could not be loaded, so jobs show without them. ({data.linkError})</p>}
       {data && (

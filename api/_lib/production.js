@@ -3,7 +3,7 @@ import { isReadOnlyPreview } from './readonly.js';
 import { isSheetsConfigured, listSharedSpreadsheets, listTabs, readAllRows, readColumnLinks, readTopRows, serviceAccountEmail } from './googleSheets.js';
 import { SHEETS, addLinkColumn, buildRecords,buildCommentRecords, summarize, writeRecords } from './productionSync.js';
 import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, matchOrdersToJobs, readRawRows, summarizeNormalized, writeHardwareParts, writeNormalized } from './productionNormalize.js';
-import { buildJobList, orphanOrders, readAll } from './productionJobs.js';
+import { INSTALL_STEPS, buildJobList, orphanOrders, readAll } from './productionJobs.js';
 import { DEAL_SYSTEM, candidateOptions, cleanDecision, dealIdsToName, resolveLinks, scheduleGroups } from './productionLinks.js';
 import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
 
@@ -326,9 +326,10 @@ export async function handleProduction(req, res, auth) {
         .select('source_row_id, job_ref, steps').eq('source_row_id', rowId).is('removed_at', null).maybeSingle();
       if (jobErr) throw new Error(jobErr.message);
       if (!job) return res.status(404).json({ error: 'Job not found' });
-      if (!Object.prototype.hasOwnProperty.call(job.steps ?? {}, step)) return res.status(400).json({ error: 'That step is not on this job' });
+      const onJob = Object.prototype.hasOwnProperty.call(job.steps ?? {}, step) || INSTALL_STEPS.includes(step);
+      if (!onJob) return res.status(400).json({ error: 'That step is not on this job' });
       const ticks = tbl('job_step_ticks');
-      if (body.done === (job.steps[step] === true)) {
+      if (body.done === (job.steps?.[step] === true)) {
         const { error: delErr } = await supabase.from(ticks).delete().eq('job_row_id', job.source_row_id).eq('step', step);
         if (delErr) throw new Error(delErr.message);
         return res.status(200).json({ tick: { step, done: body.done, by: null, at: null, cleared: true } });

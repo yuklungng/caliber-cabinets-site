@@ -9,7 +9,7 @@ import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToC
 // this screen can change a sheet, a deal, an invoice or any other record.
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
-// A "Parts" tab lists hardware orders across jobs, newest first, with a part search (read-only).
+// A "Hardware" tab (key 'parts') lists hardware orders across jobs, newest first, with a part search (read-only).
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
 const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
@@ -446,7 +446,7 @@ function JobCard({ job, open, onToggle, onParts, onLinked }) {
                   </div>
                 );
               })}
-              <div style={{ fontSize: '11px', color: '#9ca3af' }}>Parts are read from the sheet photos and may contain misread text.</div>
+              <div style={{ fontSize: '11px', color: '#9ca3af' }}>Items are read from the sheet photos and may contain misread text.</div>
             </div>
           )}
           {job.installs.map((e, i) => (
@@ -597,7 +597,7 @@ function PartsView({ jobs, orphans, onOpenJob }) {
             </div>
           ))}
           {orders.length > PARTS_SHOWN && <p style={{ color: '#6b7280', fontSize: '12px' }}>Showing the newest {PARTS_SHOWN} of {orders.length}. Use a shorter range or search for a part.</p>}
-          <div style={{ fontSize: '11px', color: '#9ca3af' }}>Parts are read from the sheet photos and may contain misread text. Edit them on the job card.</div>
+          <div style={{ fontSize: '11px', color: '#9ca3af' }}>Items are read from the sheet photos and may contain misread text. Edit them on the job card.</div>
         </div>
       )}
     </div>
@@ -723,7 +723,7 @@ export default function ProductionView() {
       {data?.linkError && <p style={{ color: '#b45309', fontSize: '13px' }}>Deal links could not be loaded, so jobs show without them. ({data.linkError})</p>}
       {data && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-          {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Parts']].map(([key, label]) => (
+          {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Hardware']].map(([key, label]) => (
             <button
               key={key}
               type="button"

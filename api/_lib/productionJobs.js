@@ -77,11 +77,19 @@ export function orphanOrders({ list, hardware, parts = [] }) {
 }
 
 /**
- * The sheet's step boxes with the Shop view's ticks laid over them. A tick row (dev_job_step_ticks) wins over the
- * sheet for its step; only steps the sheet has are touched. Returns the merged steps and who ticked each one here.
+ * Install steps the sheet has no boxes for (agreed with Mike 2026-11-20). They exist only as ticks made on the Shop
+ * view and start unticked on every job. Keep in step with INSTALL_STEPS in src/components/production/shopStages.js.
+ */
+export const INSTALL_STEPS = ['Delivered', 'Installed', 'Punch list done'];
+
+/**
+ * The sheet's step boxes with the Shop view's ticks laid over them, plus the INSTALL_STEPS. A tick row
+ * (dev_job_step_ticks) wins over the sheet for its step; only steps the sheet has, and the install steps, are touched.
+ * Returns the merged steps and who ticked each one here.
  */
 export function mergeStepTicks(sheetSteps, ticks = []) {
   const steps = { ...(sheetSteps ?? {}) };
+  for (const st of INSTALL_STEPS) if (!Object.prototype.hasOwnProperty.call(steps, st)) steps[st] = false;
   const tickedBy = {};
   for (const t of ticks) {
     if (!Object.prototype.hasOwnProperty.call(steps, t.step)) continue;
@@ -110,7 +118,8 @@ export function buildJobList({ jobs, installs, hardware, rowNumbers = new Map(),
   const hw = byRef(hardware);
   return jobs.map((j) => {
     const { steps, tickedBy } = mergeStepTicks(j.steps, ticksByRef.get(j.source_row_id));
-    const entries = Object.entries(steps);
+    // Progress counts the sheet's own boxes, so the install steps do not change "8 of 11" on older jobs.
+    const entries = Object.entries(steps).filter(([k]) => Object.prototype.hasOwnProperty.call(j.steps ?? {}, k));
     const events = [...(inst.get(j.job_ref) ?? [])].sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
     const orders = hw.get(j.job_ref) ?? [];
     return {

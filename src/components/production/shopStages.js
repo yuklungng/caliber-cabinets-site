@@ -1,19 +1,25 @@
 // Pure helpers for the Shop view: the sheet's step boxes grouped into the stations of the shop floor, in the order
 // a cabinet goes through them, and where each job is on that line. Read-only.
 //
-// The Production Status sheet has 11 step boxes. "Edge Band Ordered" is an ordering note that is left unticked on
-// almost every finished job, so it is shown but never holds a job back.
+// Stations and their order were agreed with Mike on 2026-11-20: Paperwork, Cut, Build, Finish, Assemble, Install.
+// The Production Status sheet has 11 step boxes. "Edge Band Ordered" is an ordering note, not a shop step: ordering
+// gets its own view, so it is left off the shop floor (the office Jobs view still shows it).
+// Install has no boxes on the sheet, so its three steps (INSTALL_STEPS) exist only as ticks made here; keep the list
+// in step with INSTALL_STEPS in api/_lib/productionJobs.js. The final 5% is collected after the punch list.
+
+export const INSTALL_STEPS = ['Delivered', 'Installed', 'Punch list done'];
+export const ORDERING_STEPS = ['Edge Band Ordered'];
 
 export const STATIONS = [
   { key: 'paperwork', label: 'Paperwork', short: 'Paperwork', steps: ['Paperwork In Shop'] },
-  { key: 'cut', label: 'Cut & edge band', short: 'Cut', steps: ['Body Cut', 'Edge Band Ordered', 'Edge banded'] },
-  { key: 'build', label: 'Build boxes & frames', short: 'Build', steps: ['Boxes Built', 'Frames Built'] },
-  { key: 'finish', label: 'Sand, prime & paint', short: 'Finish', steps: ['Doors and Drawers Sanded', 'Sealer / Primer', 'Final Coat'] },
-  { key: 'assemble', label: 'Hinge doors & hardware', short: 'Assemble', steps: ['Doors Hinged', 'Hardware Installed'] },
-  { key: 'out', label: 'Deliver & install', short: 'Install', steps: [] },
+  { key: 'cut', label: 'Cut', short: 'Cut', detail: 'Cut, PVC edge band, CNC for assembly holes', steps: ['Body Cut', 'Edge banded'] },
+  { key: 'build', label: 'Build', short: 'Build', detail: 'Assemble the boxes and drawer boxes', steps: ['Boxes Built', 'Frames Built'] },
+  { key: 'finish', label: 'Finish', short: 'Finish', detail: 'Sand and paint doors and drawer fronts', steps: ['Doors and Drawers Sanded', 'Sealer / Primer', 'Final Coat'] },
+  { key: 'assemble', label: 'Assemble', short: 'Assemble', detail: 'Hang doors and fronts, drill for handles, quality check, load', steps: ['Doors Hinged', 'Hardware Installed'] },
+  { key: 'out', label: 'Install', short: 'Install', detail: 'Delivery, install and punch list', steps: INSTALL_STEPS },
 ];
 
-const NOT_BLOCKING = new Set(['edge band ordered']);
+const NOT_BLOCKING = new Set();
 const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Days between two ISO dates (b - a). */
@@ -30,20 +36,19 @@ const daysBetween = (a, b) => {
 export function jobStations(job) {
   const steps = job?.steps ?? {};
   const byName = new Map(Object.entries(steps).map(([k, v]) => [norm(k), { name: k, done: v === true }]));
-  const used = new Set();
+  const used = new Set(ORDERING_STEPS.map(norm));
   const out = STATIONS.map((s) => {
     const list = s.steps
       .map((n) => { const hit = byName.get(norm(n)); if (hit) used.add(norm(n)); return hit ? { ...hit, blocking: !NOT_BLOCKING.has(norm(n)) } : null; })
       .filter(Boolean);
-    let done;
-    if (s.key === 'out') {
+    const blocking = list.filter((p) => p.blocking);
+    let done = blocking.length > 0 && blocking.every((p) => p.done);
+    if (s.key === 'out' && !done) {
+      // Jobs from before the Install ticks existed count as installed when the sheet marks every install completed.
       const installs = job?.installs ?? [];
       done = installs.length > 0 && installs.every((e) => e.completed);
-    } else {
-      const blocking = list.filter((p) => p.blocking);
-      done = blocking.length > 0 && blocking.every((p) => p.done);
     }
-    return { key: s.key, label: s.label, short: s.short, steps: list, done };
+    return { key: s.key, label: s.label, short: s.short, detail: s.detail ?? null, steps: list, done };
   });
   // The shop often leaves step boxes unticked, so a job whose installs are all marked completed is finished
   // whatever its boxes say.
@@ -51,7 +56,7 @@ export function jobStations(job) {
   const firstOpen = out.findIndex((s) => !s.done);
   const stations = out.map((s, i) => ({ ...s, state: s.done ? 'done' : i === firstOpen ? 'now' : 'todo' }));
   const other = [...byName.entries()].filter(([k]) => !used.has(k)).map(([, v]) => v);
-  return { stations: stations.map((s) => ({ key: s.key, label: s.label, short: s.short, steps: s.steps, state: s.state })), current: firstOpen === -1 ? null : out[firstOpen].key, other };
+  return { stations: stations.map((s) => ({ key: s.key, label: s.label, short: s.short, detail: s.detail, steps: s.steps, state: s.state })), current: firstOpen === -1 ? null : out[firstOpen].key, other };
 }
 
 /** Every real date on a job (schedule, paint, doors, hardware). */

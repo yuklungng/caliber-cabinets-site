@@ -19,12 +19,12 @@ export function todayIso(now = new Date()) {
 }
 
 /**
- * The seven days from `start` (a Monday), each with the deliveries and installs dated that day. A schedule row with
+ * The `count` days (default seven) from `start`, each with the deliveries and installs dated that day. A schedule row with
  * both dates gives one item on each day. Rows with only free text (no real date) cannot be placed and are left out.
  * Jobs are the entries from the jobs action: { id, name, jobRef, installs: [{ details, deliveryOn, installOn, confirmed, completed }] }.
  */
-export function weekDays(jobs, start) {
-  const days = Array.from({ length: 7 }, (_, i) => ({ date: addDays(start, i), items: [] }));
+export function weekDays(jobs, start, count = 7) {
+  const days = Array.from({ length: count }, (_, i) => ({ date: addDays(start, i), items: [] }));
   const byDate = new Map(days.map((d) => [d.date, d]));
   for (const j of jobs) {
     for (const e of j.installs ?? []) {

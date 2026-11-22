@@ -276,6 +276,7 @@ function JobDetail({ job, onBack, onStep }) {
                     {s.state === 'done' && <span style={{ color: GREEN, fontWeight: 600 }}> ✓</span>}
                     {s.state === 'now' && <span style={{ marginLeft: '8px', fontSize: '13px', padding: '2px 8px', borderRadius: '999px', background: AMBER, color: '#fff' }}>HERE NOW</span>}
                   </div>
+                  {s.detail && <div style={{ fontSize: '14px', color: '#78716c', marginTop: '2px' }}>{s.detail}</div>}
                   {s.steps.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
                       {s.steps.map(stepButton)}
@@ -331,7 +332,8 @@ export default function ShopView({ jobs, onJobChange }) {
 
   const active = useMemo(() => [...activeJobs(jobs, today)].reverse(), [jobs, today]);
   const counts = useMemo(() => stationCounts(active), [active]);
-  const week = useMemo(() => weekDays(jobs, today).filter((d) => d.items.length), [jobs, today]);
+  // Two weeks, not one: Mike wanted a delivery 9 days out to show (2026-11-20).
+  const week = useMemo(() => weekDays(jobs, today, 14).filter((d) => d.items.length), [jobs, today]);
   const found = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -390,8 +392,8 @@ export default function ShopView({ jobs, onJobChange }) {
           <ProductionLine counts={counts} selected={station} onSelect={setStation} />
           <p style={{ fontSize: '15px', color: '#57534e', margin: '8px 2px 0' }}>Tap a step to see the jobs at it. The number is how many jobs are there, going by the boxes ticked on the shop sheet.</p>
 
-          <h2 style={h2}>Going out this week</h2>
-          {week.length === 0 && <p style={{ fontSize: '17px', color: '#57534e' }}>Nothing scheduled in the next 7 days.</p>}
+          <h2 style={h2}>Going out in the next 2 weeks</h2>
+          {week.length === 0 && <p style={{ fontSize: '17px', color: '#57534e' }}>Nothing scheduled in the next 14 days.</p>}
           <div style={{ display: 'grid', gap: '10px' }}>
             {week.map((d) => {
               const isToday = d.date === today;

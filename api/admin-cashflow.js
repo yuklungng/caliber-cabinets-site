@@ -1097,9 +1097,10 @@ export default async function handler(req, res) {
   // drive the Action Items reminders and the cash forecast. They can still be overridden by editing a stage's Est. Date.
   // Stored on the rows that use them: delivery_date on the Production row; install_date and completion_date on the Final row.
   if (req.method === 'POST' && action === 'set-milestones') {
-    // These dates come from the shop's production and installation schedule, which Mike oversees, so only an admin may set them.
-    // Everyone with Financial access can still see them.
-    if (!auth.isSuperAdmin) return res.status(403).json({ error: 'Only an admin can set delivery and installation dates.' });
+    // These dates come from the shop's production and installation schedule, which Mike oversees. An admin or the
+    // bookkeeper (who keeps the Financial tab current) may set them; other staff see them read-only.
+    const canSetMilestones = auth.isSuperAdmin || auth.user?.role === 'bookkeeper';
+    if (!canSetMilestones) return res.status(403).json({ error: 'Only an admin or the bookkeeper can set delivery and installation dates.' });
     const { hubspot_deal_id, room } = req.body ?? {};
     if (!hubspot_deal_id) return res.status(400).json({ error: 'Missing hubspot_deal_id' });
     const changes = {};

@@ -3,6 +3,7 @@ import { guessColumns, parseCsv } from './csv.js';
 import { READERS, detectCatalog, readCaldoor } from './catalogReader.js';
 import { findDomains, guessVendor } from './vendorMatch.js';
 import { nonPartReason } from './reviewHints.js';
+import { FixedOverlay } from '../FixedOverlay.jsx';
 
 // Vendors tab of the Office view (db/production/009): each vendor's details, its catalogs and price lists, and its
 // parts with pictures. A catalog PDF is read here in the browser (catalogReader.js) and never uploaded: only a picture
@@ -356,6 +357,47 @@ function useDebounced(value, ms) {
   return v;
 }
 
+// A part's details in a window over the list (closes with Esc, the Close button or a click outside).
+function PartWindow({ children, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <FixedOverlay>
+      <div
+        role="dialog" aria-modal="true"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', overflowY: 'auto' }}
+      >
+        <div style={{ width: '100%', maxWidth: '720px', background: '#fff', borderRadius: '10px', boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
+          {children}
+        </div>
+      </div>
+    </FixedOverlay>
+  );
+}
+
+// Loads the next page of parts when this comes into view (the button is there too, in case).
+// It is keyed by the number of parts shown, so it fires once per page.
+function LoadMore({ onLoad, children }) {
+  const ref = useRef(null);
+  const latest = useRef(onLoad);
+  useEffect(() => { latest.current = onLoad; });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    let fired = false;
+    const io = new IntersectionObserver((entries) => {
+      if (!fired && entries.some((e) => e.isIntersecting)) { fired = true; latest.current(); }
+    }, { rootMargin: '600px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return <div ref={ref}>{children}</div>;
+}
+
 function PartsPanel({ vendorId, canSeePrices }) {
   const [q, setQ] = useState('');
   const [kind, setKind] = useState('');
@@ -367,14 +409,19 @@ function PartsPanel({ vendorId, canSeePrices }) {
   const dq = useDebounced(q, 250);
   const seq = useRef(0);
 
+  const loadingMore = useRef(null);
   const load = useCallback(async (offset = 0) => {
+    // The next page is asked for once, whether by scrolling or by the button.
+    if (offset && loadingMore.current === offset) return;
+    if (offset) loadingMore.current = offset;
     const n = ++seq.current;
     try {
       const d = await call('vendor-parts', { params: { vendorId, q: dq, kind, status, offset, limit: 60 } });
       if (n !== seq.current) return; // a newer search has started
-      setList((cur) => (offset ? { ...d, parts: [...(cur?.parts ?? []), ...d.parts] } : d));
+      setList((cur) => (offset ? { ...d, parts: [...(cur?.parts ?? []).filter((p) => !d.parts.some((x) => x.id === p.id)), ...d.parts] } : d));
       setErr('');
     } catch (e) { if (n === seq.current) setErr(e.message); }
+    finally { if (offset && loadingMore.current === offset) loadingMore.current = null; }
   }, [vendorId, dq, kind, status]);
   useEffect(() => { load(0); }, [load]);
 
@@ -399,7 +446,9 @@ function PartsPanel({ vendorId, canSeePrices }) {
       <Err text={err} />
       {!list ? <p style={muted}>Loading parts…</p> : (
         <>
-          <p style={{ ...muted, margin: 0, fontSize: '12px' }}>{list.total} part{list.total !== 1 ? 's' : ''}{dq ? ` matching "${dq}"` : ''}</p>
+          <p style={{ ...muted, margin: 0, fontSize: '12px' }}>
+            {list.total} part{list.total !== 1 ? 's' : ''}{dq ? ` matching "${dq}"` : ''}{list.parts.length < list.total ? ` · showing ${list.parts.length}, more load as you scroll` : ''}. Click a part to edit it{canSeePrices ? ' or add its price' : ''}.
+          </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
             {list.parts.map((p) => (
               <button key={p.id} type="button" onClick={() => setOpenId(openId === p.id ? null : p.id)} aria-expanded={openId === p.id}
@@ -413,8 +462,16 @@ function PartsPanel({ vendorId, canSeePrices }) {
               </button>
             ))}
           </div>
-          {openId && <PartDetail id={openId} canSeePrices={canSeePrices} onClose={() => setOpenId(null)} onChanged={(p) => (p.status !== status ? load(0) : replace(p))} />}
-          {list.parts.length < list.total && <div><button type="button" style={ctl} onClick={() => load(list.parts.length)}>Show more ({list.total - list.parts.length} left)</button></div>}
+          {openId && (
+            <PartWindow onClose={() => setOpenId(null)}>
+              <PartDetail id={openId} canSeePrices={canSeePrices} onClose={() => setOpenId(null)} onChanged={(p) => (p.status !== status ? load(0) : replace(p))} />
+            </PartWindow>
+          )}
+          {list.parts.length < list.total && (
+            <LoadMore key={list.parts.length} onLoad={() => load(list.parts.length)}>
+              <button type="button" style={ctl} onClick={() => load(list.parts.length)}>Show more ({list.total - list.parts.length} left)</button>
+            </LoadMore>
+          )}
         </>
       )}
     </div>

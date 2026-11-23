@@ -1,10 +1,10 @@
-import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
 import { FileDropZone } from '../components/FileDropZone.jsx';
 import { WinLossInsights } from '../components/WinLossInsights.jsx';
 import { VersionTag } from '../components/VersionTag.jsx';
+import { DarkModeContext, FixedOverlay } from '../components/FixedOverlay.jsx';
 import { uploadFiles } from '../lib/uploadFiles.js';
 import { FAQ_CATEGORIES, DEFAULT_FAQ_CATEGORY, sortFaqs } from '../lib/faqCategories.js';
 const ProductionView = lazy(() => import('../components/production/ProductionView.jsx'));
@@ -12,26 +12,6 @@ const ProductionView = lazy(() => import('../components/production/ProductionVie
 const supabasePublic = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
   : null;
-
-// ─── Dark mode ──────────────────────────────────────────────────────────────
-// Per-browser preference (see AdminPage). Dark mode is a CSS filter invert
-// applied to the main content — but `position: fixed` overlays (dropdowns,
-// modals, chart tooltips) can't live inside that filtered subtree: a `filter`
-// on an ancestor becomes the containing block for fixed descendants, which
-// breaks their viewport-relative positioning the moment the page is scrolled.
-// FixedOverlay portals them to <body> instead, in their own unfiltered-by-page
-// fixed layer, and applies the same invert directly so they still look dark.
-const DarkModeContext = createContext(false);
-
-function FixedOverlay({ children }) {
-  const darkMode = useContext(DarkModeContext);
-  return createPortal(
-    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, ...(darkMode ? { filter: 'invert(1) hue-rotate(180deg)' } : {}) }}>
-      <div style={{ pointerEvents: 'auto' }}>{children}</div>
-    </div>,
-    document.body,
-  );
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

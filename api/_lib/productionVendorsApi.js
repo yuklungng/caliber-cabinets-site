@@ -18,6 +18,7 @@ import {
   BUCKET, FILE_STATUSES, PART_KINDS, PART_STATUSES,
   cleanCatalogParts, cleanDate, cleanPart, cleanPrice, cleanUnit, cleanVendor, isId, matchPriceRows, partKey, storageName,
 } from './productionVendors.js';
+import { partPriceTables } from './productionPriceBooksApi.js';
 
 const LINK_SECONDS = 3600;
 const ACTIONS = new Set([
@@ -153,8 +154,16 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       if (!isId(req.query.vendorId)) return res.status(400).json({ error: 'vendorId is required' });
       const files = must(await supabase.from(t.files).select('*').eq('vendor_id', req.query.vendorId).is('removed_at', null).order('uploaded_at', { ascending: false }));
       const counts = await readAll(supabase, t.parts, 'file_id, status, reviewed_at', (q) => q.eq('vendor_id', req.query.vendorId).is('removed_at', null).not('file_id', 'is', null));
+      const books = files.filter((f) => f.kind === 'price_book');
+      const tableCounts = prices && books.length
+        ? await readAll(supabase, tbl('price_tables'), 'file_id, checked_at', (q) => q.in('file_id', books.map((b) => b.id)).is('removed_at', null))
+        : [];
       return res.status(200).json({
-        files: files.map((f) => ({
+        files: files.filter((f) => f.kind !== 'price_book' || prices).map((f) => ({
+          ...(f.kind === 'price_book' ? {
+            tables: tableCounts.filter((c) => c.file_id === f.id).length,
+            tablesUnchecked: tableCounts.filter((c) => c.file_id === f.id && !c.checked_at).length,
+          } : {}),
           ...shapeFile(f),
           parts: counts.filter((c) => c.file_id === f.id && c.status === 'active').length,
           review: counts.filter((c) => c.file_id === f.id && c.status === 'review').length,
@@ -271,7 +280,8 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       if (names.some((n) => !/\.jpe?g$/i.test(n))) return res.status(400).json({ error: 'Pictures must be JPEG' });
       if (folder === 'pages' && names.some((n) => !/^page-\d{3,4}\.jpg$/.test(n))) return res.status(400).json({ error: 'Page pictures are named page-NNN.jpg' });
       const f = must(await supabase.from(t.files).select('vendor_id, id, kind').eq('id', body.fileId).is('removed_at', null).maybeSingle());
-      if (!f || f.kind !== 'catalog') return res.status(404).json({ error: 'Catalog not found' });
+      if (!f || (f.kind !== 'catalog' && !(f.kind === 'price_book' && prices))) return res.status(404).json({ error: 'Catalog not found' });
+      if (f.kind === 'price_book' && folder !== 'pages') return res.status(400).json({ error: 'A price book keeps page pictures only' });
       const uploads = [];
       for (let i = 0; i < names.length; i += 10) {
         uploads.push(...await Promise.all(names.slice(i, i + 10).map(async (n) => {
@@ -290,7 +300,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       const page = Number(req.query.page);
       if (!Number.isInteger(page) || page < 1 || page > 5000) return res.status(400).json({ error: 'page is required' });
       const f = must(await supabase.from(t.files).select('vendor_id, id, kind').eq('id', req.query.fileId).maybeSingle());
-      if (!f || f.kind !== 'catalog') return res.status(404).json({ error: 'Catalog not found' });
+      if (!f || (f.kind !== 'catalog' && !(f.kind === 'price_book' && prices))) return res.status(404).json({ error: 'Catalog not found' });
       const path = `${f.vendor_id}/${f.id}/pages/page-${String(page).padStart(3, '0')}.jpg`;
       const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, LINK_SECONDS);
       if (error) return res.status(404).json({ error: 'No picture of that page' });
@@ -333,7 +343,8 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
           .eq('part_id', p.id).order('as_of', { ascending: false }).order('entered_at', { ascending: false }))
           .map((h) => ({ id: h.id, price: Number(h.price), unit: h.unit, asOf: h.as_of, source: h.source, fileId: h.file_id, enteredBy: h.entered_by, enteredAt: h.entered_at }));
       }
-      return res.status(200).json({ part: { ...shapePart(p, links, prices ? new Map(history.length ? [[p.id, history[0]]] : []) : null), ...(prices ? { priceHistory: history } : {}) } });
+      const priceTables = prices ? await partPriceTables(supabase, { files: t.files, tables: tbl('price_tables'), cells: tbl('price_cells'), adders: tbl('price_adders'), links: tbl('part_price_links') }, p) : undefined;
+      return res.status(200).json({ part: { ...shapePart(p, links, prices ? new Map(history.length ? [[p.id, history[0]]] : []) : null), ...(prices ? { priceHistory: history, priceTables } : {}) } });
     }
 
     // Add (vendorId) or change (id) a part by hand. POST { id? , vendorId?, kind, itemNumber, name, description, category, options, page }

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { guessColumns, parseCsv } from './csv.js';
 import { READERS, detectCatalog, readCaldoor } from './catalogReader.js';
+import { looksLikePriceBook } from './priceBookReader.js';
+import { PartPriceTables, PriceBookRead, PricesPanel } from './PriceBooksView.jsx';
 import { findDomains, guessVendor } from './vendorMatch.js';
 import { nonPartReason } from './reviewHints.js';
-import { FixedOverlay } from '../FixedOverlay.jsx';
+import { call, pool, uploadTo, ctl, primary, field, card, muted, money, fmtDay, fmtSize, todayIso, isPdf, isCsv, useDebounced } from './vendorLib.js';
+import { Labeled, Err, DropZone, PartWindow } from './vendorUi.jsx';
 
 // Vendors tab of the Office view (db/production/009): each vendor's details, its catalogs and price lists, and its
 // parts with pictures. A catalog PDF is read here in the browser (catalogReader.js) and never uploaded: only a picture
@@ -13,50 +16,6 @@ import { FixedOverlay } from '../FixedOverlay.jsx';
 // links that expire after an hour.
 // Prices are shown only to the admin and the bookkeeper (the server leaves them out for everyone else).
 // Nothing here orders anything or changes QuickBooks.
-
-const API = '/api/admin-settings?resource=production&action=';
-const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
-
-async function call(action, { params, body } = {}) {
-  const qs = params ? '&' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString() : '';
-  const r = await fetch(API + action + qs, body
-    ? { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-    : { headers: authHeaders() });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `Status ${r.status}`);
-  return data;
-}
-
-/** Runs fn over items, `size` at a time. */
-async function pool(items, size, fn) {
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
-    while (next < items.length) { const i = next++; await fn(items[i], i); }
-  }));
-}
-
-/** PUT a file or picture to a signed upload link, reporting progress (0-1). */
-function uploadTo(url, file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('x-upsert', 'false');
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(uploadError(xhr))));
-    xhr.onerror = () => reject(new Error('The connection dropped during the upload'));
-    const form = new FormData();
-    form.append('cacheControl', '3600');
-    form.append('', file);
-    xhr.send(form);
-  });
-}
-function uploadError(xhr) {
-  try {
-    const j = JSON.parse(xhr.responseText);
-    if (xhr.status === 413 || /maximum allowed size|too large/i.test(j.message ?? j.error ?? '')) return 'The file is larger than storage allows. The storage upload limit needs raising in Supabase.';
-    return j.message || j.error || `Upload failed (${xhr.status})`;
-  } catch { return `Upload failed (${xhr.status})`; }
-}
 
 const KINDS = [
   ['door_style', 'Door style'], ['drawer_front', 'Drawer front'], ['drawer_box', 'Drawer box'],
@@ -69,60 +28,6 @@ const FILE_STATUS = {
   reviewed: ['Done', '#dcfce7', '#166534'], failed: ['Failed', '#fee2e2', '#991b1b'],
 };
 
-const ctl = { padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer', minHeight: '34px' };
-const primary = { ...ctl, background: '#78350f', color: '#fff', borderColor: '#78350f' };
-const field = { padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', minHeight: '32px', width: '100%' };
-const card = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px 14px' };
-const muted = { color: '#6b7280', fontSize: '13px' };
-const money = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtDay = (iso) => (iso ? new Date(iso.length === 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
-const fmtSize = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(0)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
-const todayIso = () => new Date().toLocaleDateString('en-CA');
-
-function Labeled({ label, children, wide }) {
-  return (
-    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#6b7280', gridColumn: wide ? '1 / -1' : undefined }}>
-      {label}
-      {children}
-    </label>
-  );
-}
-
-function Err({ text }) {
-  return text ? <p role="alert" style={{ color: '#b91c1c', fontSize: '13px', margin: '6px 0' }}>{text}</p> : null;
-}
-
-const isPdf = (f) => /\.pdf$/i.test(f?.name ?? '') || f?.type === 'application/pdf';
-const isCsv = (f) => /\.(csv|txt)$/i.test(f?.name ?? '');
-
-// A box to drop a file on, or click to choose one. accept: the file picker's filter; hint: the line under the title.
-function DropZone({ title, hint, accept, onFile, disabled, file }) {
-  const [over, setOver] = useState(false);
-  const input = useRef(null);
-  const take = (f) => { if (f && !disabled) onFile(f); };
-  return (
-    <div
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      onClick={() => !disabled && input.current?.click()}
-      onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); input.current?.click(); } }}
-      onDragOver={(e) => { e.preventDefault(); if (!disabled) { e.dataTransfer.dropEffect = 'copy'; setOver(true); } }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files?.[0]); }}
-      style={{
-        border: `2px dashed ${over ? '#78350f' : '#d1d5db'}`, borderRadius: '8px', padding: '16px', textAlign: 'center',
-        background: over ? '#fef3c7' : '#f9fafb', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <div style={{ fontSize: '14px', fontWeight: 600, color: '#374151' }}>{file ? file.name : title}</div>
-      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{file ? `${fmtSize(file.size)} · drop another file or click to change` : hint}</div>
-      <input ref={input} type="file" accept={accept} style={{ display: 'none' }} disabled={disabled}
-        onChange={(e) => { take(e.target.files?.[0]); e.target.value = ''; }} />
-    </div>
-  );
-}
-
 // The drop zone at the top of the Vendors tab: works out whose catalog or price list it is, then reads or imports it
 // for that vendor, so nobody has to open the vendor first.
 function AddFile({ vendors, canSeePrices, onDone }) {
@@ -132,6 +37,7 @@ function AddFile({ vendors, canSeePrices, onDone }) {
   const [choice, setChoice] = useState(''); // vendor id, or 'new'
   const [newVendor, setNewVendor] = useState({ name: '', website: '' });
   const [ready, setReady] = useState(null); // { vendorId, kind, reader }
+  const [kind, setKind] = useState('catalog'); // for a PDF: 'catalog' | 'price_book'
   const [err, setErr] = useState('');
 
   async function take(f) {
@@ -144,6 +50,7 @@ function AddFile({ vendors, canSeePrices, onDone }) {
       if (isPdf(f)) {
         const d = await detectCatalog(f);
         clues = { domains: d.domains, text: d.text, fileName: f.name, reader: d.reader };
+        setKind(canSeePrices && looksLikePriceBook(f.name, d.text) ? 'price_book' : 'catalog');
       } else {
         const text = (await f.slice(0, 20000).text());
         clues = { domains: findDomains(text), text, fileName: f.name, reader: null };
@@ -164,7 +71,7 @@ function AddFile({ vendors, canSeePrices, onDone }) {
       let vendorId = choice;
       if (choice === 'new') vendorId = (await call('vendor-save', { body: newVendor })).vendor.id;
       if (!vendorId) { setErr('Pick the vendor first.'); return; }
-      setReady({ vendorId, kind: isPdf(file) ? 'catalog' : 'price_list', reader: guess?.reader ?? 'caldoor' });
+      setReady({ vendorId, kind: isPdf(file) ? kind : 'price_list', reader: guess?.reader ?? 'caldoor' });
     } catch (e) { setErr(e.message); }
   }
 
@@ -175,12 +82,14 @@ function AddFile({ vendors, canSeePrices, onDone }) {
     return (
       <div style={{ display: 'grid', gap: '6px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
-          <strong style={{ fontSize: '14px' }}>{ready.kind === 'catalog' ? 'Catalog' : 'Price list'} for {vendorName}</strong>
+          <strong style={{ fontSize: '14px' }}>{ready.kind === 'catalog' ? 'Catalog' : ready.kind === 'price_book' ? 'Price book' : 'Price list'} for {vendorName}</strong>
           <button type="button" style={ctl} onClick={reset}>Cancel</button>
         </div>
         {ready.kind === 'catalog'
           ? <CatalogRead vendorId={ready.vendorId} initialFile={file} initialReader={ready.reader} onDone={() => { reset(); onDone(ready.vendorId); }} />
-          : <PriceImport vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId); }} />}
+          : ready.kind === 'price_book'
+            ? <PriceBookRead vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId, 'prices'); }} />
+            : <PriceImport vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId); }} />}
       </div>
     );
   }
@@ -188,8 +97,8 @@ function AddFile({ vendors, canSeePrices, onDone }) {
   return (
     <div style={{ display: 'grid', gap: '8px' }}>
       <DropZone
-        title="Drop a catalog (PDF) or price list (CSV) here"
-        hint="or click to choose one. The vendor is worked out from the file; a catalog PDF stays on this computer."
+        title={canSeePrices ? 'Drop a catalog, price book (PDF) or price list (CSV) here' : 'Drop a catalog (PDF) here'}
+        hint="or click to choose one. The vendor is worked out from the file; a PDF stays on this computer."
         accept={canSeePrices ? '.pdf,application/pdf,.csv,text/csv,.txt' : '.pdf,application/pdf'}
         onFile={take} disabled={detecting} file={file}
       />
@@ -200,8 +109,15 @@ function AddFile({ vendors, canSeePrices, onDone }) {
             {guess?.vendorId ? <>Looks like <strong>{vendors.find((v) => v.id === guess.vendorId)?.name}</strong> ({guess.why}).</>
               : guess?.newVendor ? <>Looks like a new vendor, <strong>{guess.newVendor.name}</strong> ({guess.why}).</>
                 : 'Could not tell whose file this is. Pick the vendor:'}
-            {isPdf(file) && !guess?.reader && ' No reader knows this catalog layout yet, so it may find no parts.'}
+            {isPdf(file) && kind === 'catalog' && !guess?.reader && ' No reader knows this catalog layout yet, so it may find no parts.'}
           </span>
+          {isPdf(file) && canSeePrices && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', fontSize: '13px' }}>
+              <span>Read it as:</span>
+              <button type="button" aria-pressed={kind === 'catalog'} style={kind === 'catalog' ? primary : ctl} onClick={() => setKind('catalog')}>A catalog (parts and pictures)</button>
+              <button type="button" aria-pressed={kind === 'price_book'} style={kind === 'price_book' ? primary : ctl} onClick={() => setKind('price_book')}>A price book (price tables)</button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end' }}>
             <Labeled label="Vendor">
               <select style={{ ...field, appearance: 'auto', minWidth: '220px' }} value={choice} onChange={(e) => setChoice(e.target.value)}>
@@ -266,6 +182,7 @@ export default function VendorsView() {
   const [err, setErr] = useState('');
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState(null);
+  const [openTab, setOpenTab] = useState('parts');
   const load = useCallback(() => call('vendors').then(setData).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load]);
 
@@ -273,14 +190,14 @@ export default function VendorsView() {
   if (!data) return <p style={muted}>Loading vendors…</p>;
   const open = data.vendors.find((v) => v.id === openId);
   if (open) {
-    return <VendorPage vendor={open} canSeePrices={data.canSeePrices} onBack={() => { setOpenId(null); load(); }} onChanged={load} />;
+    return <VendorPage vendor={open} startTab={openTab} canSeePrices={data.canSeePrices} onBack={() => { setOpenId(null); setOpenTab('parts'); load(); }} onChanged={load} />;
   }
   return (
     <div style={{ display: 'grid', gap: '10px' }}>
       <p style={{ ...muted, margin: 0 }}>
         Vendors, their catalogs and price lists, and the parts in them. Drop a catalog or price list below and it goes to the right vendor. Parts read from it are in use straight away; check, correct or delete them as you come across them.
       </p>
-      <AddFile vendors={data.vendors} canSeePrices={data.canSeePrices} onDone={(id) => load().then(() => setOpenId(id))} />
+      <AddFile vendors={data.vendors} canSeePrices={data.canSeePrices} onDone={(id, tab) => load().then(() => { setOpenTab(tab ?? 'parts'); setOpenId(id); })} />
       {adding
         ? <VendorForm onSaved={(v) => { setAdding(false); load().then(() => setOpenId(v.id)); }} onCancel={() => setAdding(false)} />
         : <div><button type="button" style={primary} onClick={() => setAdding(true)}>Add vendor</button></div>}
@@ -308,8 +225,9 @@ export default function VendorsView() {
   );
 }
 
-function VendorPage({ vendor, canSeePrices, onBack, onChanged }) {
-  const [tab, setTab] = useState('parts');
+function VendorPage({ vendor, canSeePrices, onBack, onChanged, startTab = 'parts' }) {
+  const [tab, setTab] = useState(startTab);
+  const [pricesCount, setPricesCount] = useState(null);
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(vendor);
   const [reviewCount, setReviewCount] = useState(vendor.unchecked ?? 0);
@@ -332,12 +250,15 @@ function VendorPage({ vendor, canSeePrices, onBack, onChanged }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {[['parts', 'Parts'], ['review', `To check${reviewCount ? ` (${reviewCount})` : ''}`], ['files', 'Catalogs & price lists']].map(([key, label]) => (
+        {[['parts', 'Parts'], ['review', `To check${reviewCount ? ` (${reviewCount})` : ''}`],
+          ...(canSeePrices ? [['prices', `Price tables${pricesCount ? ` (${pricesCount} to check)` : ''}`]] : []),
+          ['files', 'Catalogs & price books']].map(([key, label]) => (
           <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)} style={tab === key ? primary : ctl}>{label}</button>
         ))}
       </div>
       {tab === 'parts' && <PartsPanel vendorId={v.id} canSeePrices={canSeePrices} />}
       {tab === 'review' && <ReviewPanel vendorId={v.id} onCount={setReviewCount} />}
+      {tab === 'prices' && canSeePrices && <PricesPanel vendorId={v.id} onCount={setPricesCount} />}
       {tab === 'files' && <FilesPanel vendorId={v.id} canSeePrices={canSeePrices} onImported={() => call('vendors').then((d) => setReviewCount(d.vendors.find((x) => x.id === v.id)?.unchecked ?? 0)).catch(() => {})} />}
     </div>
   );
@@ -349,34 +270,6 @@ function Picture({ part, size = 140 }) {
   return part.image
     ? <img src={part.image} alt={part.name} loading="lazy" style={{ width: '100%', height: size, objectFit: 'contain', background: '#f9fafb', borderRadius: '6px' }} />
     : <div style={{ height: size, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: '6px', color: '#9ca3af', fontSize: '12px' }}>No picture</div>;
-}
-
-function useDebounced(value, ms) {
-  const [v, setV] = useState(value);
-  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
-  return v;
-}
-
-// A part's details in a window over the list (closes with Esc, the Close button or a click outside).
-function PartWindow({ children, onClose }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <FixedOverlay>
-      <div
-        role="dialog" aria-modal="true"
-        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', overflowY: 'auto' }}
-      >
-        <div style={{ width: '100%', maxWidth: '720px', background: '#fff', borderRadius: '10px', boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
-          {children}
-        </div>
-      </div>
-    </FixedOverlay>
-  );
 }
 
 // Loads the next page of parts when this comes into view (the button is there too, in case).
@@ -613,6 +506,11 @@ function PartDetail({ id, canSeePrices, onClose, onChanged }) {
         </div>
       )}
       {canSeePrices && (
+        <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+          <PartPriceTables part={p} onChanged={load} />
+        </div>
+      )}
+      {canSeePrices && (
         <div style={{ display: 'grid', gap: '6px', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
           <strong style={{ fontSize: '13px' }}>Price</strong>
           {p.priceHistory?.length ? (
@@ -710,7 +608,7 @@ function ReviewPanel({ vendorId, onCount }) {
 function FilesPanel({ vendorId, canSeePrices, onImported }) {
   const [files, setFiles] = useState(null);
   const [err, setErr] = useState('');
-  const [mode, setMode] = useState(null); // 'catalog' | 'price_list'
+  const [mode, setMode] = useState(null); // 'catalog' | 'price_book' | 'price_list'
   const load = useCallback(() => call('vendor-files', { params: { vendorId } }).then((d) => { setFiles(d.files); setErr(''); }).catch((e) => setErr(e.message)), [vendorId]);
   useEffect(() => { load(); }, [load]);
 
@@ -724,9 +622,11 @@ function FilesPanel({ vendorId, canSeePrices, onImported }) {
     <div style={{ display: 'grid', gap: '10px' }}>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <button type="button" style={mode === 'catalog' ? primary : ctl} onClick={() => setMode(mode === 'catalog' ? null : 'catalog')}>Read a catalog (PDF)</button>
+        {canSeePrices && <button type="button" style={mode === 'price_book' ? primary : ctl} onClick={() => setMode(mode === 'price_book' ? null : 'price_book')}>Read a price book (PDF)</button>}
         {canSeePrices && <button type="button" style={mode === 'price_list' ? primary : ctl} onClick={() => setMode(mode === 'price_list' ? null : 'price_list')}>Import price list (CSV)</button>}
       </div>
       {mode === 'catalog' && <CatalogRead vendorId={vendorId} onDone={() => { setMode(null); load(); onImported?.(); }} />}
+      {mode === 'price_book' && <PriceBookRead vendorId={vendorId} onDone={() => { setMode(null); load(); onImported?.(); }} />}
       {mode === 'price_list' && <PriceImport vendorId={vendorId} onDone={() => { setMode(null); load(); onImported?.(); }} />}
       <Err text={err} />
       {!files ? <p style={muted}>Loading…</p> : files.length === 0 ? <p style={muted}>No catalogs or price lists yet.</p> : files.map((f) => {
@@ -740,10 +640,11 @@ function FilesPanel({ vendorId, canSeePrices, onImported }) {
               <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: bg, color: fg }}>{label}</span>
             </div>
             <span style={{ ...muted, fontSize: '12px' }}>
-              {f.kind === 'catalog' ? 'Catalog' : 'Price list'} · {f.fileName}{f.sizeBytes ? `, ${fmtSize(f.sizeBytes)}` : ''}{f.pages ? `, ${f.pages} pages` : ''} · {f.kind === 'catalog' ? 'read' : 'uploaded'} {fmtDay(f.uploadedAt)}{f.uploadedBy ? ` by ${f.uploadedBy}` : ''}
+              {f.kind === 'catalog' ? 'Catalog' : f.kind === 'price_book' ? `Price book${f.supersededBy ? ' (replaced by a newer edition)' : ''}` : 'Price list'} · {f.fileName}{f.sizeBytes ? `, ${fmtSize(f.sizeBytes)}` : ''}{f.pages ? `, ${f.pages} pages` : ''} · {f.kind === 'price_list' ? 'uploaded' : 'read'} {fmtDay(f.uploadedAt)}{f.uploadedBy ? ` by ${f.uploadedBy}` : ''}
             </span>
             {f.kind === 'catalog' && f.parts > 0 && <span style={{ ...muted, fontSize: '12px' }}>{f.parts} parts in use, {f.unchecked} not checked yet</span>}
-            {f.kind === 'catalog' && f.status === 'extracting' && <span style={{ ...muted, fontSize: '12px' }}>The upload stopped before it finished. Remove this and read the catalog again.</span>}
+            {f.kind === 'price_book' && f.tables > 0 && <span style={{ ...muted, fontSize: '12px' }}>{f.tables} price tables, {f.tablesUnchecked} not checked yet</span>}
+            {f.kind !== 'price_list' && f.status === 'extracting' && <span style={{ ...muted, fontSize: '12px' }}>The upload stopped before it finished. Remove this and read the catalog again.</span>}
             {f.notes && <span style={{ ...muted, fontSize: '12px' }}>{f.notes}</span>}
             {(kept || stuck) && (
               <div style={{ display: 'flex', gap: '8px' }}>

@@ -7,6 +7,7 @@ import { INSTALL_STEPS, applyAliases, buildJobList, orphanOrders, readAll } from
 import { DEAL_SYSTEM, candidateOptions, cleanDecision, cleanInvoiceEdit, dealIdsToName, invoiceAliases, resolveInvoices, resolveLinks, scheduleGroups } from './productionLinks.js';
 import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
 import { handleVendors, isVendorAction } from './productionVendorsApi.js';
+import { handlePriceBooks, isPriceBookAction } from './productionPriceBooksApi.js';
 
 const SCHEDULE_COLS = 'hubspot_deal_id, room, stage, label, qb_invoice_number, invoice_date, paid_date, qb_paid_amount';
 
@@ -45,6 +46,10 @@ const TABLES = [
   'vendor_files',
   'vendor_parts',
   'vendor_prices',
+  'price_tables',
+  'price_cells',
+  'price_adders',
+  'part_price_links',
 ];
 
 export const isProductionModuleEnabled = () => process.env.PRODUCTION_MODULE_ENABLED === '1';
@@ -74,6 +79,7 @@ export async function handleProduction(req, res, auth) {
 
   // Vendors, catalogs, parts and prices (db/production/009): productionVendorsApi.js.
   if (isVendorAction(req.query?.action)) return handleVendors(req, res, auth, { tbl, tableMode });
+  if (isPriceBookAction(req.query?.action)) return handlePriceBooks(req, res, auth, { tbl, tableMode });
 
   if (req.method === 'GET' && req.query?.action === 'status') {
     return res.status(200).json({

@@ -78,13 +78,14 @@ check('deal ids to name are unique', () => {
   assert.deepEqual(dealIdsToName(m), ['222']);
 });
 
-check('picker lists each room group, newest deal first, deals with no schedule once', () => {
+check('picker lists each deal once, newest first, with its rooms and invoices', () => {
   const opts = candidateOptions([
     { hubspot_deal_id: '111', name: 'Old', closed_at: '2026-01-01' },
     { hubspot_deal_id: '222', name: 'New', closed_at: '2026-06-01' },
     { hubspot_deal_id: '333', name: 'Bare', closed_at: '2026-03-01' },
   ], scheduleGroups(schedule));
-  assert.deepEqual(opts.map((o) => `${o.name}|${o.room ?? ''}`), ['New|Kitchen', 'New|Laundry', 'Bare|', 'Old|']);
+  assert.deepEqual(opts.map((o) => `${o.name}|${o.room ?? ''}`), ['New|', 'Bare|', 'Old|']);
+  assert.deepEqual(opts[0].invoiceNumbers, ['7002', '7003']);
 });
 
 check('decision input is validated', () => {

@@ -6,6 +6,7 @@ import { MANUAL_LINE_BASE, NORMALIZERS, cleanPartInput, hardwarePartRows, matchO
 import { INSTALL_STEPS, applyAliases, buildJobList, orphanOrders, readAll } from './productionJobs.js';
 import { DEAL_SYSTEM, candidateOptions, cleanDecision, cleanInvoiceEdit, dealIdsToName, invoiceAliases, resolveInvoices, resolveLinks, scheduleGroups } from './productionLinks.js';
 import { batchGetDealNames, getAllPipelineDeals } from './hubspot.js';
+import { handleVendors, isVendorAction } from './productionVendorsApi.js';
 
 const SCHEDULE_COLS = 'hubspot_deal_id, room, stage, label, qb_invoice_number, invoice_date, paid_date, qb_paid_amount';
 
@@ -40,6 +41,10 @@ const TABLES = [
   'job_links',
   'job_step_ticks',
   'job_invoices',
+  'vendors',
+  'vendor_files',
+  'vendor_parts',
+  'vendor_prices',
 ];
 
 export const isProductionModuleEnabled = () => process.env.PRODUCTION_MODULE_ENABLED === '1';
@@ -66,6 +71,9 @@ export function publicFlags() {
 export async function handleProduction(req, res, auth) {
   if (!isProductionModuleEnabled()) return res.status(404).json({ error: 'Not found' });
   if (!auth?.isSuperAdmin) return res.status(403).json({ error: 'Super admin required' });
+
+  // Vendors, catalogs, parts and prices (db/production/009): productionVendorsApi.js.
+  if (isVendorAction(req.query?.action)) return handleVendors(req, res, auth, { tbl, tableMode });
 
   if (req.method === 'GET' && req.query?.action === 'status') {
     return res.status(200).json({

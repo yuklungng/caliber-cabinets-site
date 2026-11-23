@@ -15,6 +15,7 @@
  *   - every GET/HEAD/OPTIONS
  *   - Supabase writes to dev_* tables (the production module's own tables) and
  *     to admin_sessions (so signing in and out still works)
+ *   - Supabase Storage object writes and signed links in dev-* buckets (the module's vendor catalogs)
  *   - HubSpot POSTs that are reads (search, batch/read)
  *   - QuickBooks POSTs to /query
  *   - Google: the service-account token exchange (oauth2.googleapis.com/token)
@@ -36,6 +37,8 @@ export function isReadOnlyPreview() {
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const ALLOWED_SUPABASE_TABLES = /^\/rest\/v1\/(dev_[a-z0-9_]+|admin_sessions)(\?|\/|$)/;
+// Storage: uploads, signed links and removals in the module's own dev-* buckets only (never bucket create or delete).
+const ALLOWED_STORAGE_BUCKETS = /^\/storage\/v1\/object\/((upload\/)?sign\/)?dev-[a-z0-9-]+(\/|$)/;
 
 const INTUIT_HOSTS = new Set([
   'oauth.platform.intuit.com',
@@ -89,6 +92,7 @@ export function blockedReason(url, method) {
 
   if (supabaseHost && u.host === supabaseHost) {
     if (u.pathname.startsWith('/rest/v1/') && ALLOWED_SUPABASE_TABLES.test(u.pathname + u.search)) return null;
+    if (ALLOWED_STORAGE_BUCKETS.test(u.pathname)) return null;
     return `Supabase ${verb} ${u.pathname}`;
   }
   if (u.host === 'api.hubapi.com') {

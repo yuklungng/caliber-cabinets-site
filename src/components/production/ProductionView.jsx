@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, jobTouchesYear, mondayOf, todayIso, weekDays } from './weekSchedule.js';
 import ShopView from './ShopView.jsx';
+import VendorsView from './VendorsView.jsx';
 import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToCheck, searchParts } from './partsIndex.js';
 
 // Job list for the Production module. Data comes from the tidy tables the sheet sync fills
@@ -11,6 +12,7 @@ import { UNUSUAL_QTY, daysBefore, flattenOrders, isReceived, ordersSince, qtyToC
 // It only renders when the server reports PRODUCTION_MODULE_ENABLED and the user is a super admin.
 // A "This week" tab lists the week's deliveries and installs by day (read-only, from the schedule dates).
 // A "Hardware" tab (key 'parts') lists hardware orders across jobs, newest first, with a part search (read-only).
+// A "Vendors" tab (VendorsView.jsx) keeps vendors, their catalogs and price lists, and their parts with pictures.
 // The toolbar (search with suggestions, sort button, Reset, "(filtered)" count) follows Leads and Financial.
 
 const authHeaders = () => ({ Authorization: `Bearer ${sessionStorage.getItem('admin_token') ?? ''}` });
@@ -721,7 +723,7 @@ export default function ProductionView() {
   const [section, setSection] = useState('all');
   const [sortKey, setSortKey] = useState('newest');
   const [openId, setOpenId] = useState(null);
-  const [view, setView] = useState('jobs'); // 'jobs' | 'week' | 'parts'
+  const [view, setView] = useState('jobs'); // 'jobs' | 'week' | 'parts' | 'vendors'
   // 'shop' (simple, large print, the default) or 'office' (every tool). Remembered per browser.
   const [mode, setModeState] = useState(() => { try { return localStorage.getItem('production_mode') === 'office' ? 'office' : 'shop'; } catch { return 'shop'; } });
   const setMode = (m) => { setModeState(m); try { localStorage.setItem('production_mode', m); } catch { /* private window */ } };
@@ -827,12 +829,12 @@ export default function ProductionView() {
       {data && mode === 'shop' && <ShopView jobs={data.jobs} onJobChange={(id, fn) => setData((d) => ({ ...d, jobs: d.jobs.map((j) => (j.id === id ? fn(j) : j)) }))} />}
       {mode === 'office' && (<>
       <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '13px' }}>
-        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists, deal links and a job's invoices can be changed here; all other changes still go in the Google Sheets.
+        A copy of the production sheets{data ? ` (${data.mode} tables)` : ''}. Only hardware part lists, deal links, a job's invoices and the Vendors tab can be changed here; all other changes still go in the Google Sheets.
       </p>
       {data?.linkError && <p style={{ color: '#b45309', fontSize: '13px' }}>Deal links could not be loaded, so jobs show without them. ({data.linkError})</p>}
       {data && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-          {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Hardware']].map(([key, label]) => (
+          {[['jobs', 'Jobs'], ['week', 'This week'], ['parts', 'Hardware'], ['vendors', 'Vendors']].map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -846,6 +848,7 @@ export default function ProductionView() {
         </div>
       )}
       {data && view === 'week' && <WeekView jobs={data.jobs} onOpenJob={openJob} />}
+      {data && view === 'vendors' && <VendorsView />}
       {data && view === 'parts' && <PartsView jobs={data.jobs} orphans={data.orphanOrders ?? []} onOpenJob={openJob} />}
       {data && view === 'jobs' && (
         <>

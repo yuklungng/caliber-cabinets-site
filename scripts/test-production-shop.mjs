@@ -64,7 +64,8 @@ check('a tick made on the Shop view wins over the sheet box, and only for steps 
     { step: 'Final Coat', done: false, ticked_by: 'B', ticked_at: '2026-11-17T11:00:00Z' },
     { step: 'Made Up', done: true, ticked_by: 'C', ticked_at: '2026-11-17T12:00:00Z' },
   ]);
-  assert.deepEqual(r.steps, { 'Body Cut': true, 'Final Coat': false });
+  // The install steps are always there, unticked until ticked on the Shop view.
+  assert.deepEqual(r.steps, { 'Body Cut': true, 'Final Coat': false, Delivered: false, Installed: false, 'Punch list done': false });
   assert.equal(r.tickedBy['Body Cut'].by, 'A');
   assert.equal(r.tickedBy['Made Up'], undefined);
 });

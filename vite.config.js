@@ -17,8 +17,30 @@ function buildCommit() {
   }
 }
 
+// pdf.js decodes some catalog pictures (JPEG 2000, JBIG2) and colour profiles with WebAssembly files it fetches by
+// name from one folder (catalogReader.js passes wasmUrl: '/pdfjs/'). Served from node_modules in dev and copied into
+// the build, so the files are not kept in the repo.
+const PDFJS_WASM = ['openjpeg.wasm', 'jbig2.wasm', 'qcms_bg.wasm'];
+const pdfjsWasmDir = new URL('./node_modules/pdfjs-dist/wasm/', import.meta.url);
+function pdfjsWasm() {
+  return {
+    name: 'pdfjs-wasm',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const name = req.url?.match(/^\/pdfjs\/([\w.-]+\.wasm)(\?|$)/)?.[1];
+        if (!name || !PDFJS_WASM.includes(name)) return next();
+        res.setHeader('Content-Type', 'application/wasm');
+        res.end(readFileSync(new URL(name, pdfjsWasmDir)));
+      });
+    },
+    generateBundle() {
+      for (const name of PDFJS_WASM) this.emitFile({ type: 'asset', fileName: `pdfjs/${name}`, source: readFileSync(new URL(name, pdfjsWasmDir)) });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pdfjsWasm()],
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(buildCommit()),

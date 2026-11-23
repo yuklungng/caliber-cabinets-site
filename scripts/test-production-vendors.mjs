@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { cleanCatalogParts, cleanItemNumber, cleanPart, cleanPrice, cleanVendor, matchPriceRows, partKey, storageName } from '../api/_lib/productionVendors.js';
 import { canSeePrices, isVendorAction } from '../api/_lib/productionVendorsApi.js';
 import { nonPartReason } from '../src/components/production/reviewHints.js';
+import { caldoorPageParts, joinTiles, nameParts } from '../src/components/production/catalogReader.js';
 import { findDomains, guessReader, guessVendor, hostOf, nameKey } from '../src/components/production/vendorMatch.js';
 
 let failed = 0;
@@ -116,8 +117,68 @@ check('vendor guess: web address, layout, earlier catalog, name, or a new vendor
 });
 
 check('review: likely non-parts start unticked, real part names do not', () => {
+  assert.equal(nonPartReason('Kitchen with Corner Drawers'), 'a room photo, not a part');
+  assert.equal(nonPartReason('Circle Scoop (4”x2”) Black Melamine Bottom'), null);
   for (const n of ['3/4", 1/2"', '3/4”, 3/8”', 'Scalloped with', 'San Simeon RTF, (Large C-Panel) in Mission White (discontinued']) assert.ok(nonPartReason(n), n);
   for (const n of ['MP-36', 'DB-2', 'CNS #21 with MUL-1', 'Echo Wood Rift White Oak, 3 piece with 1/8"x1/8" Square-groove', 'Giovanna-280 Glass Door', 'Shaker RTF (4 Lites)']) assert.equal(nonPartReason(n), null, n);
+});
+
+const box = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
+const txt = (text, x0, x1, top, size = 10) => ({ text, x0, x1, top, size });
+const names = (parts) => parts.map((p) => p.name);
+
+check('reader: a caption wider than its picture keeps every word', () => {
+  const r = caldoorPageParts([box(241, 636, 363, 759)], [txt('Echo Wood Monterey White Oak', 226, 371, 760)], 612, 792);
+  assert.deepEqual(r.map((p) => p.lines), [['Echo Wood Monterey White Oak']]);
+});
+
+check('reader: a caption centred under two pictures belongs to both, as one part', () => {
+  const r = caldoorPageParts([box(53, 99, 285, 300), box(327, 92, 560, 307)], [txt('Scalloped with Single Lateral Bin', 233, 378, 334)], 612, 792);
+  assert.equal(r.length, 1);
+  assert.deepEqual(r[0].rect, box(53, 92, 560, 307));
+});
+
+check('reader: small labels inside a drawing are not captions', () => {
+  const r = caldoorPageParts([box(100, 100, 200, 200)], [txt('3/4"', 120, 135, 205, 6.6), txt('1/2"', 150, 165, 205, 6.6)], 612, 792);
+  assert.equal(r.length, 0);
+});
+
+check('reader: one run holding two captions is split between its pictures', () => {
+  const r = caldoorPageParts([box(50, 50, 150, 150), box(170, 50, 270, 150)], [txt('Nevada Durango', 60, 300, 155)], 612, 792);
+  assert.deepEqual(r.map((p) => p.lines[0]).sort(), ['Durango', 'Nevada']);
+});
+
+check('reader: a door drawn as equal tiles is one picture; different-size neighbours stay apart', () => {
+  const tiles = [box(416, 68, 493, 145), box(493, 68, 571, 145), box(416, 145, 493, 222), box(493, 145, 571, 222)];
+  assert.deepEqual(joinTiles(tiles, 612, 792), [box(416, 68, 571, 222)]);
+  assert.equal(joinTiles([box(0, 0, 100, 100), box(100, 0, 160, 140)], 612, 792).length, 2);
+  assert.equal(joinTiles([box(0, 0, 612, 792), box(10, 10, 90, 90), box(90, 10, 170, 90)], 612, 792).length, 2);
+});
+
+check('names: wrapped names join, notes and finishes do not', () => {
+  const f = (lines, page = 1, kind = 'door_style') => ({ lines, page, kind, rect: box(0, 0, 1, 1) });
+  const out = nameParts([
+    f(['Echo Wood Qtr Gun', 'Metal Ebony']),
+    f(['Tulalip Liberty Glass', 'Natural Maple']),
+    f(['Natural Maple', 'Group 2'], 2, 'other'),
+    f(['High Gloss', 'Stone Grey'], 3, 'other'),
+    f(['CNS #1 with AM-17', 'on rails only']),
+    f(['Paper Towel Drawer Box', '( Front & Top View)']),
+    f(['Knotty Pine', 'Scoop Option: 6 1/2” x 1 1/2”']),
+    f(['Hair Dryer Box', 'Top View'], 4), f(['Hair Dryer Box'], 4),
+  ]);
+  assert.deepEqual(names(out), ['Echo Wood Qtr Gun Metal Ebony', 'Tulalip Liberty Glass', 'CNS #1 with AM-17', 'Paper Towel Drawer Box', 'Knotty Pine', 'Natural Maple', 'High Gloss Stone Grey', 'Hair Dryer Box']);
+});
+
+check('names: same name, different doors kept by page; same door in several foils is one part', () => {
+  const f = (lines, page) => ({ lines, page, kind: 'door_style', rect: box(page, 0, page + 1, 1) });
+  const out = nameParts([
+    f(['Sierra French Lite'], 36), f(['Sierra French Lite'], 37),
+    f(['San Marino RTF Glass', 'Shown in Stromboli'], 61), f(['San Marino RTF Glass', 'Shown in Merapi (discontinued foil)'], 62),
+    f(['Delaware RTF', '(S-Panel)'], 59), f(['Delaware RTF', '(C-Panel)'], 59),
+  ]);
+  assert.deepEqual(names(out), ['Sierra French Lite (p. 36)', 'Sierra French Lite (p. 37)', 'Delaware RTF (S-Panel)', 'Delaware RTF (C-Panel)', 'San Marino RTF Glass']);
+  assert.match(out.find((p) => p.name === 'San Marino RTF Glass').options, /Also shown in Merapi \(p\. 62\)/);
 });
 
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log('ALL PASSED');

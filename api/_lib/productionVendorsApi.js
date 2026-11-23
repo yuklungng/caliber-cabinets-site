@@ -7,6 +7,10 @@
  * part and a picture per catalog page, then the parts. Price lists (small CSV files) are kept as uploaded.
  * Pictures and files are shown only through signed links that expire (they are the vendors' copyright).
  *
+ * Parts go into use as soon as they are read: Mike and the team check, correct or delete them as they use them.
+ * A part nobody has checked yet has reviewed_at null; "checked" sets reviewed_by and reviewed_at. "Deleted" is
+ * status 'rejected' (kept, hidden, and not added again when the catalog is read again).
+ *
  * Prices are shown and edited only by the admin (Mike) and the bookkeeper.
  */
 import { readAll } from './productionJobs.js';
@@ -97,7 +101,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       const [vendors, files, parts] = await Promise.all([
         readAll(supabase, t.vendors, '*', (q) => q.is('removed_at', null).order('name')),
         readAll(supabase, t.files, 'id, vendor_id, kind, title, edition, status, reader, uploaded_at', (q) => q.is('removed_at', null)),
-        readAll(supabase, t.parts, 'vendor_id, status', (q) => q.is('removed_at', null)),
+        readAll(supabase, t.parts, 'vendor_id, status, reviewed_at', (q) => q.is('removed_at', null)),
       ]);
       return res.status(200).json({
         canSeePrices: prices,
@@ -110,6 +114,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
             ...shapeVendor(v),
             parts: vp.filter((p) => p.status === 'active').length,
             review: vp.filter((p) => p.status === 'review').length,
+            unchecked: vp.filter((p) => p.status === 'active' && !p.reviewed_at).length,
             latestCatalog: catalog ? { title: catalog.title, edition: catalog.edition, status: catalog.status } : null,
             latestPriceList: priceList ? { title: priceList.title, uploadedAt: priceList.uploaded_at } : null,
             // Catalog layouts read for this vendor before, so a dropped catalog can be matched to it.
@@ -147,12 +152,13 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
     if (action === 'vendor-files' && req.method === 'GET') {
       if (!isId(req.query.vendorId)) return res.status(400).json({ error: 'vendorId is required' });
       const files = must(await supabase.from(t.files).select('*').eq('vendor_id', req.query.vendorId).is('removed_at', null).order('uploaded_at', { ascending: false }));
-      const counts = await readAll(supabase, t.parts, 'file_id, status', (q) => q.eq('vendor_id', req.query.vendorId).is('removed_at', null).not('file_id', 'is', null));
+      const counts = await readAll(supabase, t.parts, 'file_id, status, reviewed_at', (q) => q.eq('vendor_id', req.query.vendorId).is('removed_at', null).not('file_id', 'is', null));
       return res.status(200).json({
         files: files.map((f) => ({
           ...shapeFile(f),
           parts: counts.filter((c) => c.file_id === f.id && c.status === 'active').length,
           review: counts.filter((c) => c.file_id === f.id && c.status === 'review').length,
+          unchecked: counts.filter((c) => c.file_id === f.id && c.status === 'active' && !c.reviewed_at).length,
         })),
       });
     }
@@ -240,8 +246,8 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       if (body.removed === true) patch.removed_at = now;
       const row = must(await supabase.from(t.files).update(patch).eq('id', body.id).is('removed_at', null).select('*').maybeSingle());
       if (!row) return res.status(404).json({ error: 'File not found' });
-      // Removing a catalog takes off the parts from it that nobody has approved yet; approved parts stay.
-      if (body.removed === true) must(await supabase.from(t.parts).update({ removed_at: now }).eq('file_id', row.id).eq('status', 'review').is('removed_at', null));
+      // Removing a catalog takes off the parts from it that nobody has checked yet; checked parts stay.
+      if (body.removed === true) must(await supabase.from(t.parts).update({ removed_at: now }).eq('file_id', row.id).in('status', ['review', 'active']).is('reviewed_at', null).is('removed_at', null));
       return res.status(200).json({ file: shapeFile(row) });
     }
 
@@ -302,10 +308,12 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       const status = String(req.query.status ?? 'active');
       if (status !== 'all') { if (!PART_STATUSES.includes(status)) return res.status(400).json({ error: 'Unknown status' }); q = q.eq('status', status); }
       if (req.query.kind) { if (!PART_KINDS.includes(req.query.kind)) return res.status(400).json({ error: 'Unknown kind' }); q = q.eq('kind', req.query.kind); }
+      // checked=no: only parts nobody has checked yet.
+      if (req.query.checked === 'no') q = q.is('reviewed_at', null);
       const term = searchTerm(req.query.q);
       if (term) q = q.or(`name.ilike.*${term}*,item_number.ilike.*${term}*,description.ilike.*${term}*`);
       // Review lists keep catalog order (page by page); others sort by name.
-      q = status === 'review' ? q.order('page', { ascending: true, nullsFirst: false }).order('created_at') : q.order('name');
+      q = status === 'review' || req.query.checked === 'no' ? q.order('page', { ascending: true, nullsFirst: false }).order('created_at') : q.order('name');
       const { data, error, count } = await q.range(offset, offset + limit - 1);
       if (error) throw new Error(error.message);
       const links = await signPaths(supabase, data.map((p) => p.image_path));
@@ -345,24 +353,25 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
       return res.status(200).json({ part: shapePart(data, new Map()) });
     }
 
-    // The review queue: POST { ids: [...], decision: 'approve' | 'reject' } (max 200). Only parts in review change.
+    // Checking parts: POST { ids: [...], decision: 'check' | 'reject' } (max 200; 'approve' is the same as 'check').
+    // check: the part is right (it stays in use, marked checked). reject: delete it (kept hidden, see above).
     if (action === 'vendor-parts-review' && isPost) {
       const ids = Array.isArray(body.ids) ? body.ids.filter(isId) : [];
       if (!ids.length || ids.length > 200) return res.status(400).json({ error: 'ids: 1 to 200 part ids' });
-      if (!['approve', 'reject'].includes(body.decision)) return res.status(400).json({ error: 'decision must be approve or reject' });
-      const rows = must(await supabase.from(t.parts).update({ status: body.decision === 'approve' ? 'active' : 'rejected', reviewed_by: who, reviewed_at: now })
-        .in('id', ids).eq('status', 'review').is('removed_at', null).select('id'));
+      if (!['approve', 'check', 'reject'].includes(body.decision)) return res.status(400).json({ error: 'decision must be check or reject' });
+      const rows = must(await supabase.from(t.parts).update({ status: body.decision === 'reject' ? 'rejected' : 'active', reviewed_by: who, reviewed_at: now })
+        .in('id', ids).in('status', ['review', 'active']).is('removed_at', null).select('id'));
       return res.status(200).json({ changed: rows.map((r) => r.id) });
     }
 
-    // Retire a part or bring it back: POST { id, status: 'retired' | 'active' }
+    // Retire, delete or bring back a part: POST { id, status: 'retired' | 'rejected' | 'active' }
     if (action === 'vendor-part-status' && isPost) {
       if (!isId(body.id)) return res.status(400).json({ error: 'id is required' });
-      if (!['retired', 'active'].includes(body.status)) return res.status(400).json({ error: 'status must be retired or active' });
+      if (!['retired', 'rejected', 'active'].includes(body.status)) return res.status(400).json({ error: 'status must be retired, rejected or active' });
       const { data, error } = await supabase.from(t.parts).update({ status: body.status, edited_by: who, edited_at: now })
-        .eq('id', body.id).is('removed_at', null).in('status', ['active', 'retired']).select('*').maybeSingle();
+        .eq('id', body.id).is('removed_at', null).in('status', ['active', 'retired', 'rejected', 'review']).select('*').maybeSingle();
       if (error) return res.status(/duplicate key/i.test(error.message) ? 409 : 502).json({ error: /duplicate key/i.test(error.message) ? 'Another live part has the same item number or name' : error.message });
-      if (!data) return res.status(404).json({ error: 'Part not found (or still in review)' });
+      if (!data) return res.status(404).json({ error: 'Part not found' });
       return res.status(200).json({ part: shapePart(data, await signPaths(supabase, [data.image_path])) });
     }
 
@@ -390,7 +399,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
     }
 
     // Parts read from a catalog by the extraction script. POST { fileId, parts: [...] } (max 200 per call).
-    // New parts go to review. A part already listed for this vendor (same item number or name) gets the new page,
+    // New parts go straight into use, not checked yet. A part already listed for this vendor (same item number or name) gets the new page,
     // picture and catalog but keeps its status; a rejected one stays rejected.
     if (action === 'vendor-catalog-parts' && isPost) {
       if (!isId(body.fileId)) return res.status(400).json({ error: 'fileId is required' });
@@ -415,7 +424,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
         } else if (rejected.has(key)) {
           out.skippedRejected++;
         } else {
-          inserts.push({ ...p, vendor_id: f.vendor_id, file_id: f.id, status: 'review', source: 'catalog', created_by: who });
+          inserts.push({ ...p, vendor_id: f.vendor_id, file_id: f.id, status: 'active', source: 'catalog', created_by: who });
         }
       }
       if (inserts.length) must(await supabase.from(t.parts).insert(inserts));
@@ -443,7 +452,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
     // A price list, already read in the browser and mapped to columns.
     //   POST { vendorId, fileId?, asOf, rows: [{ itemNumber, name, description, price, unit }], commit }  (max 5000 rows)
     // Without commit: counts only. With commit: new prices for matched parts (only where the price changed), and new
-    // parts (in review, source price_list) with their first price.
+    // parts (in use, not checked yet, source price_list) with their first price.
     if (action === 'vendor-price-import' && isPost) {
       if (!isId(body.vendorId)) return res.status(400).json({ error: 'vendorId is required' });
       if (body.fileId != null && !isId(body.fileId)) return res.status(400).json({ error: 'fileId is invalid' });
@@ -466,7 +475,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
         const chunk = m.added.slice(i, i + 500);
         const made = must(await supabase.from(t.parts).insert(chunk.map((a) => ({
           vendor_id: body.vendorId, kind: 'other', item_number: a.item_number, name: a.name, description: a.description,
-          file_id: body.fileId ?? null, status: 'review', source: 'price_list', created_by: who,
+          file_id: body.fileId ?? null, status: 'active', source: 'price_list', created_by: who,
         }))).select('id, item_number, name'));
         const byKey = new Map(made.map((p) => [partKey(p), p.id]));
         const pr = chunk.map((a) => priceRow(byKey.get(partKey(a)), a)).filter((r) => r.part_id);

@@ -11,5 +11,7 @@ export function nonPartReason(name) {
   // A caption cut off mid-phrase: "Scalloped with", "... in Mission White (discontinued"
   if (/\b(with|and|or|in|of|for|the|a|to|on)$/i.test(n)) return 'name cut off';
   if ((n.match(/\(/g) ?? []).length > (n.match(/\)/g) ?? []).length) return 'name cut off';
+  // The caption of a room photo ("Kitchen with Corner Drawers")
+  if (/^(kitchen|bath(room)?|laundry|pantry|closet|mudroom|office|vanity|room)\b/i.test(n)) return 'a room photo, not a part';
   return null;
 }

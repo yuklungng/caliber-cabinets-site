@@ -6,7 +6,8 @@ import { nonPartReason } from './reviewHints.js';
 
 // Vendors tab of the Office view (db/production/009): each vendor's details, its catalogs and price lists, and its
 // parts with pictures. A catalog PDF is read here in the browser (catalogReader.js) and never uploaded: only a picture
-// per part, a picture per catalog page and the part details go up. Those parts wait in Review until approved.
+// per part, a picture per catalog page and the part details go up. Those parts are in use straight away; the team
+// checks, corrects or deletes them as they come across them ("To check" lists the ones nobody has checked yet).
 // Uploads go straight from the browser to private storage with one-time links; pictures and files are shown through
 // links that expire after an hour.
 // Prices are shown only to the admin and the bookkeeper (the server leaves them out for everyone else).
@@ -63,7 +64,7 @@ const KINDS = [
 const kindLabel = (k) => KINDS.find(([key]) => key === k)?.[1] ?? 'Other';
 const FILE_STATUS = {
   uploading: ['Uploading', '#fef3c7', '#92400e'], uploaded: ['Uploaded, waiting to be read', '#e0f2fe', '#075985'],
-  extracting: ['Upload not finished', '#fef3c7', '#92400e'], extracted: ['Read, parts in review', '#dcfce7', '#166534'],
+  extracting: ['Upload not finished', '#fef3c7', '#92400e'], extracted: ['Read, parts in use', '#dcfce7', '#166534'],
   reviewed: ['Done', '#dcfce7', '#166534'], failed: ['Failed', '#fee2e2', '#991b1b'],
 };
 
@@ -276,7 +277,7 @@ export default function VendorsView() {
   return (
     <div style={{ display: 'grid', gap: '10px' }}>
       <p style={{ ...muted, margin: 0 }}>
-        Vendors, their catalogs and price lists, and the parts in them. Drop a catalog or price list below and it goes to the right vendor; parts read from a catalog wait in Review until approved.
+        Vendors, their catalogs and price lists, and the parts in them. Drop a catalog or price list below and it goes to the right vendor. Parts read from it are in use straight away; check, correct or delete them as you come across them.
       </p>
       <AddFile vendors={data.vendors} canSeePrices={data.canSeePrices} onDone={(id) => load().then(() => setOpenId(id))} />
       {adding
@@ -293,7 +294,7 @@ export default function VendorsView() {
             <strong style={{ fontSize: '15px', color: '#111827' }}>{v.name}</strong>
             <span style={muted}>
               {v.parts} part{v.parts !== 1 ? 's' : ''}
-              {v.review > 0 && <span style={{ marginLeft: '8px', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e' }}>{v.review} to review</span>}
+              {v.unchecked > 0 && <span style={{ marginLeft: '8px', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: '#f3f4f6', color: '#4b5563' }}>{v.unchecked} not checked yet</span>}
             </span>
           </span>
           <span style={{ ...muted, fontSize: '12px' }}>
@@ -307,10 +308,10 @@ export default function VendorsView() {
 }
 
 function VendorPage({ vendor, canSeePrices, onBack, onChanged }) {
-  const [tab, setTab] = useState(vendor.review > 0 ? 'review' : 'parts');
+  const [tab, setTab] = useState('parts');
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(vendor);
-  const [reviewCount, setReviewCount] = useState(vendor.review);
+  const [reviewCount, setReviewCount] = useState(vendor.unchecked ?? 0);
   return (
     <div style={{ display: 'grid', gap: '12px' }}>
       <div><button type="button" style={ctl} onClick={onBack}>← All vendors</button></div>
@@ -330,13 +331,13 @@ function VendorPage({ vendor, canSeePrices, onBack, onChanged }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {[['parts', 'Parts'], ['review', `Review${reviewCount ? ` (${reviewCount})` : ''}`], ['files', 'Catalogs & price lists']].map(([key, label]) => (
+        {[['parts', 'Parts'], ['review', `To check${reviewCount ? ` (${reviewCount})` : ''}`], ['files', 'Catalogs & price lists']].map(([key, label]) => (
           <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)} style={tab === key ? primary : ctl}>{label}</button>
         ))}
       </div>
       {tab === 'parts' && <PartsPanel vendorId={v.id} canSeePrices={canSeePrices} />}
       {tab === 'review' && <ReviewPanel vendorId={v.id} onCount={setReviewCount} />}
-      {tab === 'files' && <FilesPanel vendorId={v.id} canSeePrices={canSeePrices} onImported={() => call('vendors').then((d) => setReviewCount(d.vendors.find((x) => x.id === v.id)?.review ?? 0)).catch(() => {})} />}
+      {tab === 'files' && <FilesPanel vendorId={v.id} canSeePrices={canSeePrices} onImported={() => call('vendors').then((d) => setReviewCount(d.vendors.find((x) => x.id === v.id)?.unchecked ?? 0)).catch(() => {})} />}
     </div>
   );
 }
@@ -390,7 +391,7 @@ function PartsPanel({ vendorId, canSeePrices }) {
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" style={{ ...ctl, appearance: 'auto' }}>
           <option value="active">In use</option>
           <option value="retired">Retired</option>
-          <option value="rejected">Rejected</option>
+          <option value="rejected">Deleted</option>
         </select>
         <button type="button" style={ctl} onClick={() => setAdding((a) => !a)}>{adding ? 'Close' : 'Add part'}</button>
       </div>
@@ -406,7 +407,8 @@ function PartsPanel({ vendorId, canSeePrices }) {
                 <Picture part={p} />
                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#111827' }}>{p.name}</span>
                 {p.itemNumber && <span style={{ fontSize: '12px', color: '#6b7280' }}>{p.itemNumber}</span>}
-                <span style={{ fontSize: '11px', color: '#9ca3af' }}>{kindLabel(p.kind)}{p.page ? ` · p. ${p.page}` : ''}</span>
+                <span style={{ fontSize: '11px', color: '#9ca3af' }}>{kindLabel(p.kind)}{p.page ? ` · p. ${p.page}` : ''}{p.status === 'active' && !p.reviewedAt ? ' · not checked yet' : ''}</span>
+                {p.status === 'active' && !p.reviewedAt && nonPartReason(p.name) && <span style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', justifySelf: 'start' }}>Probably not a part: {nonPartReason(p.name)}</span>}
                 {canSeePrices && p.price && <span style={{ fontSize: '12px', color: '#166534' }}>{money(p.price.price)} / {p.price.unit} <span style={{ color: '#9ca3af' }}>({fmtDay(p.price.asOf)})</span></span>}
               </button>
             ))}
@@ -493,6 +495,11 @@ function PartDetail({ id, canSeePrices, onClose, onChanged }) {
     try { const d = await call('vendor-part-status', { body: { id, status } }); setP((x) => ({ ...x, ...d.part })); onChanged(d.part); }
     catch (e) { setErr(e.message); } finally { setBusy(''); }
   }
+  async function markChecked() {
+    setBusy('status'); setErr('');
+    try { await call('vendor-parts-review', { body: { ids: [id], decision: 'check' } }); await load(); onChanged({ id, reviewedAt: new Date().toISOString() }); }
+    catch (e) { setErr(e.message); } finally { setBusy(''); }
+  }
   async function addPicture(file) {
     if (!file) return;
     setBusy('picture'); setErr('');
@@ -529,7 +536,7 @@ function PartDetail({ id, canSeePrices, onClose, onChanged }) {
             {p.fileId && p.page && p.source === 'catalog' && <span><button type="button" onClick={() => setShowPage((v) => !v)} aria-expanded={showPage} style={{ background: 'none', border: 0, padding: 0, color: '#78350f', textDecoration: 'underline', cursor: 'pointer', fontSize: '13px' }}>{showPage ? 'Hide' : 'See'} catalog page {p.page}</button></span>}
             <span style={{ ...muted, fontSize: '12px' }}>
               {p.source === 'manual' ? 'Added by hand' : p.source === 'price_list' ? 'From a price list' : 'From a catalog'}{p.createdBy ? ` by ${p.createdBy}` : ''}
-              {p.reviewedBy && p.source !== 'manual' ? `; approved by ${p.reviewedBy}` : ''}{p.editedBy ? `; last edited by ${p.editedBy}` : ''}
+              {p.reviewedBy && p.source !== 'manual' ? `; checked by ${p.reviewedBy}` : p.source !== 'manual' && p.status === 'active' ? '; not checked yet' : ''}{p.editedBy ? `; last edited by ${p.editedBy}` : ''}
             </span>
           </div>
         </div>
@@ -542,8 +549,10 @@ function PartDetail({ id, canSeePrices, onClose, onChanged }) {
             {busy === 'picture' ? 'Uploading…' : p.hasImage ? 'Replace picture' : 'Add picture'}
             <input ref={pic} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={(e) => addPicture(e.target.files?.[0])} disabled={!!busy} />
           </label>
+          {p.status === 'active' && !p.reviewedAt && <button type="button" style={ctl} disabled={!!busy} onClick={markChecked}>Mark as checked</button>}
           {p.status === 'active' && <button type="button" style={ctl} disabled={!!busy} onClick={() => setStatus('retired')}>Retire</button>}
-          {p.status === 'retired' && <button type="button" style={ctl} disabled={!!busy} onClick={() => setStatus('active')}>Put back in use</button>}
+          {p.status !== 'rejected' && <button type="button" style={ctl} disabled={!!busy} onClick={() => window.confirm(`Delete "${p.name}"? It is hidden, and not added again when the catalog is read again. It can be brought back from the Deleted list.`) && setStatus('rejected')}>Delete</button>}
+          {(p.status === 'retired' || p.status === 'rejected') && <button type="button" style={ctl} disabled={!!busy} onClick={() => setStatus('active')}>Put back in use</button>}
         </div>
       )}
       {canSeePrices && (
@@ -575,7 +584,7 @@ function PartDetail({ id, canSeePrices, onClose, onChanged }) {
   );
 }
 
-// ── Review queue ────────────────────────────────────────────────────────────
+// ── To check: parts in use that nobody has checked yet ─────────────────────
 
 function ReviewPanel({ vendorId, onCount }) {
   const [list, setList] = useState(null);
@@ -585,7 +594,7 @@ function ReviewPanel({ vendorId, onCount }) {
   const [err, setErr] = useState('');
   const load = useCallback(async () => {
     try {
-      const d = await call('vendor-parts', { params: { vendorId, status: 'review', limit: 60 } });
+      const d = await call('vendor-parts', { params: { vendorId, status: 'active', checked: 'no', limit: 60 } });
       // Pictures that are probably not parts (a size callout, a cut-off caption) start unticked.
       setList(d); setPicked(new Set(d.parts.filter((p) => !nonPartReason(p.name)).map((p) => p.id))); onCount?.(d.total); setErr('');
     } catch (e) { setErr(e.message); }
@@ -595,7 +604,7 @@ function ReviewPanel({ vendorId, onCount }) {
   async function decide(decision) {
     const ids = [...picked];
     if (!ids.length) return;
-    if (decision === 'reject' && !window.confirm(`Reject ${ids.length} part${ids.length !== 1 ? 's' : ''}? They are kept but hidden, and are not suggested again when the catalog is read again.`)) return;
+    if (decision === 'reject' && !window.confirm(`Delete ${ids.length} part${ids.length !== 1 ? 's' : ''}? They are hidden, and not added again when the catalog is read again. They can be brought back from the Deleted list.`)) return;
     setBusy(true); setErr('');
     try { await call('vendor-parts-review', { body: { ids, decision } }); await load(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
@@ -603,15 +612,15 @@ function ReviewPanel({ vendorId, onCount }) {
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   if (!list) return err ? <Err text={err} /> : <p style={muted}>Loading…</p>;
-  if (!list.total) return <p style={muted}>Nothing to review. Parts read from a new catalog show here first.</p>;
+  if (!list.total) return <p style={muted}>Everything has been checked. Parts read from a new catalog are listed here until someone checks them.</p>;
   return (
     <div style={{ display: 'grid', gap: '10px' }}>
       <p style={{ ...muted, margin: 0 }}>
-        {list.total} part{list.total !== 1 ? 's' : ''} read from a catalog, in catalog order, {list.parts.length} shown. Check each picture matches its name; fix a name with Edit, untick anything wrong, then approve the ticked ones. Ones that look like they are not parts start unticked; reject them, or tick them if they are fine.
+        {list.total} part{list.total !== 1 ? 's' : ''} in use but not checked yet, in catalog order, {list.parts.length} shown. They can be used already; checking is optional and can happen any time. To check a page: fix a name with Edit, untick anything wrong, mark the rest as checked. Ones that look like they are not parts start unticked; delete them, or tick them if they are fine.
       </p>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', position: 'sticky', top: 0, background: '#f9fafb', padding: '6px 0', zIndex: 2 }}>
-        <button type="button" style={primary} disabled={busy || !picked.size} onClick={() => decide('approve')}>Approve {picked.size} ticked</button>
-        <button type="button" style={ctl} disabled={busy || !picked.size} onClick={() => decide('reject')}>Reject ticked</button>
+        <button type="button" style={primary} disabled={busy || !picked.size} onClick={() => decide('check')}>Mark {picked.size} ticked as checked</button>
+        <button type="button" style={ctl} disabled={busy || !picked.size} onClick={() => decide('reject')}>Delete ticked</button>
         <button type="button" style={ctl} onClick={() => setPicked(new Set(picked.size ? [] : list.parts.map((p) => p.id)))}>{picked.size ? 'Untick all' : 'Tick all'}</button>
         <Err text={err} />
       </div>
@@ -649,7 +658,7 @@ function FilesPanel({ vendorId, canSeePrices, onImported }) {
   useEffect(() => { load(); }, [load]);
 
   async function removeFile(f) {
-    if (!window.confirm(`Remove "${f.title}"?${f.review ? ` Its ${f.review} parts waiting for review go too.` : ''}`)) return;
+    if (!window.confirm(`Remove "${f.title}"?${f.unchecked ? ` Its ${f.unchecked} parts that nobody has checked yet go too.` : ''}`)) return;
     try { await call('vendor-file-update', { body: { id: f.id, removed: true } }); load(); onImported?.(); }
     catch (e) { setErr(e.message); }
   }
@@ -676,7 +685,7 @@ function FilesPanel({ vendorId, canSeePrices, onImported }) {
             <span style={{ ...muted, fontSize: '12px' }}>
               {f.kind === 'catalog' ? 'Catalog' : 'Price list'} · {f.fileName}{f.sizeBytes ? `, ${fmtSize(f.sizeBytes)}` : ''}{f.pages ? `, ${f.pages} pages` : ''} · {f.kind === 'catalog' ? 'read' : 'uploaded'} {fmtDay(f.uploadedAt)}{f.uploadedBy ? ` by ${f.uploadedBy}` : ''}
             </span>
-            {f.kind === 'catalog' && (f.parts > 0 || f.review > 0) && <span style={{ ...muted, fontSize: '12px' }}>{f.parts} parts in use, {f.review} waiting for review</span>}
+            {f.kind === 'catalog' && f.parts > 0 && <span style={{ ...muted, fontSize: '12px' }}>{f.parts} parts in use, {f.unchecked} not checked yet</span>}
             {f.kind === 'catalog' && f.status === 'extracting' && <span style={{ ...muted, fontSize: '12px' }}>The upload stopped before it finished. Remove this and read the catalog again.</span>}
             {f.notes && <span style={{ ...muted, fontSize: '12px' }}>{f.notes}</span>}
             {(kept || stuck) && (
@@ -753,7 +762,7 @@ function CatalogRead({ vendorId, onDone, initialFile = null, initialReader = 'ca
         })) } });
         for (const k of Object.keys(sum)) sum[k] += r[k] ?? 0;
       }
-      await call('vendor-file-update', { body: { id: fileRow.id, status: 'extracted', notes: `${sum.added} new parts to review, ${sum.updated} already listed (page and picture updated)${sum.skippedRejected ? `, ${sum.skippedRejected} left out because they were rejected before` : ''}${sum.duplicates ? `, ${sum.duplicates} names that appear twice in the catalog kept once` : ''}.` } });
+      await call('vendor-file-update', { body: { id: fileRow.id, status: 'extracted', notes: `${sum.added} new parts in use (not checked yet), ${sum.updated} already listed (page and picture updated)${sum.skippedRejected ? `, ${sum.skippedRejected} left out because they were rejected before` : ''}${sum.duplicates ? `, ${sum.duplicates} names that appear twice in the catalog kept once` : ''}.` } });
       onDone();
     } catch (x) {
       setErr(`The upload stopped: ${x.message}`); setUpload(null);
@@ -806,7 +815,7 @@ function CatalogRead({ vendorId, onDone, initialFile = null, initialReader = 'ca
               </figure>
             ))}
           </div>
-          {result.parts.length > 18 && <span style={{ ...muted, fontSize: '12px' }}>The first 18 shown. All of them can be checked in Review after the upload.</span>}
+          {result.parts.length > 18 && <span style={{ ...muted, fontSize: '12px' }}>The first 18 shown. After the upload they are all in use; check, correct or delete them as you come across them.</span>}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             {!upload && result.parts.length > 0 && <button type="button" style={primary} onClick={send}>Upload {result.parts.length} parts and {result.pageImages.size} page pictures</button>}
             {!upload && <button type="button" style={ctl} onClick={() => setResult(null)}>Start over</button>}
@@ -904,7 +913,7 @@ function PriceImport({ vendorId, onDone, initialFile = null }) {
                 {preview && (
                   <>
                     <span style={{ fontSize: '13px' }}>
-                      {preview.matched} match existing parts ({preview.changed} with a new price), {preview.added} new parts (to review), {preview.skipped} rows skipped.
+                      {preview.matched} match existing parts ({preview.changed} with a new price), {preview.added} new parts (in use, not checked yet), {preview.skipped} rows skipped.
                     </span>
                     <button type="button" style={primary} disabled={!!busy || (!preview.changed && !preview.added)} onClick={commit}>{busy === 'commit' ? 'Importing…' : 'Import'}</button>
                   </>

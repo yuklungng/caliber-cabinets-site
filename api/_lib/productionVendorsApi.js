@@ -96,7 +96,7 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
     if (action === 'vendors' && req.method === 'GET') {
       const [vendors, files, parts] = await Promise.all([
         readAll(supabase, t.vendors, '*', (q) => q.is('removed_at', null).order('name')),
-        readAll(supabase, t.files, 'id, vendor_id, kind, title, edition, status, uploaded_at', (q) => q.is('removed_at', null)),
+        readAll(supabase, t.files, 'id, vendor_id, kind, title, edition, status, reader, uploaded_at', (q) => q.is('removed_at', null)),
         readAll(supabase, t.parts, 'vendor_id, status', (q) => q.is('removed_at', null)),
       ]);
       return res.status(200).json({
@@ -112,6 +112,8 @@ export async function handleVendors(req, res, auth, { tbl, tableMode }) {
             review: vp.filter((p) => p.status === 'review').length,
             latestCatalog: catalog ? { title: catalog.title, edition: catalog.edition, status: catalog.status } : null,
             latestPriceList: priceList ? { title: priceList.title, uploadedAt: priceList.uploaded_at } : null,
+            // Catalog layouts read for this vendor before, so a dropped catalog can be matched to it.
+            readers: [...new Set(vf.map((f) => f.reader).filter(Boolean))],
           };
         }),
       });

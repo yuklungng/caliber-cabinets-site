@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { guessColumns, parseCsv } from './csv.js';
-import { READERS, readCaldoor } from './catalogReader.js';
+import { READERS, detectCatalog, readCaldoor } from './catalogReader.js';
+import { findDomains, guessVendor } from './vendorMatch.js';
 
 // Vendors tab of the Office view (db/production/009): each vendor's details, its catalogs and price lists, and its
 // parts with pictures. A catalog PDF is read here in the browser (catalogReader.js) and never uploaded: only a picture
@@ -88,6 +89,142 @@ function Err({ text }) {
   return text ? <p role="alert" style={{ color: '#b91c1c', fontSize: '13px', margin: '6px 0' }}>{text}</p> : null;
 }
 
+const isPdf = (f) => /\.pdf$/i.test(f?.name ?? '') || f?.type === 'application/pdf';
+const isCsv = (f) => /\.(csv|txt)$/i.test(f?.name ?? '');
+
+// A box to drop a file on, or click to choose one. accept: the file picker's filter; hint: the line under the title.
+function DropZone({ title, hint, accept, onFile, disabled, file }) {
+  const [over, setOver] = useState(false);
+  const input = useRef(null);
+  const take = (f) => { if (f && !disabled) onFile(f); };
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={() => !disabled && input.current?.click()}
+      onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); input.current?.click(); } }}
+      onDragOver={(e) => { e.preventDefault(); if (!disabled) { e.dataTransfer.dropEffect = 'copy'; setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files?.[0]); }}
+      style={{
+        border: `2px dashed ${over ? '#78350f' : '#d1d5db'}`, borderRadius: '8px', padding: '16px', textAlign: 'center',
+        background: over ? '#fef3c7' : '#f9fafb', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <div style={{ fontSize: '14px', fontWeight: 600, color: '#374151' }}>{file ? file.name : title}</div>
+      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{file ? `${fmtSize(file.size)} · drop another file or click to change` : hint}</div>
+      <input ref={input} type="file" accept={accept} style={{ display: 'none' }} disabled={disabled}
+        onChange={(e) => { take(e.target.files?.[0]); e.target.value = ''; }} />
+    </div>
+  );
+}
+
+// The drop zone at the top of the Vendors tab: works out whose catalog or price list it is, then reads or imports it
+// for that vendor, so nobody has to open the vendor first.
+function AddFile({ vendors, canSeePrices, onDone }) {
+  const [file, setFile] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+  const [guess, setGuess] = useState(null); // { vendorId | newVendor, why, reader }
+  const [choice, setChoice] = useState(''); // vendor id, or 'new'
+  const [newVendor, setNewVendor] = useState({ name: '', website: '' });
+  const [ready, setReady] = useState(null); // { vendorId, kind, reader }
+  const [err, setErr] = useState('');
+
+  async function take(f) {
+    setErr(''); setGuess(null); setReady(null); setChoice('');
+    if (!isPdf(f) && !isCsv(f)) { setFile(null); setErr('Drop a catalog (PDF) or a price list (CSV). An Excel price list needs saving as CSV first (File > Save As > CSV).'); return; }
+    if (isCsv(f) && !canSeePrices) { setFile(null); setErr('Only the admin and the bookkeeper can import price lists.'); return; }
+    setFile(f); setDetecting(true);
+    try {
+      let clues;
+      if (isPdf(f)) {
+        const d = await detectCatalog(f);
+        clues = { domains: d.domains, text: d.text, fileName: f.name, reader: d.reader };
+      } else {
+        const text = (await f.slice(0, 20000).text());
+        clues = { domains: findDomains(text), text, fileName: f.name, reader: null };
+      }
+      const g = guessVendor(clues, vendors);
+      setGuess({ ...g, reader: clues.reader });
+      if (g?.vendorId) setChoice(g.vendorId);
+      else if (g?.newVendor) { setChoice('new'); setNewVendor(g.newVendor); }
+      else setChoice(vendors.length ? '' : 'new');
+    } catch (e) {
+      setErr(`Could not open this file: ${e.message}`);
+    } finally { setDetecting(false); }
+  }
+
+  async function confirm() {
+    setErr('');
+    try {
+      let vendorId = choice;
+      if (choice === 'new') vendorId = (await call('vendor-save', { body: newVendor })).vendor.id;
+      if (!vendorId) { setErr('Pick the vendor first.'); return; }
+      setReady({ vendorId, kind: isPdf(file) ? 'catalog' : 'price_list', reader: guess?.reader ?? 'caldoor' });
+    } catch (e) { setErr(e.message); }
+  }
+
+  const reset = () => { setFile(null); setGuess(null); setReady(null); setChoice(''); setErr(''); };
+  const vendorName = ready ? (vendors.find((v) => v.id === ready.vendorId)?.name ?? newVendor.name) : '';
+
+  if (ready) {
+    return (
+      <div style={{ display: 'grid', gap: '6px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+          <strong style={{ fontSize: '14px' }}>{ready.kind === 'catalog' ? 'Catalog' : 'Price list'} for {vendorName}</strong>
+          <button type="button" style={ctl} onClick={reset}>Cancel</button>
+        </div>
+        {ready.kind === 'catalog'
+          ? <CatalogRead vendorId={ready.vendorId} initialFile={file} initialReader={ready.reader} onDone={() => { reset(); onDone(ready.vendorId); }} />
+          : <PriceImport vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId); }} />}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: '8px' }}>
+      <DropZone
+        title="Drop a catalog (PDF) or price list (CSV) here"
+        hint="or click to choose one. The vendor is worked out from the file; a catalog PDF stays on this computer."
+        accept={canSeePrices ? '.pdf,application/pdf,.csv,text/csv,.txt' : '.pdf,application/pdf'}
+        onFile={take} disabled={detecting} file={file}
+      />
+      {detecting && <span style={muted}>Looking at the file…</span>}
+      {file && !detecting && guess !== null && (
+        <div style={{ ...card, display: 'grid', gap: '8px' }}>
+          <span style={{ fontSize: '13px' }}>
+            {guess?.vendorId ? <>Looks like <strong>{vendors.find((v) => v.id === guess.vendorId)?.name}</strong> ({guess.why}).</>
+              : guess?.newVendor ? <>Looks like a new vendor, <strong>{guess.newVendor.name}</strong> ({guess.why}).</>
+                : 'Could not tell whose file this is. Pick the vendor:'}
+            {isPdf(file) && !guess?.reader && ' No reader knows this catalog layout yet, so it may find no parts.'}
+          </span>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end' }}>
+            <Labeled label="Vendor">
+              <select style={{ ...field, appearance: 'auto', minWidth: '220px' }} value={choice} onChange={(e) => setChoice(e.target.value)}>
+                <option value="" disabled>Pick a vendor</option>
+                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                <option value="new">New vendor…</option>
+              </select>
+            </Labeled>
+            {choice === 'new' && (
+              <>
+                <Labeled label="New vendor's name"><input style={field} value={newVendor.name} onChange={(e) => setNewVendor((x) => ({ ...x, name: e.target.value }))} /></Labeled>
+                <Labeled label="Website"><input style={field} value={newVendor.website} onChange={(e) => setNewVendor((x) => ({ ...x, website: e.target.value }))} /></Labeled>
+              </>
+            )}
+            <button type="button" style={primary} disabled={!choice || (choice === 'new' && !newVendor.name.trim())} onClick={confirm}>
+              {choice === 'new' ? 'Add vendor and continue' : 'Continue'}
+            </button>
+            <button type="button" style={ctl} onClick={reset}>Cancel</button>
+          </div>
+        </div>
+      )}
+      <Err text={err} />
+    </div>
+  );
+}
+
 // ── Vendor list and details ─────────────────────────────────────────────────
 
 function VendorForm({ vendor, onSaved, onCancel }) {
@@ -138,14 +275,15 @@ export default function VendorsView() {
   return (
     <div style={{ display: 'grid', gap: '10px' }}>
       <p style={{ ...muted, margin: 0 }}>
-        Vendors, their catalogs and price lists, and the parts in them. Upload a catalog or price list on a vendor's page; parts read from a catalog wait in Review until approved.
+        Vendors, their catalogs and price lists, and the parts in them. Drop a catalog or price list below and it goes to the right vendor; parts read from a catalog wait in Review until approved.
       </p>
+      <AddFile vendors={data.vendors} canSeePrices={data.canSeePrices} onDone={(id) => load().then(() => setOpenId(id))} />
       {adding
         ? <VendorForm onSaved={(v) => { setAdding(false); load().then(() => setOpenId(v.id)); }} onCancel={() => setAdding(false)} />
         : <div><button type="button" style={primary} onClick={() => setAdding(true)}>Add vendor</button></div>}
       {data.vendors.length === 0 && !adding && (
         <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '13px', background: '#f9fafb', borderRadius: '8px', border: '1px dashed #e5e7eb' }}>
-          No vendors yet. Add one (for example Cal Door &amp; Drawer), then upload its catalog.
+          No vendors yet. Drop a catalog above and the vendor is added with it, or add one by hand.
         </div>
       )}
       {data.vendors.map((v) => (
@@ -552,11 +690,11 @@ function FilesPanel({ vendorId, canSeePrices, onImported }) {
 }
 
 // Reads a catalog PDF here in the browser, shows what it found, then uploads the pictures and parts.
-function CatalogRead({ vendorId, onDone }) {
-  const [file, setFile] = useState(null);
+function CatalogRead({ vendorId, onDone, initialFile = null, initialReader = 'caldoor' }) {
+  const [file, setFile] = useState(initialFile);
   const [title, setTitle] = useState('');
   const [edition, setEdition] = useState('');
-  const [reader, setReader] = useState('caldoor');
+  const [reader, setReader] = useState(initialReader in READERS ? initialReader : 'caldoor');
   const [reading, setReading] = useState(null); // { page, pages }
   const [result, setResult] = useState(null);
   const [upload, setUpload] = useState(null); // { done, total, step }
@@ -624,9 +762,13 @@ function CatalogRead({ vendorId, onDone }) {
   return (
     <div style={{ ...card, display: 'grid', gap: '10px' }}>
       <form onSubmit={read} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
-        <Labeled label="Catalog PDF (stays on this computer)" wide>
-          <input type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }} required disabled={!!reading || !!upload} />
-        </Labeled>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <DropZone
+            title="Drop the catalog PDF here" hint="or click to choose it. It is read on this computer and not uploaded."
+            accept="application/pdf,.pdf" file={file} disabled={!!reading || !!upload}
+            onFile={(f) => { if (!isPdf(f)) { setErr('That is not a PDF.'); return; } setErr(''); setFile(f); setResult(null); }}
+          />
+        </div>
         <Labeled label="Title"><input style={field} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={file?.name.replace(/\.pdf$/i, '') ?? 'Product Catalog 2024'} /></Labeled>
         <Labeled label="Edition"><input style={field} value={edition} onChange={(e) => setEdition(e.target.value)} placeholder="2024, 4th edition" /></Labeled>
         <Labeled label="Layout">
@@ -679,7 +821,7 @@ function CatalogRead({ vendorId, onDone }) {
   );
 }
 
-function PriceImport({ vendorId, onDone }) {
+function PriceImport({ vendorId, onDone, initialFile = null }) {
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState(null); // parsed, header first
   const [cols, setCols] = useState(null);
@@ -697,6 +839,8 @@ function PriceImport({ vendorId, onDone }) {
     if (parsed.length < 2) { setErr('The file has no rows under its header.'); return; }
     setRows(parsed); setCols(guessColumns(parsed[0]));
   }
+  // A file dropped on the Vendors tab arrives already chosen.
+  useEffect(() => { if (initialFile) pick(initialFile); }, [initialFile]);
   const mapped = () => rows.slice(1).map((r) => ({
     itemNumber: cols.itemNumber >= 0 ? r[cols.itemNumber] : '', name: cols.name >= 0 ? r[cols.name] : '',
     description: cols.description >= 0 ? r[cols.description] : '', price: cols.price >= 0 ? r[cols.price] : '', unit: cols.unit >= 0 ? r[cols.unit] : '',
@@ -731,7 +875,7 @@ function PriceImport({ vendorId, onDone }) {
   );
   return (
     <div style={{ ...card, display: 'grid', gap: '10px' }}>
-      <Labeled label="Price list (CSV)"><input type="file" accept=".csv,text/csv,.txt" onChange={(e) => pick(e.target.files?.[0] ?? null)} /></Labeled>
+      <DropZone title="Drop the price list (CSV) here" hint="or click to choose it. In Excel: File > Save As > CSV." accept=".csv,text/csv,.txt" file={file} disabled={!!busy} onFile={pick} />
       {rows && cols && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>

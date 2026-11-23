@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { cleanCatalogParts, cleanItemNumber, cleanPart, cleanPrice, cleanVendor, matchPriceRows, partKey, storageName } from '../api/_lib/productionVendors.js';
 import { canSeePrices, isVendorAction } from '../api/_lib/productionVendorsApi.js';
+import { findDomains, guessReader, guessVendor, hostOf, nameKey } from '../src/components/production/vendorMatch.js';
 
 let failed = 0;
 const check = (name, fn) => {
@@ -84,6 +85,33 @@ check('prices: admin and bookkeeper only', () => {
 check('vendor actions are routed, others are not', () => {
   assert.equal(isVendorAction('vendor-parts'), true);
   assert.equal(isVendorAction('jobs'), false);
+});
+
+check('web addresses and names for matching', () => {
+  assert.deepEqual(findDomains('See www.caldoor.com and CALDOOR.com/x, plus adobe.com and hafele.com/us'), ['caldoor.com', 'hafele.com']);
+  assert.equal(hostOf('https://www.CalDoor.com/doors'), 'caldoor.com');
+  assert.equal(nameKey('Häfele America Co.'), 'hafeleamerica');
+  assert.equal(nameKey('Cal Door & Drawer'), 'caldoordrawer');
+});
+
+check('catalog layout is recognised from its contents', () => {
+  assert.equal(guessReader('NEW DOOR STYLES 2024 ECHO WOOD SLAB FRONT SERIES RTF FOIL COLORS'), 'caldoor');
+  assert.equal(guessReader('Sliding Door Hardware www.hafele.com/us'), null);
+});
+
+check('vendor guess: web address, layout, earlier catalog, name, or a new vendor', () => {
+  const vendors = [
+    { id: 'cd', name: 'Cal Door & Drawer', website: 'caldoor.com', readers: [] },
+    { id: 'hf', name: 'Hafele', website: 'https://www.hafele.com/us', readers: [] },
+    { id: 'tk', name: 'Top Knobs', website: null, readers: [] },
+  ];
+  assert.equal(guessVendor({ domains: ['hafele.com'], text: '' }, vendors).vendorId, 'hf');
+  assert.equal(guessVendor({ domains: [], text: 'Echo Wood', reader: 'caldoor' }, vendors).vendorId, 'cd');
+  assert.equal(guessVendor({ domains: [], text: '', fileName: 'top-knobs-2025.csv' }, vendors).vendorId, 'tk');
+  assert.equal(guessVendor({ domains: [], text: '', reader: 'caldoor' }, [{ id: 'x', name: 'Doors R Us', readers: ['caldoor'] }]).vendorId, 'x');
+  assert.deepEqual(guessVendor({ domains: [], text: '', reader: 'caldoor' }, []).newVendor, { name: 'Cal Door & Drawer', website: 'caldoor.com' });
+  assert.deepEqual(guessVendor({ domains: ['richelieu.com'], text: '' }, vendors).newVendor, { name: 'Richelieu', website: 'richelieu.com' });
+  assert.equal(guessVendor({ domains: [], text: 'nothing here' }, vendors), null);
 });
 
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log('ALL PASSED');

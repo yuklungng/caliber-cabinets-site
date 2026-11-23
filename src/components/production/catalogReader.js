@@ -9,11 +9,13 @@
  *   caldoor  each door or drawer front is its own picture with its name printed under it (Cal Door & Drawer).
  */
 
+import { READER_INFO, findDomains, guessReader } from './vendorMatch.js';
+
 const PICTURE_DPI = 110;
 const PAGE_JPEG = 0.7;
 const PART_JPEG = 0.82;
 
-export const READERS = { caldoor: 'Cal Door & Drawer (one picture per door, name underneath)' };
+export const READERS = Object.fromEntries(Object.entries(READER_INFO).map(([k, v]) => [k, v.label]));
 
 async function loadPdfjs() {
   const [pdfjs, worker] = await Promise.all([
@@ -112,6 +114,30 @@ export async function contents(doc) {
     }
   }
   return out;
+}
+
+/**
+ * A quick look at a catalog before reading it, to tell whose it is and which reader fits: the text of its first four
+ * pages and last page (where vendors print their name and web address) and its contents.
+ * Returns { pages, domains, text, reader, title }.
+ */
+export async function detectCatalog(file) {
+  const { doc, close } = await openCatalog(file);
+  try {
+    const nums = [...new Set([1, 2, 3, 4, doc.numPages].filter((n) => n >= 1 && n <= doc.numPages))];
+    const texts = [];
+    for (const n of nums) {
+      const tc = await (await doc.getPage(n)).getTextContent();
+      texts.push(tc.items.map((i) => i.str).join(' '));
+    }
+    let title = null;
+    try { title = (await doc.getMetadata())?.info?.Title || null; } catch { /* no metadata */ }
+    const sections = await contents(doc);
+    const text = `${texts.join(' ')} ${sections.map((x) => x.title).join(' ')} ${title ?? ''}`.replace(/\s+/g, ' ');
+    return { pages: doc.numPages, domains: findDomains(text), text: text.slice(0, 20000), reader: guessReader(text), title };
+  } finally {
+    close();
+  }
 }
 
 export function kindFor(title) {

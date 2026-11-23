@@ -407,7 +407,6 @@ function PartsPanel({ vendorId, canSeePrices }) {
                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#111827' }}>{p.name}</span>
                 {p.itemNumber && <span style={{ fontSize: '12px', color: '#6b7280' }}>{p.itemNumber}</span>}
                 <span style={{ fontSize: '11px', color: '#9ca3af' }}>{kindLabel(p.kind)}{p.page ? ` · p. ${p.page}` : ''}</span>
-            {nonPartReason(p.name) && <span style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', justifySelf: 'start' }}>Probably not a part: {nonPartReason(p.name)}</span>}
                 {canSeePrices && p.price && <span style={{ fontSize: '12px', color: '#166534' }}>{money(p.price.price)} / {p.price.unit} <span style={{ color: '#9ca3af' }}>({fmtDay(p.price.asOf)})</span></span>}
               </button>
             ))}
@@ -627,6 +626,7 @@ function ReviewPanel({ vendorId, onCount }) {
               </span>
             </label>
             <span style={{ fontSize: '11px', color: '#9ca3af' }}>{kindLabel(p.kind)}{p.page ? ` · p. ${p.page}` : ''}</span>
+            {nonPartReason(p.name) && <span style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', justifySelf: 'start' }}>Probably not a part: {nonPartReason(p.name)}</span>}
             <button type="button" style={{ ...ctl, padding: '3px 8px', minHeight: '26px', fontSize: '12px' }} onClick={() => setEditId(editId === p.id ? null : p.id)}>{editId === p.id ? 'Close' : 'Edit'}</button>
           </div>
         ))}

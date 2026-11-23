@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { guessColumns, parseCsv } from './csv.js';
 import { READERS, detectCatalog, readCaldoor } from './catalogReader.js';
 import { findDomains, guessVendor } from './vendorMatch.js';
+import { nonPartReason } from './reviewHints.js';
 
 // Vendors tab of the Office view (db/production/009): each vendor's details, its catalogs and price lists, and its
 // parts with pictures. A catalog PDF is read here in the browser (catalogReader.js) and never uploaded: only a picture
@@ -406,6 +407,7 @@ function PartsPanel({ vendorId, canSeePrices }) {
                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#111827' }}>{p.name}</span>
                 {p.itemNumber && <span style={{ fontSize: '12px', color: '#6b7280' }}>{p.itemNumber}</span>}
                 <span style={{ fontSize: '11px', color: '#9ca3af' }}>{kindLabel(p.kind)}{p.page ? ` · p. ${p.page}` : ''}</span>
+            {nonPartReason(p.name) && <span style={{ fontSize: '11px', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', justifySelf: 'start' }}>Probably not a part: {nonPartReason(p.name)}</span>}
                 {canSeePrices && p.price && <span style={{ fontSize: '12px', color: '#166534' }}>{money(p.price.price)} / {p.price.unit} <span style={{ color: '#9ca3af' }}>({fmtDay(p.price.asOf)})</span></span>}
               </button>
             ))}
@@ -585,7 +587,8 @@ function ReviewPanel({ vendorId, onCount }) {
   const load = useCallback(async () => {
     try {
       const d = await call('vendor-parts', { params: { vendorId, status: 'review', limit: 60 } });
-      setList(d); setPicked(new Set(d.parts.map((p) => p.id))); onCount?.(d.total); setErr('');
+      // Pictures that are probably not parts (a size callout, a cut-off caption) start unticked.
+      setList(d); setPicked(new Set(d.parts.filter((p) => !nonPartReason(p.name)).map((p) => p.id))); onCount?.(d.total); setErr('');
     } catch (e) { setErr(e.message); }
   }, [vendorId, onCount]);
   useEffect(() => { load(); }, [load]);
@@ -605,7 +608,7 @@ function ReviewPanel({ vendorId, onCount }) {
   return (
     <div style={{ display: 'grid', gap: '10px' }}>
       <p style={{ ...muted, margin: 0 }}>
-        {list.total} part{list.total !== 1 ? 's' : ''} read from a catalog, in catalog order, {list.parts.length} shown. Check each picture matches its name; fix a name with Edit, untick anything wrong, then approve the ticked ones.
+        {list.total} part{list.total !== 1 ? 's' : ''} read from a catalog, in catalog order, {list.parts.length} shown. Check each picture matches its name; fix a name with Edit, untick anything wrong, then approve the ticked ones. Ones that look like they are not parts start unticked; reject them, or tick them if they are fine.
       </p>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', position: 'sticky', top: 0, background: '#f9fafb', padding: '6px 0', zIndex: 2 }}>
         <button type="button" style={primary} disabled={busy || !picked.size} onClick={() => decide('approve')}>Approve {picked.size} ticked</button>
@@ -750,7 +753,7 @@ function CatalogRead({ vendorId, onDone, initialFile = null, initialReader = 'ca
         })) } });
         for (const k of Object.keys(sum)) sum[k] += r[k] ?? 0;
       }
-      await call('vendor-file-update', { body: { id: fileRow.id, status: 'extracted', notes: `${sum.added} new parts to review, ${sum.updated} already listed (page and picture updated)${sum.skippedRejected ? `, ${sum.skippedRejected} left out because they were rejected before` : ''}.` } });
+      await call('vendor-file-update', { body: { id: fileRow.id, status: 'extracted', notes: `${sum.added} new parts to review, ${sum.updated} already listed (page and picture updated)${sum.skippedRejected ? `, ${sum.skippedRejected} left out because they were rejected before` : ''}${sum.duplicates ? `, ${sum.duplicates} names that appear twice in the catalog kept once` : ''}.` } });
       onDone();
     } catch (x) {
       setErr(`The upload stopped: ${x.message}`); setUpload(null);

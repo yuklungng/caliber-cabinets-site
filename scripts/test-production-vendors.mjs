@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { cleanCatalogParts, cleanItemNumber, cleanPart, cleanPrice, cleanVendor, matchPriceRows, partKey, storageName } from '../api/_lib/productionVendors.js';
 import { canSeePrices, isVendorAction } from '../api/_lib/productionVendorsApi.js';
+import { nonPartReason } from '../src/components/production/reviewHints.js';
 import { findDomains, guessReader, guessVendor, hostOf, nameKey } from '../src/components/production/vendorMatch.js';
 
 let failed = 0;
@@ -112,6 +113,11 @@ check('vendor guess: web address, layout, earlier catalog, name, or a new vendor
   assert.deepEqual(guessVendor({ domains: [], text: '', reader: 'caldoor' }, []).newVendor, { name: 'Cal Door & Drawer', website: 'caldoor.com' });
   assert.deepEqual(guessVendor({ domains: ['richelieu.com'], text: '' }, vendors).newVendor, { name: 'Richelieu', website: 'richelieu.com' });
   assert.equal(guessVendor({ domains: [], text: 'nothing here' }, vendors), null);
+});
+
+check('review: likely non-parts start unticked, real part names do not', () => {
+  for (const n of ['3/4", 1/2"', '3/4”, 3/8”', 'Scalloped with', 'San Simeon RTF, (Large C-Panel) in Mission White (discontinued']) assert.ok(nonPartReason(n), n);
+  for (const n of ['MP-36', 'DB-2', 'CNS #21 with MUL-1', 'Echo Wood Rift White Oak, 3 piece with 1/8"x1/8" Square-groove', 'Giovanna-280 Glass Door', 'Shaker RTF (4 Lites)']) assert.equal(nonPartReason(n), null, n);
 });
 
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log('ALL PASSED');

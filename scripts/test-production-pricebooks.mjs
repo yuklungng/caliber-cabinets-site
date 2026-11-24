@@ -2,7 +2,7 @@
 // Run: node scripts/test-production-pricebooks.mjs
 import assert from 'node:assert/strict';
 import {
-  bookTables, bookTitle, doorMinimum, looksLikePriceBook, pageTables, parseAdder, parseRate, variantFor,
+  bookTables, bookTitle, doorMinimum, looksLikePriceBook, pageTables, parseAdder, parseRate, pricingFor, variantFor,
 } from '../src/components/production/priceBookReader.js';
 import { cleanPriceTable, matchPartTables, partNames, tableKey } from '../api/_lib/productionVendors.js';
 import { isPriceBookAction } from '../api/_lib/productionPriceBooksApi.js';
@@ -106,6 +106,17 @@ check('adders: phrases', () => {
   assert.equal(parseAdder('Routed Drawer Fronts: use solid drawer front sq. ft. price + $10.00 per piece.').label, 'Routed Drawer Fronts');
   assert.equal(parseAdder('Prices are subject to change without notice.'), null);
   assert.equal(doorMinimum(['All doors have a 2 sq. ft. minimum. All solid stock & routed drawers have a 1 sq. ft. minimum.']), 2);
+});
+
+check('reader: column headings decide pricing and minimum over the small print', () => {
+  const t = 'Product Samples Each Edgeband: Miscellanous available: $1.50 per lineal foot';
+  assert.equal(pricingFor(t, [{ label: 'Each', variant: 'price' }]), 'each');
+  assert.equal(pricingFor('add $1.50 per lineal foot', [{ label: 'Price Per Square Foot Minimum 2 sq. ft.', variant: 'price' }]), 'per_sq_ft');
+  assert.equal(pricingFor('Moldings per 8\' length', [{ label: 'Price', variant: 'price' }]), 'per_length');
+  assert.equal(doorMinimum(['Price Per Square Foot Minimum 2 sq. ft.']), 2);
+  const a = parseAdder('Standard Placement ONLY: add $3.00 per hole.');
+  assert.deepEqual([a.kind, a.value, a.label], ['each', 3, 'Standard Placement ONLY (per hole)']);
+  assert.equal(parseAdder('Add $4.00 per notch.').label, 'Add $4.00 per notch.');
 });
 
 check('books: title and edition from the file name; price books told from catalogs', () => {

@@ -80,6 +80,11 @@ export function variantFor(label) {
 /** How a table's prices work, from the words on its page. */
 export function pricingFor(text, columns) {
   if (columns.some((c) => c.variant === 'per_inch')) return 'linear_inch_plus_box';
+  // The column headings say it best ("Price Per Square Foot", "Each"); the rest of the page can mention other units
+  // in its small print (Flex Line's sample page: "Each" samples, edgeband "per lineal foot").
+  const heads = columns.map((c) => c.label).join(' ').toLowerCase();
+  if (/square foot|sq\.?\s*ft/.test(heads)) return 'per_sq_ft';
+  if (/^\s*each\s*$|per piece/.test(heads)) return 'each';
   const t = String(text ?? '').toLowerCase();
   if (/per (8'|8’|linear|lineal)|per\s+\d+['’]\s*length|lengths? only/.test(t)) return 'per_length';
   if (/square foot|sq\.?\s*ft/.test(t)) return 'per_sq_ft';
@@ -123,6 +128,8 @@ export function parseAdder(text) {
   if (label.includes(':')) label = label.slice(0, label.indexOf(':'));
   label = label.replace(/[:+\-–\s]+$/, '').replace(/^[•\s]+/, '').trim();
   if (/^(use|and|or)\b/i.test(label) || label.length < 2) label = '';
+  // A unit with no kind of its own ("per lineal foot", "per hole") stays in the label, so it isn't read as "each".
+  if (kind === 'each' && money && label) label = `${label} (per ${money[2].replace(/[.\s]+$/, '').trim()})`;
   return { label: label || raw.slice(0, 80), kind, value, raw };
 }
 
@@ -442,7 +449,7 @@ export function bookTables(pages) {
         columns,
         rows: t.rows,
         pricing,
-        minSqFt: doorMinimum(notes),
+        minSqFt: doorMinimum([...notes, ...t.columns.map((c) => c.label)]),
         notes,
         adders,
         issues: t.issues,

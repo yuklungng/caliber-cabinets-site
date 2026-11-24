@@ -18,10 +18,15 @@ export function Err({ text }) {
   return text ? <p role="alert" style={{ color: '#b91c1c', fontSize: '13px', margin: '6px 0' }}>{text}</p> : null;
 }
 
-export function DropZone({ title, hint, accept, onFile, disabled, file }) {
+// With onFiles, every file dropped or chosen is passed on (in order); with onFile, only the first.
+export function DropZone({ title, hint, accept, onFile, onFiles, disabled, file }) {
   const [over, setOver] = useState(false);
   const input = useRef(null);
-  const take = (f) => { if (f && !disabled) onFile(f); };
+  const take = (list) => {
+    const fs = Array.from(list ?? []).filter(Boolean);
+    if (!fs.length || disabled) return;
+    if (onFiles) onFiles(fs); else onFile(fs[0]);
+  };
   return (
     <div
       role="button"
@@ -31,7 +36,7 @@ export function DropZone({ title, hint, accept, onFile, disabled, file }) {
       onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); input.current?.click(); } }}
       onDragOver={(e) => { e.preventDefault(); if (!disabled) { e.dataTransfer.dropEffect = 'copy'; setOver(true); } }}
       onDragLeave={() => setOver(false)}
-      onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files?.[0]); }}
+      onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files); }}
       style={{
         border: `2px dashed ${over ? '#78350f' : '#d1d5db'}`, borderRadius: '8px', padding: '16px', textAlign: 'center',
         background: over ? '#fef3c7' : '#f9fafb', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
@@ -39,8 +44,8 @@ export function DropZone({ title, hint, accept, onFile, disabled, file }) {
     >
       <div style={{ fontSize: '14px', fontWeight: 600, color: '#374151' }}>{file ? file.name : title}</div>
       <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{file ? `${fmtSize(file.size)} · drop another file or click to change` : hint}</div>
-      <input ref={input} type="file" accept={accept} style={{ display: 'none' }} disabled={disabled}
-        onChange={(e) => { take(e.target.files?.[0]); e.target.value = ''; }} />
+      <input ref={input} type="file" accept={accept} multiple={!!onFiles} style={{ display: 'none' }} disabled={disabled}
+        onChange={(e) => { take(e.target.files); e.target.value = ''; }} />
     </div>
   );
 }

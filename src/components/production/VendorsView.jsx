@@ -39,6 +39,28 @@ function AddFile({ vendors, canSeePrices, onDone }) {
   const [ready, setReady] = useState(null); // { vendorId, kind, reader }
   const [kind, setKind] = useState('catalog'); // for a PDF: 'catalog' | 'price_book'
   const [err, setErr] = useState('');
+  // Several files dropped at once are read one after another: the first now, the rest wait here.
+  const [queue, setQueue] = useState([]);
+  const [last, setLast] = useState(null); // { vendorId, tab } of the last file read in this batch
+
+  function takeMany(fs) {
+    setQueue(fs.slice(1));
+    setLast(null);
+    take(fs[0]);
+  }
+
+  // After a file is read (vendorId set) or skipped: start the next one waiting, or open the vendor when none is left.
+  function next(vendorId = null, tab = undefined) {
+    const done = vendorId ? { vendorId, tab } : last;
+    if (queue.length) {
+      const [n, ...rest] = queue;
+      setQueue(rest); setLast(done);
+      reset(); take(n);
+      return;
+    }
+    reset(); setLast(null);
+    if (done) onDone(done.vendorId, done.tab);
+  }
 
   async function take(f) {
     setErr(''); setGuess(null); setReady(null); setChoice('');
@@ -76,20 +98,29 @@ function AddFile({ vendors, canSeePrices, onDone }) {
   }
 
   const reset = () => { setFile(null); setGuess(null); setReady(null); setChoice(''); setErr(''); };
+  const cancelAll = () => { setQueue([]); setLast(null); reset(); };
   const vendorName = ready ? (vendors.find((v) => v.id === ready.vendorId)?.name ?? newVendor.name) : '';
+  const waiting = queue.length > 0 && (
+    <div style={{ ...muted, display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span>Next, {queue.length === 1 ? '1 more file' : `${queue.length} more files`}: {queue.map((q) => q.name).join(', ')}</span>
+      <button type="button" style={ctl} onClick={cancelAll}>Cancel all</button>
+    </div>
+  );
+  const skipLabel = queue.length ? 'Skip this file' : 'Cancel';
 
   if (ready) {
     return (
       <div style={{ display: 'grid', gap: '6px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
           <strong style={{ fontSize: '14px' }}>{ready.kind === 'catalog' ? 'Catalog' : ready.kind === 'price_book' ? 'Price book' : 'Price list'} for {vendorName}</strong>
-          <button type="button" style={ctl} onClick={reset}>Cancel</button>
+          <button type="button" style={ctl} onClick={() => next()}>{skipLabel}</button>
         </div>
         {ready.kind === 'catalog'
-          ? <CatalogRead vendorId={ready.vendorId} initialFile={file} initialReader={ready.reader} onDone={() => { reset(); onDone(ready.vendorId); }} />
+          ? <CatalogRead key={file?.name} vendorId={ready.vendorId} initialFile={file} initialReader={ready.reader} onDone={() => next(ready.vendorId)} />
           : ready.kind === 'price_book'
-            ? <PriceBookRead vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId, 'prices'); }} />
-            : <PriceImport vendorId={ready.vendorId} initialFile={file} onDone={() => { reset(); onDone(ready.vendorId); }} />}
+            ? <PriceBookRead key={file?.name} vendorId={ready.vendorId} initialFile={file} onDone={() => next(ready.vendorId, 'prices')} />
+            : <PriceImport key={file?.name} vendorId={ready.vendorId} initialFile={file} onDone={() => next(ready.vendorId)} />}
+        {waiting}
       </div>
     );
   }
@@ -98,9 +129,9 @@ function AddFile({ vendors, canSeePrices, onDone }) {
     <div style={{ display: 'grid', gap: '8px' }}>
       <DropZone
         title={canSeePrices ? 'Drop a catalog, price book (PDF) or price list (CSV) here' : 'Drop a catalog (PDF) here'}
-        hint="or click to choose one. The vendor is worked out from the file; a PDF stays on this computer."
+        hint="or click to choose. Several files at once are read one after another. The vendor is worked out from each file; a PDF stays on this computer."
         accept={canSeePrices ? '.pdf,application/pdf,.csv,text/csv,.txt' : '.pdf,application/pdf'}
-        onFile={take} disabled={detecting} file={file}
+        onFiles={takeMany} disabled={detecting} file={file}
       />
       {detecting && <span style={muted}>Looking at the file…</span>}
       {file && !detecting && guess !== null && (
@@ -135,11 +166,13 @@ function AddFile({ vendors, canSeePrices, onDone }) {
             <button type="button" style={primary} disabled={!choice || (choice === 'new' && !newVendor.name.trim())} onClick={confirm}>
               {choice === 'new' ? 'Add vendor and continue' : 'Continue'}
             </button>
-            <button type="button" style={ctl} onClick={reset}>Cancel</button>
+            <button type="button" style={ctl} onClick={() => next()}>{skipLabel}</button>
           </div>
         </div>
       )}
       <Err text={err} />
+      {err && queue.length > 0 && <div><button type="button" style={ctl} onClick={() => next()}>Go on to the next file</button></div>}
+      {waiting}
     </div>
   );
 }

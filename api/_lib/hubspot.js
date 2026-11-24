@@ -41,6 +41,11 @@ const BASE = 'https://api.hubapi.com';
 // inputs supported in a batch request for property histories"), so this
 // chunks any history-requesting batch call to stay under it.
 const HISTORY_BATCH_SIZE = 50;
+// Plain batch reads (no history) cap at 100 inputs; more fails the whole
+// request with 400 VALIDATION_ERROR "The maximum number of inputs supported
+// in a batch is 100". Used for contacts/batch/read and the v4 deal→contact
+// associations batch read.
+const BATCH_SIZE = 100;
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -252,13 +257,19 @@ export async function createDealNote(dealId, noteBody) {
  */
 export async function batchGetContactIdsByDealIds(dealIds) {
   if (!dealIds?.length) return {};
-  const res = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
-    inputs: dealIds.map((id) => ({ id })),
-  });
-  if (!res.ok) return {};
   const map = {};
-  for (const r of (await res.json()).results ?? []) {
-    if (r.to?.length > 0) map[String(r.from.id)] = String(r.to[0].toObjectId);
+  for (const idsChunk of chunk([...new Set(dealIds)], BATCH_SIZE)) {
+    const res = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
+      inputs: idsChunk.map((id) => ({ id })),
+    });
+    if (!res.ok) {
+      // Non-fatal: deals in this chunk just get no contact; keep the rest.
+      console.error('[hubspot] batchGetContactIdsByDealIds error:', res.status, await res.text());
+      continue;
+    }
+    for (const r of (await res.json()).results ?? []) {
+      if (r.to?.length > 0) map[String(r.from.id)] = String(r.to[0].toObjectId);
+    }
   }
   return map;
 }
@@ -269,19 +280,21 @@ export async function batchGetContactIdsByDealIds(dealIds) {
  */
 export async function batchGetContactProperties(contactIds) {
   if (!contactIds?.length) return {};
-  const res = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
-    properties: ['firstname', 'lastname', 'email', 'phone'],
-    inputs: [...new Set(contactIds)].map((id) => ({ id })),
-  });
-  if (!res.ok) throw new Error(`HubSpot batch contact read ${res.status}: ${await res.text()}`);
   const map = {};
-  for (const c of (await res.json()).results ?? []) {
-    map[c.id] = {
-      firstName: c.properties.firstname ?? '',
-      lastName:  c.properties.lastname  ?? '',
-      email:     c.properties.email     ?? '',
-      phone:     c.properties.phone     ?? '',
-    };
+  for (const idsChunk of chunk([...new Set(contactIds)], BATCH_SIZE)) {
+    const res = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
+      properties: ['firstname', 'lastname', 'email', 'phone'],
+      inputs: idsChunk.map((id) => ({ id })),
+    });
+    if (!res.ok) throw new Error(`HubSpot batch contact read ${res.status}: ${await res.text()}`);
+    for (const c of (await res.json()).results ?? []) {
+      map[c.id] = {
+        firstName: c.properties.firstname ?? '',
+        lastName:  c.properties.lastname  ?? '',
+        email:     c.properties.email     ?? '',
+        phone:     c.properties.phone     ?? '',
+      };
+    }
   }
   return map;
 }
@@ -491,32 +504,22 @@ export async function getAllPipelineDeals() {
     console.error('[hubspot] getAllPipelineDeals history fetch error:', e.message);
   }
 
-  // Batch-fetch contact associations, then resolve contact properties
+  // Batch-fetch contact associations, then resolve contact properties.
+  // Both helpers chunk at BATCH_SIZE (100); a pipeline past 100 deals used to
+  // fail these calls outright and drop every contact name.
   const contactByDealId = {};
   const contactIdByDealId = {};
   try {
-    const assocRes = await hs('/crm/v4/associations/deals/contacts/batch/read', 'POST', {
-      inputs: dealIds.map((id) => ({ id })),
-    });
-    if (assocRes.ok) {
-      const dealToContactId = {};
-      for (const r of (await assocRes.json()).results ?? []) {
-        if (r.to?.length > 0) dealToContactId[r.from.id] = String(r.to[0].toObjectId);
-      }
-      Object.assign(contactIdByDealId, dealToContactId);
-      const contactIds = [...new Set(Object.values(dealToContactId))];
-      if (contactIds.length > 0) {
-        const cRes = await hs('/crm/v3/objects/contacts/batch/read', 'POST', {
-          properties: ['firstname', 'lastname', 'email', 'phone'],
-          inputs: contactIds.map((id) => ({ id })),
-        });
-        if (cRes.ok) {
-          const contactMap = {};
-          for (const c of (await cRes.json()).results ?? []) contactMap[c.id] = c.properties;
-          for (const [dealId, contactId] of Object.entries(dealToContactId)) {
-            contactByDealId[dealId] = contactMap[contactId] ?? {};
-          }
-        }
+    const dealToContactId = await batchGetContactIdsByDealIds(dealIds);
+    Object.assign(contactIdByDealId, dealToContactId);
+    const contactIds = [...new Set(Object.values(dealToContactId))];
+    if (contactIds.length > 0) {
+      const contactMap = await batchGetContactProperties(contactIds);
+      for (const [dealId, contactId] of Object.entries(dealToContactId)) {
+        const c = contactMap[contactId];
+        contactByDealId[dealId] = c
+          ? { firstname: c.firstName, lastname: c.lastName, email: c.email, phone: c.phone }
+          : {};
       }
     }
   } catch (e) {

@@ -108,6 +108,8 @@ const DEFAULT_STAGE_FORECAST = [
 const SORT_OPTIONS = [
   { key: 'newest',     label: '↓ Newest' },
   { key: 'oldest',     label: '↑ Oldest' },
+  { key: 'activity-desc', label: '↓ Activity' },
+  { key: 'activity-asc',  label: '↑ Activity' },
   { key: 'quote-desc', label: '$ High→Low' },
   { key: 'quote-asc',  label: '$ Low→High' },
   { key: 'prob-desc',  label: '% High→Low' },
@@ -3533,6 +3535,12 @@ function LeadsView({ currentUser, onWinRateUpdate }) {
         const ta = new Date(a.created_at).getTime();
         const tb = new Date(b.created_at).getTime();
         return sortKey === 'newest' ? tb - ta : ta - tb;
+      }
+      if (sortKey === 'activity-desc' || sortKey === 'activity-asc') {
+        // Same "last touched" date the stale badge uses (see leadActivityDate).
+        const ta = new Date(leadActivityDate(a) ?? 0).getTime() || 0;
+        const tb = new Date(leadActivityDate(b) ?? 0).getTime() || 0;
+        return sortKey === 'activity-desc' ? tb - ta : ta - tb;
       }
       if (sortKey === 'quote-desc' || sortKey === 'quote-asc') {
         const qa = a.fields?.quote_amount ?? -1;
@@ -7478,7 +7486,7 @@ function ActionItemsList({ deals, onSelectDeal }) {
   );
 }
 
-function FinancialView({ isSuperAdmin = false }) {
+function FinancialView({ isSuperAdmin = false, canEditMilestones = false }) {
   const isMobile = useIsMobile();
   const [deals, setDeals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -7889,7 +7897,7 @@ function FinancialView({ isSuperAdmin = false }) {
                     <p style={{ margin: '14px 0 10px', fontSize: '12px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Payment Schedule
                     </p>
-                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} onMilestonesSaved={handleMilestonesSaved} canEditMilestones={isSuperAdmin} />
+                    <PaymentScheduleTable deal={d} isMobile={isMobile} onRowSaved={handleRowSaved} onRoomAdded={handleRoomAdded} onRowDeleted={handleRowDeleted} onRoomDeleted={handleRoomDeleted} onInvoiceSynced={handleRowsSynced} onMilestonesSaved={handleMilestonesSaved} canEditMilestones={canEditMilestones} />
                     {d.hs_deal_url && (
                       <p style={{ margin: '14px 0 0' }}>
                         <a href={d.hs_deal_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#78350f', textDecoration: 'none', fontWeight: '600' }}>View deal in HubSpot ↗</a>
@@ -8212,14 +8220,14 @@ export function AdminPage() {
   function renderView() {
     const settingsViews = ['notifications', 'confirmations', 'financial-settings', 'users', 'backup'];
     if (settingsViews.includes(activeView) && !isSuperAdmin) {
-      return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} canEditMilestones={isSuperAdmin || isBookkeeper} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
     // Bookkeeper role only ever sees Financial Management — redirect away from anything else,
     // regardless of how activeView got set (e.g. a stale nav state).
     const bookkeeperBlockedViews = ['leads', 'performance', 'site-stats', 'projects', 'faqs'];
-    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView isSuperAdmin={isSuperAdmin} />;
+    if (isBookkeeper && bookkeeperBlockedViews.includes(activeView)) return <FinancialView isSuperAdmin={isSuperAdmin} canEditMilestones={isSuperAdmin || isBookkeeper} />;
     switch (activeView) {
-      case 'cashflow': return <FinancialView isSuperAdmin={isSuperAdmin} />;
+      case 'cashflow': return <FinancialView isSuperAdmin={isSuperAdmin} canEditMilestones={isSuperAdmin || isBookkeeper} />;
       case 'production': return flags.productionModule && isSuperAdmin ? <Suspense fallback={null}><ProductionView /></Suspense> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
       case 'performance': return <PerformanceView />;
       case 'notifications': return <NotificationsPanel />;
@@ -8230,7 +8238,7 @@ export function AdminPage() {
       case 'projects': return <ProjectsPanel />;
       case 'faqs': return <FaqPanel />;
       case 'backup': return <BackupRestoreView isSuperAdmin={isSuperAdmin} />;
-      default: return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
+      default: return isBookkeeper ? <FinancialView isSuperAdmin={isSuperAdmin} canEditMilestones={isSuperAdmin || isBookkeeper} /> : <LeadsView currentUser={currentUser} onWinRateUpdate={setNavWinRate} />;
     }
   }
 

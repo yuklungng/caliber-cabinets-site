@@ -281,7 +281,7 @@ export function pageTables(items, { width = 612, height = 792 } = {}) {
           lab = all.filter((i) => i.x0 <= x0 + 60);
         }
         lab.forEach((i) => used.add(i));
-        const out = { label: joinText(lab), cells: {} };
+        const out = { label: joinText(lab), cells: {}, lab };
         for (const c of r.cells) {
           const col = bcols.find((cc) => cc.cells.includes(c));
           if (out.cells[col.key]) out.dupe = true;
@@ -321,6 +321,28 @@ export function pageTables(items, { width = 612, height = 792 } = {}) {
 
       // Names on the page above the table (captions under the pictures), e.g. "Revere", "Juliano RTF (S-Panel)".
       const styles = captionNames(others.filter((i) => i.cy < headTop - 4), height);
+
+      // A "Door Styles" list beside a "Materials" column (Cal Door's mitered inset pages): the rows are the materials,
+      // and the list, which runs on below the table, names the styles the table prices.
+      const matHead = rowHead.find((i) => /^materials?$/i.test(i.text.trim()));
+      const dsHead = matHead && others.find((i) => /^door\s*styles?$/i.test(i.text.trim()) && Math.abs(i.cy - matHead.cy) <= 4 && i.x1 <= matHead.x0);
+      if (dsHead && matHead && dsHead.x1 < matHead.x0) {
+        // The materials column starts where the labels' second column of left edges does (its heading is centred).
+        const xs = outRows.flatMap((r) => r.lab.map((i) => i.x0)).filter((x) => x > dsHead.x0 + 30 && x < matHead.x1);
+        const split = (xs.length ? Math.min(...xs) : matHead.x0) - 4;
+        for (const r of outRows) r.label = joinText(r.lab.filter((i) => i.x0 >= split));
+        const list = others.filter((i) => i.x0 >= Math.max(leftEdge - 2, dsHead.x0 - 20) && i.x1 <= split + 4 && i.cy > dsHead.cy)
+          .sort((a, c) => a.cy - c.cy);
+        let prev = dsHead.cy;
+        for (const i of list) {
+          if (i.cy - prev > Math.max(pitch * 2.5, 40)) break;
+          prev = i.cy;
+          const name = i.text.replace(/\s+/g, ' ').trim();
+          if (!/^(see |page \d|matches |\*|inset:|with |outside edge|shown )/i.test(name) && name.length > 1 && !styles.includes(name)) styles.push(name);
+          i.inTable = true;
+        }
+      }
+      for (const r of outRows) delete r.lab;
 
       // Items in the table, so they aren't read again as add-ons.
       for (const i of items) {

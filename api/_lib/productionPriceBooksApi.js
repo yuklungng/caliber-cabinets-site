@@ -29,7 +29,7 @@ const must = ({ data, error }) => { if (error) throw new Error(error.message); r
 const pagePath = (f, page) => `${f.vendor_id}/${f.id}/pages/page-${String(page).padStart(3, '0')}.jpg`;
 
 /** The current price tables of a vendor (books not removed or superseded), with what linking needs. */
-export async function currentTables(supabase, t, vendorId, cols = 'id, file_id, title, styles, also_names, page, seq, checked_at') {
+export async function currentTables(supabase, t, vendorId, cols = 'id, file_id, title, styles, also_names, row_labels, page, seq, checked_at') {
   const books = await readAll(supabase, t.files, 'id', (q) => q.eq('vendor_id', vendorId).eq('kind', 'price_book').is('removed_at', null).is('superseded_by', null).eq('status', 'extracted'));
   if (!books.length) return [];
   return readAll(supabase, t.tables, cols, (q) => q.in('file_id', books.map((b) => b.id)).is('removed_at', null).order('seq'));
@@ -42,7 +42,7 @@ export async function partPriceTables(supabase, t, part) {
   const links = must(await supabase.from(t.links).select('table_id, how').eq('part_id', part.id));
   const manualIds = links.filter((l) => l.how === 'manual').map((l) => l.table_id);
   const extra = manualIds.filter((id) => !tables.some((x) => x.id === id));
-  const all = extra.length ? [...tables, ...must(await supabase.from(t.tables).select('id, file_id, title, styles, also_names, page, seq, checked_at').in('id', extra).is('removed_at', null))] : tables;
+  const all = extra.length ? [...tables, ...must(await supabase.from(t.tables).select('id, file_id, title, styles, also_names, row_labels, page, seq, checked_at').in('id', extra).is('removed_at', null))] : tables;
   const ids = matchPartTables(part, all, links).slice(0, 6);
   return Promise.all(ids.map(async (id) => ({ ...(await fullTable(supabase, t, id, { withPages: false })), linkedBy: manualIds.includes(id) ? 'hand' : 'name' })));
 }
@@ -219,7 +219,7 @@ export async function handlePriceBooks(req, res, auth, { tbl, tableMode }) {
       const parts = await readAll(supabase, t.parts, 'id, name, kind, vendor_id', (q) => q.eq('vendor_id', table.vendorId).is('removed_at', null).in('status', ['active', 'retired']));
       const links = await readAll(supabase, t.links, 'part_id, table_id, how', (q) => q.in('part_id', parts.map((p) => p.id)).limit(5000));
       const current = await currentTables(supabase, t, table.vendorId);
-      const pool = current.some((c) => c.id === table.id) ? current : [...current, { id: table.id, title: table.title, styles: table.styles }];
+      const pool = current.some((c) => c.id === table.id) ? current : [...current, { id: table.id, title: table.title, styles: table.styles, row_labels: table.rowLabels }];
       const priced = parts.filter((p) => matchPartTables(p, pool, links.filter((l) => l.part_id === p.id)).includes(table.id));
       return res.status(200).json({ table: { ...table, parts: priced.map((p) => ({ id: p.id, name: p.name, kind: p.kind, linkedBy: links.some((l) => l.part_id === p.id && l.table_id === table.id && l.how === 'manual') ? 'hand' : 'name' })) } });
     }

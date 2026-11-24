@@ -242,6 +242,9 @@ export function partNames(name) {
   const out = new Set();
   addWithTails(out, nameKey(name));
   for (const piece of String(name ?? '').split(PIECES)) addWithTails(out, nameKey(piece));
+  // The applied molding a style is shown with isn't part of its priced name: "San Marino AM-1 RTF" -> "san marino rtf".
+  const plain = nameKey(name).replace(/\bam \d+\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (plain !== nameKey(name)) addWithTails(out, plain);
   return [...out];
 }
 
@@ -273,8 +276,17 @@ export function matchPartTables(part, tables, links = []) {
   // Names printed on the table's own page first; the pages after it (pictures, options) only when nothing else matches.
   let auto = open.filter((t) => names.some((n) => namesOf(t)[0].has(n)));
   if (!auto.length) auto = open.filter((t) => names.some((n) => namesOf(t)[1].has(n)));
+  // A door or drawer front named as a row of a table (Echo Wood panels: one row per veneer).
+  if (!auto.length && STYLE_KINDS.has(part.kind)) {
+    const key = nameKey(part.name);
+    auto = open.filter((t) => (t.row_labels ?? t.rowLabels ?? []).some((l) => nameKey(l) === key));
+  }
+  // A name printed on many tables is an option (an edge profile listed on every page), not the style they price.
+  if (auto.length > MAX_AUTO) auto = [];
   return [...manual, ...auto.map((t) => t.id)];
 }
+const STYLE_KINDS = new Set(['door_style', 'drawer_front']);
+const MAX_AUTO = 6;
 
 /** A table's identity across editions of a book: its title, column headings and row labels. */
 export const tableKey = (t) => [nameKey(t.title), ...(t.columns ?? []).map((c) => nameKey(c.label)), ...(t.row_labels ?? []).map(nameKey)].join('|');

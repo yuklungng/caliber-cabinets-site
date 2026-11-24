@@ -145,6 +145,33 @@ check('matching: a part finds the table that prints its name, not a near name', 
   assert.ok(partNames('Sample French Lite (p. 37)').includes('sample'));
 });
 
+check('reader: a "Door Styles" list beside "Materials" gives the styles; the rows are the materials', () => {
+  const items = [it('Door Styles', 54, 44, { w: 52 }), it('Materials', 186, 44, { w: 43 }), it('Price', 320, 44, { w: 30 })];
+  const mats = ['MDF 13/16" Thick', 'Alder - Select', 'Maple - Select'];
+  ['Ellen', 'Iceland Solid', 'Juanita'].forEach((s, k) => {
+    const y = 89 + k * 23;
+    items.push(it(s, 42.3, y, { w: 40 }), it(mats[k], 141, y, { w: 80 }), it((17.5 + k).toFixed(2), 322, y, { w: 25 }));
+  });
+  items.push(it('MP-26 Solid', 42.3, 158, { w: 45 }), it('See Profile', 42.3, 181, { w: 40 }), it('MP-48 Solid', 42.3, 204, { w: 45 }));
+  items.push(it('Unrelated note far below', 42.3, 400, { w: 60 }));
+  const [t] = pageTables(items);
+  assert.deepEqual(t.rows.map((r) => r.label), mats);
+  assert.deepEqual(t.styles, ['Ellen', 'Iceland Solid', 'Juanita', 'MP-26 Solid', 'MP-48 Solid']);
+});
+
+check('matching: row labels for doors, applied molding dropped, options on many pages left out', () => {
+  const tables = [
+    { id: 'echo', title: 'Echo Wood Panels', styles: [], row_labels: ['Echo Wood Qtr Cherry', 'Echo Wood Slate'] },
+    { id: 'sm', title: 'Executive Series - San Marino RTF', styles: ['San Marino RTF'] },
+    ...[1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: `w${n}`, title: `Series ${n}`, styles: ['R-4', `Style ${n}`] })),
+  ];
+  assert.deepEqual(matchPartTables({ name: 'Echo Wood Qtr Cherry', kind: 'door_style' }, tables), ['echo']);
+  assert.deepEqual(matchPartTables({ name: 'Echo Wood Qtr Cherry', kind: 'other' }, tables), [], 'colours are not matched by row');
+  assert.deepEqual(matchPartTables({ name: 'San Marino AM-4 RTF', kind: 'door_style' }, tables), ['sm']);
+  assert.deepEqual(matchPartTables({ name: 'R-4 (no lip) & R-5 (fingerpull)', kind: 'drawer_front' }, tables), []);
+  assert.deepEqual(matchPartTables({ name: 'Style 3', kind: 'door_style' }, tables), ['w3']);
+});
+
 check('tables: cleaned for insert; identity across editions ignores page moves', () => {
   const t = bookTables([{ page: 8, items: woodPage(), width: 612, height: 792 }])[0];
   const c = cleanPriceTable(t);

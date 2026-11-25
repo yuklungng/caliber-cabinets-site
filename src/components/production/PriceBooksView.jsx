@@ -339,28 +339,52 @@ export function PartPriceTables({ part, onChanged }) {
   );
 }
 
+// Every current price table of the vendor, grouped by book in page order. The box narrows the list by
+// name, style, row or column words, or by page number ("48" or "p48").
 function FindTable({ vendorId, skip, onPick, onCancel, busy }) {
   const [q, setQ] = useState('');
-  const [list, setList] = useState([]);
-  const dq = useDebounced(q, 250);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
   useEffect(() => {
     let live = true;
-    if (dq.trim().length < 2) { setList([]); return undefined; }
-    call('price-tables', { params: { vendorId, q: dq } }).then((d) => live && setList(d.tables.filter((t) => !skip.includes(t.id)).slice(0, 12))).catch(() => {});
+    call('price-tables', { params: { vendorId } }).then((d) => live && setData(d)).catch((e) => live && setErr(e.message));
     return () => { live = false; };
-  }, [dq, vendorId, skip]);
+  }, [vendorId]);
+
+  const term = q.trim().toLowerCase();
+  const pageNo = /^p?\.?\s*(\d+)$/.exec(term)?.[1];
+  const hits = (data?.tables ?? []).filter((t) => !skip.includes(t.id) && (!term || (pageNo
+    ? String(t.page) === pageNo
+    : [t.title, ...(t.styles ?? []), ...(t.rowLabels ?? []), ...(t.columns ?? []).map((c) => c.label)].join(' ').toLowerCase().includes(term))));
+  const books = (data?.books ?? []).filter((b) => b.current);
+  const groups = books.map((b) => ({ book: b, tables: hits.filter((t) => t.fileId === b.id).sort((a, c) => a.page - c.page || a.seq - c.seq) }))
+    .filter((g) => g.tables.length);
+
   return (
     <div style={{ display: 'grid', gap: '6px' }}>
       <div style={{ display: 'flex', gap: '6px' }}>
-        <input style={field} autoFocus placeholder="Type a style or series name" aria-label="Find a price table" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input style={field} autoFocus placeholder="Narrow by name or page number" aria-label="Narrow the price tables" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" style={ctl} onClick={onCancel}>Cancel</button>
       </div>
-      {list.map((t) => (
-        <button key={t.id} type="button" disabled={busy} onClick={() => onPick(t.id)} style={{ ...small, textAlign: 'left' }}>
-          {t.title} · page {t.page}{t.styles?.length ? ` · ${t.styles.slice(0, 4).join(', ')}` : ''}
-        </button>
-      ))}
-      {dq.trim().length >= 2 && !list.length && <span style={{ ...muted, fontSize: '12px' }}>No table matches.</span>}
+      <Err text={err} />
+      {!data && !err && <span style={{ ...muted, fontSize: '12px' }}>Loading price tables…</span>}
+      {data && (
+        <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'grid', gap: '4px', border: '1px solid #f3f4f6', borderRadius: '6px', padding: '6px' }}>
+          {groups.map(({ book, tables }) => (
+            <div key={book.id} style={{ display: 'grid', gap: '4px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#374151', paddingTop: '4px' }}>
+                {book.title}{book.edition ? ` (${book.edition})` : ''} · {tables.length}
+              </span>
+              {tables.map((t) => (
+                <button key={t.id} type="button" disabled={busy} onClick={() => onPick(t.id)} style={{ ...small, textAlign: 'left' }}>
+                  <strong>p. {t.page}</strong> · {t.title}{t.styles?.length ? <span style={muted}> · {t.styles.slice(0, 4).join(', ')}{t.styles.length > 4 ? '…' : ''}</span> : ''}
+                </button>
+              ))}
+            </div>
+          ))}
+          {!groups.length && <span style={{ ...muted, fontSize: '12px' }}>No table matches.</span>}
+        </div>
+      )}
     </div>
   );
 }

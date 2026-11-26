@@ -356,7 +356,9 @@ function FindTable({ vendorId, skip, onPick, onCancel, busy }) {
   const hits = (data?.tables ?? []).filter((t) => !skip.includes(t.id) && (!term || (pageNo
     ? String(t.page) === pageNo
     : [t.title, ...(t.styles ?? []), ...(t.rowLabels ?? []), ...(t.columns ?? []).map((c) => c.label)].join(' ').toLowerCase().includes(term))));
-  const books = (data?.books ?? []).filter((b) => b.current);
+  // The Wood book holds most door styles, so it leads; the other books keep the server's order.
+  const books = (data?.books ?? []).filter((b) => b.current)
+    .sort((a, c) => Number(/^wood\b/i.test(c.title ?? '')) - Number(/^wood\b/i.test(a.title ?? '')));
   const groups = books.map((b) => ({ book: b, tables: hits.filter((t) => t.fileId === b.id).sort((a, c) => a.page - c.page || a.seq - c.seq) }))
     .filter((g) => g.tables.length);
 
